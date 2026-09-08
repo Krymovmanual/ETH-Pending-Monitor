@@ -67,6 +67,7 @@
           <p>Live updates while this page is open. Gas check compares the transaction fee with the current network gas price.</p>
         </div>
         <div class="controls">
+          <input id="transactionSearch" class="search-input" type="search" placeholder="Search hash, nonce, wallet or token" aria-label="Search transactions">
           <select id="statusFilter" aria-label="Filter by status">
             <option value="all">All statuses</option>
             <option value="pending">Pending only</option>
@@ -82,15 +83,15 @@
         <table>
           <thead>
             <tr>
-              <th>Status</th>
-              <th>Age</th>
+              <th data-sort-column="status"><button class="sort-button" type="button" data-sort="status">Status <span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-column="age"><button class="sort-button" type="button" data-sort="age">Age <span class="sort-indicator" aria-hidden="true"></span></button></th>
               <th>Hash</th>
               <th>Address</th>
               <th>Direction</th>
-              <th>Amount / token</th>
-              <th>Nonce</th>
+              <th data-sort-column="amount"><button class="sort-button" type="button" data-sort="amount">Amount / token <span class="sort-indicator" aria-hidden="true"></span></button></th>
+              <th data-sort-column="nonce"><button class="sort-button" type="button" data-sort="nonce">Nonce <span class="sort-indicator" aria-hidden="true"></span></button></th>
               <th>Queue</th>
-              <th>Max fee</th>
+              <th data-sort-column="maxFee"><button class="sort-button" type="button" data-sort="maxFee">Max fee <span class="sort-indicator" aria-hidden="true"></span></button></th>
               <th>Gas check</th>
             </tr>
           </thead>
@@ -102,8 +103,35 @@
           <p id="emptyMessage">Configure the Alchemy connection to start monitoring.</p>
         </div>
       </div>
+      <div class="pagination" id="pagination">
+        <span id="paginationInfo">0 transactions</span>
+        <div class="pagination-controls">
+          <label for="pageSize">Rows</label>
+          <select id="pageSize" aria-label="Rows per page">
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+          <button class="secondary" id="previousPage" type="button">Previous</button>
+          <span id="pageIndicator">Page 1 of 1</span>
+          <button class="secondary" id="nextPage" type="button">Next</button>
+        </div>
+      </div>
     </section>
   </main>
+
+  <dialog id="transactionDialog" class="transaction-dialog">
+    <div class="transaction-dialog-body">
+      <div class="dialog-head">
+        <div>
+          <span class="eyebrow">TRANSACTION</span>
+          <h2>Transaction details</h2>
+        </div>
+        <button class="icon-button" id="closeTransactionDialog" aria-label="Close" type="button">×</button>
+      </div>
+      <div id="transactionDetails" class="transaction-details"></div>
+    </div>
+  </dialog>
 
   <dialog id="balanceSettingsDialog">
     <form method="dialog" id="balanceSettingsForm">

@@ -9,6 +9,7 @@ const BALANCE_SETTINGS_KEY = 'eth-pending-monitor-balance-settings';
 const WALLET_BALANCES_KEY = 'eth-pending-monitor-wallet-balances';
 const GAS_BALANCE_KEY = 'eth-pending-monitor-gas-balance';
 const GAS_ALERT_KEY = 'eth-pending-monitor-gas-alert-sent';
+const PAGE_SIZE_KEY = 'eth-pending-monitor-page-size';
 const ALERT_AFTER_MS = 15 * 60 * 1000;
 const DROP_CHECK_AFTER_MS = 30 * 60 * 1000;
 const BALANCE_TOKENS = [
@@ -40,6 +41,11 @@ const state = {
   copiedHash: null,
   reconnectTimer: null,
   manualClose: false,
+  searchQuery: '',
+  sortKey: 'age',
+  sortDirection: 'asc',
+  page: 1,
+  pageSize: [25, 50, 100].includes(Number(localStorage.getItem(PAGE_SIZE_KEY))) ? Number(localStorage.getItem(PAGE_SIZE_KEY)) : 25,
 };
 
 const el = {
@@ -54,6 +60,12 @@ const el = {
   emptyState: document.querySelector('#emptyState'),
   emptyMessage: document.querySelector('#emptyMessage'),
   filter: document.querySelector('#statusFilter'),
+  search: document.querySelector('#transactionSearch'),
+  pageSize: document.querySelector('#pageSize'),
+  previousPage: document.querySelector('#previousPage'),
+  nextPage: document.querySelector('#nextPage'),
+  paginationInfo: document.querySelector('#paginationInfo'),
+  pageIndicator: document.querySelector('#pageIndicator'),
   settingsButton: document.querySelector('#settingsButton'),
   clearButton: document.querySelector('#clearButton'),
   dialog: document.querySelector('#settingsDialog'),
@@ -85,6 +97,9 @@ const el = {
   gasInterval: document.querySelector('#gasIntervalInput'),
   balanceError: document.querySelector('#balanceDialogError'),
   gasError: document.querySelector('#gasDialogError'),
+  transactionDialog: document.querySelector('#transactionDialog'),
+  transactionDetails: document.querySelector('#transactionDetails'),
+  closeTransactionDialog: document.querySelector('#closeTransactionDialog'),
 };
 
 function loadAddresses() {
@@ -237,12 +252,16 @@ function addTransaction(tx) {
     nonce,
     value: hexToEth(tx.value),
     maxFee: hexToGwei(tx.maxFeePerGas || tx.gasPrice),
+    maxPriorityFee: hexToGwei(tx.maxPriorityFeePerGas),
+    gasPrice: hexToGwei(tx.gasPrice),
+    gasLimit: hexToNumber(tx.gas),
     tokenContract: tokenTransfer ? to : '',
     tokenRecipient: tokenTransfer?.recipient || '',
     rawTokenAmount: tokenTransfer?.rawAmount || '',
     tokenSymbol: tokenTransfer ? 'ERC-20' : '',
     tokenName: tokenTransfer ? 'ERC-20 Token' : '',
     tokenDecimals: null,
+    method: tokenTransfer?.method || transactionMethod(tx.input || tx.data || '0x', tx.value),
     firstSeen: Date.now(),
     status: 'pending',
     alerts: {},
@@ -257,18 +276,26 @@ function parseTokenTransfer(input) {
   const data = String(input).replace(/^0x/, '').toLowerCase();
   if (data.startsWith('a9059cbb') && data.length >= 136) {
     return {
+      method: 'transfer',
       recipient: `0x${data.slice(32, 72)}`,
       rawAmount: BigInt(`0x${data.slice(72, 136)}`).toString(),
     };
   }
   if (data.startsWith('23b872dd') && data.length >= 200) {
     return {
+      method: 'transferFrom',
       from: `0x${data.slice(32, 72)}`,
       recipient: `0x${data.slice(96, 136)}`,
       rawAmount: BigInt(`0x${data.slice(136, 200)}`).toString(),
     };
   }
   return null;
+}
+
+function transactionMethod(input, value) {
+  const data = String(input || '0x').toLowerCase();
+  if (!data || data === '0x') return BigInt(value || '0x0') > 0n ? 'Native transfer' : 'Empty call';
+  return `Contract call (${data.slice(0, 10)})`;
 }
 
 async function hydrateTokenMetadata(tx) {
@@ -325,6 +352,14 @@ function formatTokenAmount(rawAmount, decimals) {
     const whole = raw / divisor;
     const fraction = (raw % divisor).toString().padStart(decimals, '0').replace(/0+$/, '').slice(0, 6);
     return `${whole.toLocaleString('en-US')}${fraction ? `.${fraction}` : ''}`;
+  } catch { return '0'; }
+}
+
+function formatSignedTokenAmount(rawAmount, decimals) {
+  try {
+    const raw = BigInt(rawAmount || '0');
+    const sign = raw > 0n ? '+' : raw < 0n ? '−' : '';
+    return `${sign}${formatTokenAmount(raw < 0n ? -raw : raw, decimals)}`;
   } catch { return '0'; }
 }
 
@@ -591,7 +626,10 @@ async function updateGasBalance() {
   renderBalances();
   try {
     const result = await rpc(toHttpEndpoint(state.endpoint), 'eth_getBalance', [settings.gasAddress, 'latest']);
-    state.gasBalance = {raw:BigInt(result).toString(), decimals:18, updatedAt:Date.now()};
+    const raw = BigInt(result).toString();
+    const previousRaw = state.gasBalance.raw;
+    const changeRaw = previousRaw !== undefined && previousRaw !== null ? (BigInt(raw) - BigInt(previousRaw)).toString() : null;
+    state.gasBalance = {raw, decimals:18, updatedAt:Date.now(), changeRaw};
     localStorage.setItem(GAS_BALANCE_KEY, JSON.stringify(state.gasBalance));
     const current = Number(formatTokenAmount(state.gasBalance.raw, 18).replace(/,/g, ''));
     if (current < Number(settings.gasThreshold)) await sendGasAlert(current);
@@ -695,15 +733,58 @@ async function copyHash(hash) {
     }
     state.copiedHash = hash;
     render();
+    const detailCopyButton = el.transactionDetails.querySelector(`[data-copy-hash="${hash}"]`);
+    if (detailCopyButton) detailCopyButton.textContent = 'Copied';
     setTimeout(() => {
       if (state.copiedHash === hash) {
         state.copiedHash = null;
         render();
+        const resetButton = el.transactionDetails.querySelector(`[data-copy-hash="${hash}"]`);
+        if (resetButton) resetButton.textContent = 'Copy hash';
       }
     }, 1600);
   } catch {
     alert('Could not copy the transaction hash.');
   }
+}
+
+function searchableTransactionText(tx) {
+  const matched = tx.matchedAddress || state.addresses.find(address => [tx.from, tx.to, tx.tokenRecipient].includes(address)) || '';
+  return [tx.hash, tx.nonce, tx.from, tx.to, matched, walletLabel(matched), tx.tokenSymbol, tx.tokenName, tx.tokenContract, transactionAmount(tx), statusLabel(tx.status)]
+    .filter(value => value !== undefined && value !== null)
+    .join(' ')
+    .toLowerCase();
+}
+
+function amountSortValue(tx) {
+  if (!tx.tokenContract) return Number(tx.value) || 0;
+  if (!Number.isInteger(tx.tokenDecimals)) return 0;
+  return Number(tx.rawTokenAmount || 0) / (10 ** tx.tokenDecimals);
+}
+
+function sortTransactions(items) {
+  const statusOrder = {pending:0, replaced:1, dropped:2, failed:3, confirmed:4};
+  return items.map((tx, index) => ({tx, index})).sort((left, right) => {
+    const a = left.tx;
+    const b = right.tx;
+    let comparison = 0;
+    if (state.sortKey === 'age') comparison = b.firstSeen - a.firstSeen;
+    if (state.sortKey === 'amount') comparison = amountSortValue(a) - amountSortValue(b);
+    if (state.sortKey === 'nonce') comparison = a.nonce - b.nonce;
+    if (state.sortKey === 'maxFee') comparison = a.maxFee - b.maxFee;
+    if (state.sortKey === 'status') comparison = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
+    if (comparison === 0) comparison = left.index - right.index;
+    return state.sortDirection === 'asc' ? comparison : -comparison;
+  }).map(item => item.tx);
+}
+
+function updateSortHeaders() {
+  document.querySelectorAll('[data-sort-column]').forEach(header => {
+    const active = header.dataset.sortColumn === state.sortKey;
+    header.setAttribute('aria-sort', active ? (state.sortDirection === 'asc' ? 'ascending' : 'descending') : 'none');
+    const indicator = header.querySelector('.sort-indicator');
+    if (indicator) indicator.textContent = active ? (state.sortDirection === 'asc' ? '↑' : '↓') : '↕';
+  });
 }
 
 function render() {
@@ -717,13 +798,19 @@ function render() {
   el.addressList.innerHTML = state.addresses.map(address => `<a class="address-chip" href="https://etherscan.io/address/${address}" target="_blank" rel="noreferrer" title="${address}">${escapeHtml(walletLabel(address))}</a>`).join('');
 
   const filter = el.filter.value;
-  const visible = state.transactions.filter(tx => {
+  const query = state.searchQuery.trim().toLowerCase();
+  const filtered = state.transactions.filter(tx => {
     if (filter === 'all') return true;
     if (filter === 'problem') return ['dropped','replaced'].includes(tx.status);
     if (filter === 'boost') return needsBoost(tx);
     return tx.status === filter;
-  });
-  el.txBody.innerHTML = visible.map(tx => {
+  }).filter(tx => !query || searchableTransactionText(tx).includes(query));
+  const visible = sortTransactions(filtered);
+  const totalPages = Math.max(1, Math.ceil(visible.length / state.pageSize));
+  state.page = Math.min(state.page, totalPages);
+  const start = (state.page - 1) * state.pageSize;
+  const pageTransactions = visible.slice(start, start + state.pageSize);
+  el.txBody.innerHTML = pageTransactions.map(tx => {
     const outgoing = state.addresses.includes(tx.from);
     const matched = tx.matchedAddress || state.addresses.find(address => [tx.from, tx.to, tx.tokenRecipient].includes(address)) || '';
     const boost = needsBoost(tx);
@@ -736,7 +823,7 @@ function render() {
       : queue?.role === 'blocked'
         ? `<span class="queue-state blocked"><strong>Blocked</strong><small>By nonce ${queue.blockerNonce}</small></span>`
         : '—';
-    return `<tr>
+    return `<tr class="transaction-row" data-tx-hash="${tx.hash}" tabindex="0" aria-label="Open details for transaction ${tx.hash}">
       <td><span class="status ${escapeHtml(tx.status)}">${escapeHtml(statusLabel(tx.status))}</span></td>
       <td>${age(tx.firstSeen)}</td>
       <td><div class="hash-cell"><a class="hash" href="https://etherscan.io/tx/${tx.hash}" target="_blank" rel="noreferrer">${shortHash(tx.hash)}</a><button class="copy-button" type="button" data-copy-hash="${tx.hash}" aria-label="Copy full transaction hash">${state.copiedHash === tx.hash ? 'Copied' : 'Copy'}</button></div></td>
@@ -749,9 +836,61 @@ function render() {
       <td>${gasLabel}</td>
     </tr>`;
   }).join('');
-  el.emptyState.classList.toggle('hidden', visible.length > 0);
-  el.emptyMessage.textContent = state.endpoint ? 'Connection active. New events will appear here.' : 'Configure the Alchemy connection to start monitoring.';
+  el.emptyState.classList.toggle('hidden', filtered.length > 0);
+  el.emptyMessage.textContent = query ? 'No transactions match your search.' : state.endpoint ? 'Connection active. New events will appear here.' : 'Configure the Alchemy connection to start monitoring.';
+  el.paginationInfo.textContent = visible.length ? `${start + 1}–${Math.min(start + state.pageSize, visible.length)} of ${visible.length}` : '0 transactions';
+  el.pageIndicator.textContent = `Page ${state.page} of ${totalPages}`;
+  el.previousPage.disabled = state.page <= 1;
+  el.nextPage.disabled = state.page >= totalPages;
+  el.pageSize.value = String(state.pageSize);
+  updateSortHeaders();
   renderBalances();
+}
+
+function transactionMethodLabel(tx) {
+  if (tx.method) return tx.method;
+  if (tx.tokenContract) return 'transfer';
+  return tx.value > 0 ? 'Native transfer' : 'Contract call';
+}
+
+function detailRow(label, value, className = '') {
+  return `<div class="transaction-detail"><dt>${escapeHtml(label)}</dt><dd class="${className}">${escapeHtml(value ?? '—')}</dd></div>`;
+}
+
+function openTransactionDetails(hash) {
+  const tx = state.transactions.find(item => item.hash === hash);
+  if (!tx) return;
+  const matched = tx.matchedAddress || state.addresses.find(address => [tx.from, tx.to, tx.tokenRecipient].includes(address)) || '';
+  const queue = queueInfo(tx);
+  const queueText = queue?.role === 'blocker'
+    ? `Blocking ${queue.count} transaction${queue.count === 1 ? '' : 's'}`
+    : queue?.role === 'blocked' ? `Blocked by nonce ${queue.blockerNonce}` : '—';
+  const contract = tx.tokenContract || (transactionMethodLabel(tx).startsWith('Contract call') ? tx.to : '—');
+  el.transactionDetails.innerHTML = `
+    <div class="detail-status"><span class="status ${escapeHtml(tx.status)}">${escapeHtml(statusLabel(tx.status))}</span></div>
+    <dl>
+      ${detailRow('Wallet', matched ? `${walletLabel(matched)} · ${matched}` : '—', 'wrap-value')}
+      ${detailRow('Transaction hash', tx.hash, 'mono wrap-value')}
+      ${detailRow('From', tx.from || '—', 'mono wrap-value')}
+      ${detailRow('To', tx.to || 'Contract creation', 'mono wrap-value')}
+      ${detailRow('Contract', contract, 'mono wrap-value')}
+      ${detailRow('Token recipient', tx.tokenRecipient || '—', 'mono wrap-value')}
+      ${detailRow('Method', transactionMethodLabel(tx))}
+      ${detailRow('Amount / token', transactionAmount(tx))}
+      ${detailRow('Nonce', tx.nonce)}
+      ${detailRow('Queue', queueText)}
+      ${detailRow('Transaction max fee', `${compactNumber(tx.maxFee, 4)} Gwei`)}
+      ${detailRow('Max priority fee', tx.maxPriorityFee ? `${compactNumber(tx.maxPriorityFee, 4)} Gwei` : '—')}
+      ${detailRow('Legacy gas price', tx.gasPrice ? `${compactNumber(tx.gasPrice, 4)} Gwei` : '—')}
+      ${detailRow('Gas limit', tx.gasLimit ? compactNumber(tx.gasLimit, 0) : '—')}
+      ${detailRow('Current network gas', state.currentGasPrice ? `${compactNumber(state.currentGasPrice, 4)} Gwei` : 'Unavailable')}
+      ${detailRow('Replacement hash', tx.replacedBy || '—', 'mono wrap-value')}
+      ${detailRow('First seen', new Date(tx.firstSeen).toLocaleString('en-GB'))}
+    </dl>
+    <div class="transaction-detail-actions">
+      <button class="primary" type="button" data-copy-hash="${tx.hash}">${state.copiedHash === tx.hash ? 'Copied' : 'Copy hash'}</button>
+    </div>`;
+  el.transactionDialog.showModal();
 }
 
 function renderBalances() {
@@ -791,10 +930,16 @@ function renderBalances() {
   const formatted = formatTokenAmount(state.gasBalance.raw, 18);
   const current = Number(formatted.replace(/,/g, ''));
   const low = current < Number(settings.gasThreshold);
+  const changeRaw = state.gasBalance.changeRaw;
+  const changeClass = changeRaw === null || changeRaw === undefined || BigInt(changeRaw) === 0n ? 'neutral' : BigInt(changeRaw) > 0n ? 'positive' : 'negative';
+  const changeText = changeRaw === null || changeRaw === undefined
+    ? 'Change will appear after the next refresh'
+    : BigInt(changeRaw) === 0n ? 'No change since last refresh' : `ETH ${formatSignedTokenAmount(changeRaw, 18)} since last refresh`;
   el.gasBalanceBody.innerHTML = `
     <div class="gas-name">${escapeHtml(settings.gasName || 'Gas Station')}</div>
     <div class="gas-address">${escapeHtml(shortAddress(settings.gasAddress))}</div>
     <div class="gas-amount">${escapeHtml(formatted)} ETH</div>
+    <div class="gas-change ${changeClass}">${escapeHtml(changeText)}</div>
     <div class="gas-minimum">Minimum required: ${compactNumber(settings.gasThreshold, 6)} ETH</div>
     <div class="gas-status ${low ? 'low' : ''}">${low ? 'Low balance · Refill required' : 'Balance is sufficient'}</div>
     <button class="secondary gas-refresh" type="button" data-refresh-gas ${state.gasLoading ? 'disabled' : ''}>${state.gasLoading ? 'Refreshing…' : 'Refresh now'}</button>`;
@@ -921,8 +1066,47 @@ el.gasForm.addEventListener('submit', event => {
   scheduleBalanceRefresh(true);
 });
 
-el.filter.addEventListener('change', render);
+el.filter.addEventListener('change', () => { state.page = 1; render(); });
+el.search.addEventListener('input', () => {
+  state.searchQuery = el.search.value;
+  state.page = 1;
+  render();
+});
+el.pageSize.addEventListener('change', () => {
+  state.pageSize = Number(el.pageSize.value);
+  state.page = 1;
+  localStorage.setItem(PAGE_SIZE_KEY, String(state.pageSize));
+  render();
+});
+el.previousPage.addEventListener('click', () => { if (state.page > 1) { state.page -= 1; render(); } });
+el.nextPage.addEventListener('click', () => { state.page += 1; render(); });
+document.querySelectorAll('[data-sort]').forEach(button => button.addEventListener('click', () => {
+  const key = button.dataset.sort;
+  if (state.sortKey === key) state.sortDirection = state.sortDirection === 'asc' ? 'desc' : 'asc';
+  else {
+    state.sortKey = key;
+    state.sortDirection = ['status', 'age'].includes(key) ? 'asc' : 'desc';
+  }
+  state.page = 1;
+  render();
+}));
 el.txBody.addEventListener('click', event => {
+  const button = event.target.closest('[data-copy-hash]');
+  if (button) { copyHash(button.dataset.copyHash); return; }
+  if (event.target.closest('a')) return;
+  const row = event.target.closest('[data-tx-hash]');
+  if (row) openTransactionDetails(row.dataset.txHash);
+});
+el.txBody.addEventListener('keydown', event => {
+  if (!['Enter', ' '].includes(event.key) || event.target.closest('a, button')) return;
+  const row = event.target.closest('[data-tx-hash]');
+  if (row) { event.preventDefault(); openTransactionDetails(row.dataset.txHash); }
+});
+el.closeTransactionDialog.addEventListener('click', () => el.transactionDialog.close());
+el.transactionDialog.addEventListener('click', event => {
+  if (event.target === el.transactionDialog) el.transactionDialog.close();
+});
+el.transactionDetails.addEventListener('click', event => {
   const button = event.target.closest('[data-copy-hash]');
   if (button) copyHash(button.dataset.copyHash);
 });

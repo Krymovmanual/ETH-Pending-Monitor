@@ -8,12 +8,17 @@ Live pending transaction monitor for one or more Ethereum addresses.
 - Browser and optional email alerts when a transaction is pending for more than 15 minutes, is dropped, is replaced, or may need a gas boost.
 - `Needs boost` indicator when the transaction max fee is below the current network gas price returned by Alchemy.
 - Copy the full transaction hash directly from the table while keeping the Etherscan link.
+- Click any transaction row to inspect full From/To addresses, contract, method, fee data, nonce, queue state, and replacement hash.
+- Search by transaction hash, nonce, wallet name/address, or token.
+- Sort by status, age, amount, nonce, or max fee; the table header stays visible while scrolling.
+- Paginate long transaction history with 25, 50, or 100 rows per page.
 - Add an optional wallet name using `Wallet name | 0x address`; names appear in the dashboard and alert emails.
 - Detect nonce queues and highlight the transaction that is blocking later transactions from the same monitored wallet.
 - Identify standard ERC-20 `transfer` and `transferFrom` transactions, including token symbol, name, contract, and token amount.
 - Display balances for ETH, USDT ERC-20, USDC, LINK, DAI and USDS across all monitored wallets.
 - Configure wallet balance refresh separately: 5, 15 or 30 minutes; 1 or 6 hours; or manual only.
 - Configure a dedicated Gas Station address, minimum ETH threshold, independent refresh interval, and low-balance browser/email alerts.
+- Show the Gas Station ETH balance change since the previous refresh.
 - Local browser storage for the Alchemy URL, addresses, alert email, and transaction history.
 
 ## Publishing with Visual Studio
