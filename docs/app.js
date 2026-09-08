@@ -48,14 +48,14 @@ function setConnection(status, text) {
 function connect() {
   clearTimeout(state.reconnectTimer);
   if (!state.endpoint) {
-    setConnection('', 'Не подключено');
+    setConnection('', 'Not connected');
     el.dialog.showModal();
     return;
   }
   state.manualClose = false;
-  setConnection('', 'Подключение…');
+  setConnection('', 'Connecting…');
   try { state.ws = new WebSocket(state.endpoint); }
-  catch { setConnection('error', 'Неверный URL'); return; }
+  catch { setConnection('error', 'Invalid URL'); return; }
 
   state.ws.addEventListener('open', () => {
     setConnection('live', 'Live');
@@ -73,7 +73,7 @@ function connect() {
     let message;
     try { message = JSON.parse(event.data); } catch { return; }
     if (message.error) {
-      setConnection('error', message.error.message || 'Ошибка Alchemy');
+      setConnection('error', message.error.message || 'Alchemy error');
       return;
     }
     const tx = message?.params?.result;
@@ -82,10 +82,10 @@ function connect() {
   });
 
   state.ws.addEventListener('close', () => {
-    setConnection('error', 'Соединение потеряно');
+    setConnection('error', 'Connection lost');
     if (!state.manualClose) state.reconnectTimer = setTimeout(connect, 5000);
   });
-  state.ws.addEventListener('error', () => setConnection('error', 'Ошибка подключения'));
+  state.ws.addEventListener('error', () => setConnection('error', 'Connection error'));
 }
 
 function addTransaction(tx) {
@@ -150,12 +150,12 @@ function shortHash(hash) { return `${hash.slice(0, 8)}…${hash.slice(-6)}`; }
 function compactNumber(value, digits = 5) { return new Intl.NumberFormat('en-US', {maximumFractionDigits: digits}).format(value); }
 function age(timestamp) {
   const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-  if (seconds < 60) return `${seconds} сек`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} мин`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} ч`;
-  return `${Math.floor(seconds / 86400)} д`;
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86400)}d`;
 }
-function dateTime(timestamp) { return new Intl.DateTimeFormat('ru-RU', {hour:'2-digit', minute:'2-digit', second:'2-digit'}).format(timestamp); }
+function dateTime(timestamp) { return new Intl.DateTimeFormat('en-GB', {hour:'2-digit', minute:'2-digit', second:'2-digit'}).format(timestamp); }
 function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
 
 function render() {
@@ -179,14 +179,14 @@ function render() {
       <td><span class="status ${escapeHtml(tx.status)}">${escapeHtml(statusLabel(tx.status))}</span></td>
       <td data-time="${tx.firstSeen}">${age(tx.firstSeen)}</td>
       <td><a class="hash" href="https://etherscan.io/tx/${tx.hash}" target="_blank" rel="noreferrer">${shortHash(tx.hash)}</a></td>
-      <td>${outgoing ? 'Исходящая' : 'Входящая'}</td>
+      <td>${outgoing ? 'Outgoing' : 'Incoming'}</td>
       <td>${compactNumber(tx.value)} ETH</td>
       <td>${tx.nonce}</td>
       <td>${compactNumber(tx.maxFee, 2)} Gwei</td>
     </tr>`;
   }).join('');
   el.emptyState.classList.toggle('hidden', visible.length > 0);
-  el.emptyMessage.textContent = state.endpoint ? 'Подключение активно. Новые события появятся здесь.' : 'Настрой подключение к Alchemy, чтобы начать мониторинг.';
+  el.emptyMessage.textContent = state.endpoint ? 'Connection active. New events will appear here.' : 'Configure the Alchemy connection to start monitoring.';
 }
 
 function statusLabel(status) {
@@ -203,7 +203,7 @@ el.form.addEventListener('submit', event => {
   event.preventDefault();
   const value = el.endpoint.value.trim();
   if (!/^wss:\/\/eth-mainnet\.g\.alchemy\.com\/v2\/[A-Za-z0-9_-]+$/.test(value)) {
-    el.error.textContent = 'Вставь полный WebSocket URL, начинающийся с wss://';
+    el.error.textContent = 'Enter the full WebSocket URL starting with wss://';
     return;
   }
   if (state.ws) { state.manualClose = true; state.ws.close(); }
@@ -214,7 +214,7 @@ el.form.addEventListener('submit', event => {
 });
 el.filter.addEventListener('change', render);
 el.clearButton.addEventListener('click', () => {
-  if (!state.transactions.length || !confirm('Удалить сохранённую историю транзакций?')) return;
+  if (!state.transactions.length || !confirm('Delete the saved transaction history?')) return;
   state.transactions = [];
   saveTransactions();
   render();
