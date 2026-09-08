@@ -33,6 +33,33 @@
       <article><span>Last event</span><strong class="small" id="lastEvent">—</strong></article>
     </section>
 
+    <section class="balances-layout" aria-label="Wallet and gas balances">
+      <article class="balance-panel">
+        <div class="balance-head">
+          <div>
+            <h2>Wallet balances</h2>
+            <p id="walletBalanceMeta">Not updated yet</p>
+          </div>
+          <div class="balance-actions">
+            <button class="secondary" id="refreshBalancesButton" type="button">Refresh now</button>
+            <button class="secondary" id="balanceSettingsButton" type="button">Settings</button>
+          </div>
+        </div>
+        <div id="walletBalancesBody" class="wallet-balances-body"></div>
+      </article>
+
+      <article class="balance-panel gas-panel">
+        <div class="balance-head">
+          <div>
+            <h2>Gas Station</h2>
+            <p id="gasBalanceMeta">Not configured</p>
+          </div>
+          <button class="secondary" id="gasSettingsButton" type="button">Settings</button>
+        </div>
+        <div id="gasBalanceBody" class="gas-balance-body"></div>
+      </article>
+    </section>
+
     <section class="panel">
       <div class="panel-head">
         <div>
@@ -77,6 +104,66 @@
       </div>
     </section>
   </main>
+
+  <dialog id="balanceSettingsDialog">
+    <form method="dialog" id="balanceSettingsForm">
+      <div class="dialog-head">
+        <div>
+          <span class="eyebrow">BALANCES</span>
+          <h2>Balance settings</h2>
+        </div>
+        <button class="icon-button" value="cancel" aria-label="Close" type="submit">×</button>
+      </div>
+
+      <label class="check-label" for="showBalancesInput">
+        <input id="showBalancesInput" type="checkbox">
+        <span>Show wallet balances</span>
+      </label>
+      <p class="hint">Displays ETH, USDT ERC-20, USDC, LINK, DAI and USDS for all monitored addresses.</p>
+
+      <label for="balanceIntervalInput">Wallet balance refresh</label>
+      <select id="balanceIntervalInput" class="dialog-select">
+        <option value="300000">Every 5 minutes</option>
+        <option value="900000">Every 15 minutes</option>
+        <option value="1800000">Every 30 minutes</option>
+        <option value="3600000">Every 1 hour</option>
+        <option value="21600000">Every 6 hours</option>
+        <option value="0">Manual only</option>
+      </select>
+
+      <div class="dialog-section-title">Gas Station</div>
+      <label for="gasNameInput">Name</label>
+      <input id="gasNameInput" type="text" maxlength="60" placeholder="Main Gas Station">
+
+      <label for="gasAddressInput">Ethereum address</label>
+      <input id="gasAddressInput" type="text" spellcheck="false" autocomplete="off" placeholder="0x…">
+
+      <div class="split-fields">
+        <div>
+          <label for="gasThresholdInput">Minimum ETH</label>
+          <input id="gasThresholdInput" type="number" min="0" step="0.000001" placeholder="0.1">
+        </div>
+        <div>
+          <label for="gasIntervalInput">Refresh</label>
+          <select id="gasIntervalInput" class="dialog-select">
+            <option value="300000">Every 5 minutes</option>
+            <option value="900000">Every 15 minutes</option>
+            <option value="1800000">Every 30 minutes</option>
+            <option value="3600000">Every 1 hour</option>
+            <option value="21600000">Every 6 hours</option>
+            <option value="0">Manual only</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint">A browser and email alert is sent when the ETH balance falls below the minimum.</p>
+
+      <div class="dialog-error" id="balanceDialogError" role="alert"></div>
+      <div class="dialog-actions">
+        <button class="secondary" value="cancel" type="submit">Cancel</button>
+        <button class="primary" value="default" type="submit">Save settings</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="settingsDialog">
     <form method="dialog" id="settingsForm">

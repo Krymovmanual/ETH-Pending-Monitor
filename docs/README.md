@@ -11,6 +11,9 @@ Live pending transaction monitor for one or more Ethereum addresses.
 - Add an optional wallet name using `Wallet name | 0x address`; names appear in the dashboard and alert emails.
 - Detect nonce queues and highlight the transaction that is blocking later transactions from the same monitored wallet.
 - Identify standard ERC-20 `transfer` and `transferFrom` transactions, including token symbol, name, contract, and token amount.
+- Display balances for ETH, USDT ERC-20, USDC, LINK, DAI and USDS across all monitored wallets.
+- Configure wallet balance refresh separately: 5, 15 or 30 minutes; 1 or 6 hours; or manual only.
+- Configure a dedicated Gas Station address, minimum ETH threshold, independent refresh interval, and low-balance browser/email alerts.
 - Local browser storage for the Alchemy URL, addresses, alert email, and transaction history.
 
 ## Publishing with Visual Studio
@@ -34,5 +37,7 @@ After publishing, open the GitHub Pages URL and click **Connection settings**:
 3. Optionally enter an alert email and click **Send test**. Confirm the first FormSubmit email before expecting automatic alerts.
 4. Click **Enable browser notifications** and allow notifications in the browser.
 5. Click **Save and connect**.
+
+Use **Wallet balances → Settings** to enable balances and select the refresh interval. In the same dialog, optionally configure a Gas Station address, its minimum ETH balance, and a separate refresh interval. Use **Refresh now** at any time without changing the schedule.
 
 Monitoring and alerts run only while the page remains open. Email delivery uses the third-party FormSubmit service. The gas boost indicator is a recommendation based on the current network price, not a guarantee that a transaction is stuck.

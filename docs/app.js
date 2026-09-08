@@ -5,8 +5,19 @@ const LABELS_KEY = 'eth-pending-monitor-address-labels';
 const EMAIL_KEY = 'eth-pending-monitor-email';
 const TX_KEY = 'eth-pending-monitor-transactions';
 const TOKEN_CACHE_KEY = 'eth-pending-monitor-token-cache';
+const BALANCE_SETTINGS_KEY = 'eth-pending-monitor-balance-settings';
+const WALLET_BALANCES_KEY = 'eth-pending-monitor-wallet-balances';
+const GAS_BALANCE_KEY = 'eth-pending-monitor-gas-balance';
+const GAS_ALERT_KEY = 'eth-pending-monitor-gas-alert-sent';
 const ALERT_AFTER_MS = 15 * 60 * 1000;
 const DROP_CHECK_AFTER_MS = 30 * 60 * 1000;
+const BALANCE_TOKENS = [
+  { symbol: 'USDT ERC-20', contract: '0xdac17f958d2ee523a2206206994597c13d831ec7', decimals: 6 },
+  { symbol: 'USDC', contract: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', decimals: 6 },
+  { symbol: 'LINK', contract: '0x514910771af9ca656af840dff83e8264ecf986ca', decimals: 18 },
+  { symbol: 'DAI', contract: '0x6b175474e89094c44da98b954eedeac495271d0f', decimals: 18 },
+  { symbol: 'USDS', contract: '0xdc035d45d973e3ec169d2276ddab16f1e407384f', decimals: 18 },
+];
 
 const state = {
   ws: null,
@@ -16,6 +27,15 @@ const state = {
   email: localStorage.getItem(EMAIL_KEY) || '',
   transactions: loadTransactions(),
   tokenCache: loadTokenCache(),
+  balanceSettings: loadBalanceSettings(),
+  walletBalances: loadStoredObject(WALLET_BALANCES_KEY),
+  gasBalance: loadStoredObject(GAS_BALANCE_KEY),
+  balanceLoading: false,
+  gasLoading: false,
+  balanceLoadError: '',
+  gasLoadError: '',
+  balanceTimer: null,
+  gasTimer: null,
   currentGasPrice: null,
   copiedHash: null,
   reconnectTimer: null,
@@ -46,6 +66,22 @@ const el = {
   notificationButton: document.querySelector('#notificationButton'),
   notificationStatus: document.querySelector('#notificationStatus'),
   error: document.querySelector('#dialogError'),
+  walletBalancesBody: document.querySelector('#walletBalancesBody'),
+  walletBalanceMeta: document.querySelector('#walletBalanceMeta'),
+  refreshBalancesButton: document.querySelector('#refreshBalancesButton'),
+  balanceSettingsButton: document.querySelector('#balanceSettingsButton'),
+  gasSettingsButton: document.querySelector('#gasSettingsButton'),
+  gasBalanceBody: document.querySelector('#gasBalanceBody'),
+  gasBalanceMeta: document.querySelector('#gasBalanceMeta'),
+  balanceDialog: document.querySelector('#balanceSettingsDialog'),
+  balanceForm: document.querySelector('#balanceSettingsForm'),
+  showBalances: document.querySelector('#showBalancesInput'),
+  balanceInterval: document.querySelector('#balanceIntervalInput'),
+  gasName: document.querySelector('#gasNameInput'),
+  gasAddress: document.querySelector('#gasAddressInput'),
+  gasThreshold: document.querySelector('#gasThresholdInput'),
+  gasInterval: document.querySelector('#gasIntervalInput'),
+  balanceError: document.querySelector('#balanceDialogError'),
 };
 
 function loadAddresses() {
@@ -70,6 +106,24 @@ function loadAddressLabels() {
 function loadTokenCache() {
   try { return JSON.parse(localStorage.getItem(TOKEN_CACHE_KEY) || '{}'); }
   catch { return {}; }
+}
+
+function loadStoredObject(key) {
+  try { return JSON.parse(localStorage.getItem(key) || '{}'); }
+  catch { return {}; }
+}
+
+function loadBalanceSettings() {
+  const defaults = {
+    enabled: true,
+    balanceInterval: 3600000,
+    gasName: 'Main Gas Station',
+    gasAddress: '',
+    gasThreshold: 0.1,
+    gasInterval: 300000,
+  };
+  try { return {...defaults, ...JSON.parse(localStorage.getItem(BALANCE_SETTINGS_KEY) || '{}')}; }
+  catch { return defaults; }
 }
 
 function saveTransactions() {
@@ -467,6 +521,143 @@ async function rpc(endpoint, method, params) {
   return body.result;
 }
 
+async function rpcBatch(requests) {
+  const endpoint = toHttpEndpoint(state.endpoint);
+  const answers = new Map();
+  for (let start = 0; start < requests.length; start += 100) {
+    const chunk = requests.slice(start, start + 100);
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'content-type':'application/json'},
+      body: JSON.stringify(chunk.map(item => ({jsonrpc:'2.0', ...item}))),
+    });
+    const body = await response.json();
+    if (!response.ok || !Array.isArray(body)) throw new Error('Balance request failed');
+    for (const answer of body) answers.set(answer.id, answer);
+  }
+  return answers;
+}
+
+function balanceOfData(address) {
+  return `0x70a08231${address.slice(2).padStart(64, '0')}`;
+}
+
+async function updateWalletBalances() {
+  if (!state.endpoint || !state.balanceSettings.enabled || state.balanceLoading) return;
+  state.balanceLoading = true;
+  state.balanceLoadError = '';
+  renderBalances();
+  try {
+    let id = 1;
+    const requests = [];
+    const fields = [];
+    for (const address of state.addresses) {
+      requests.push({id, method:'eth_getBalance', params:[address, 'latest']});
+      fields.push({id, address, symbol:'ETH', decimals:18});
+      id += 1;
+      for (const token of BALANCE_TOKENS) {
+        requests.push({id, method:'eth_call', params:[{to:token.contract, data:balanceOfData(address)}, 'latest']});
+        fields.push({id, address, symbol:token.symbol, decimals:token.decimals});
+        id += 1;
+      }
+    }
+    const answers = await rpcBatch(requests);
+    const updatedAt = Date.now();
+    const next = {};
+    for (const address of state.addresses) next[address] = {updatedAt, tokens:{}};
+    for (const field of fields) {
+      const answer = answers.get(field.id);
+      const raw = answer?.result ? BigInt(answer.result).toString() : null;
+      next[field.address].tokens[field.symbol] = {raw, decimals:field.decimals};
+    }
+    state.walletBalances = next;
+    localStorage.setItem(WALLET_BALANCES_KEY, JSON.stringify(next));
+  } catch {
+    state.balanceLoadError = 'Update failed. Try again.';
+  } finally {
+    state.balanceLoading = false;
+    renderBalances();
+  }
+}
+
+async function updateGasBalance() {
+  const settings = state.balanceSettings;
+  if (!state.endpoint || !validAddress(settings.gasAddress) || state.gasLoading) return;
+  state.gasLoading = true;
+  state.gasLoadError = '';
+  renderBalances();
+  try {
+    const result = await rpc(toHttpEndpoint(state.endpoint), 'eth_getBalance', [settings.gasAddress, 'latest']);
+    state.gasBalance = {raw:BigInt(result).toString(), decimals:18, updatedAt:Date.now()};
+    localStorage.setItem(GAS_BALANCE_KEY, JSON.stringify(state.gasBalance));
+    const current = Number(formatTokenAmount(state.gasBalance.raw, 18).replace(/,/g, ''));
+    if (current < Number(settings.gasThreshold)) await sendGasAlert(current);
+    else localStorage.removeItem(GAS_ALERT_KEY);
+  } catch {
+    state.gasLoadError = 'Update failed. Try again.';
+  } finally {
+    state.gasLoading = false;
+    renderBalances();
+  }
+}
+
+async function sendGasAlert(currentBalance) {
+  if (localStorage.getItem(GAS_ALERT_KEY) === '1') return;
+  localStorage.setItem(GAS_ALERT_KEY, '1');
+  const settings = state.balanceSettings;
+  const title = 'URGENT: Gas Station balance is low';
+  const bodyText = `${settings.gasName}: ${compactNumber(currentBalance, 6)} ETH. Minimum: ${compactNumber(settings.gasThreshold, 6)} ETH.`;
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try { new Notification(title, {body:bodyText, tag:'gas-station-low', requireInteraction:true}); }
+    catch { /* Browser support varies. */ }
+  }
+  if (!state.email) return;
+  try {
+    const response = await fetch(`https://formsubmit.co/ajax/${encodeURIComponent(state.email)}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json', Accept:'application/json'},
+      body:JSON.stringify({
+        _subject:title,
+        _template:'table',
+        _captcha:'false',
+        event:'gas_station_low_balance',
+        gas_station:settings.gasName,
+        address:settings.gasAddress,
+        current_balance:`${compactNumber(currentBalance, 6)} ETH`,
+        minimum_balance:`${compactNumber(settings.gasThreshold, 6)} ETH`,
+        checked_at:new Date().toISOString(),
+      }),
+    });
+    if (!response.ok) throw new Error('Email failed');
+  } catch {
+    localStorage.removeItem(GAS_ALERT_KEY);
+  }
+}
+
+function intervalLabel(value) {
+  return ({0:'Manual only',300000:'Every 5 min',900000:'Every 15 min',1800000:'Every 30 min',3600000:'Every 1 hour',21600000:'Every 6 hours'})[Number(value)] || 'Custom';
+}
+
+function isRefreshDue(updatedAt, interval) {
+  return Number(interval) > 0 && (!updatedAt || Date.now() - updatedAt >= Number(interval));
+}
+
+function scheduleBalanceRefresh(force = false) {
+  clearInterval(state.balanceTimer);
+  clearInterval(state.gasTimer);
+  const settings = state.balanceSettings;
+  if (settings.enabled) {
+    if (Number(settings.balanceInterval) > 0) state.balanceTimer = setInterval(updateWalletBalances, Number(settings.balanceInterval));
+    const latest = Math.max(0, ...Object.values(state.walletBalances).map(item => item?.updatedAt || 0));
+    if (force || isRefreshDue(latest, settings.balanceInterval)) updateWalletBalances();
+  }
+  if (validAddress(settings.gasAddress)) {
+    if (Number(settings.gasInterval) > 0) state.gasTimer = setInterval(updateGasBalance, Number(settings.gasInterval));
+    if (force || isRefreshDue(state.gasBalance.updatedAt, settings.gasInterval)) updateGasBalance();
+  }
+  renderBalances();
+}
+
 function toHttpEndpoint(value) { return value.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:'); }
 function hexToNumber(value) { return value ? Number.parseInt(value, 16) : 0; }
 function hexToEth(value) { return value ? Number(BigInt(value)) / 1e18 : 0; }
@@ -557,6 +748,53 @@ function render() {
   }).join('');
   el.emptyState.classList.toggle('hidden', visible.length > 0);
   el.emptyMessage.textContent = state.endpoint ? 'Connection active. New events will appear here.' : 'Configure the Alchemy connection to start monitoring.';
+  renderBalances();
+}
+
+function renderBalances() {
+  const settings = state.balanceSettings;
+  el.refreshBalancesButton.disabled = state.balanceLoading || !settings.enabled;
+  el.refreshBalancesButton.textContent = state.balanceLoading ? 'Refreshing…' : 'Refresh now';
+
+  if (!settings.enabled) {
+    el.walletBalanceMeta.textContent = 'Balance display is disabled';
+    el.walletBalancesBody.innerHTML = '<div class="balance-empty">Enable wallet balances in Settings.</div>';
+  } else {
+    const latest = Math.max(0, ...Object.values(state.walletBalances).map(item => item?.updatedAt || 0));
+    el.walletBalanceMeta.textContent = state.balanceLoadError || `${latest ? `Updated ${age(latest)} ago` : 'Not updated yet'} · ${intervalLabel(settings.balanceInterval)}`;
+    el.walletBalancesBody.innerHTML = state.addresses.map(address => {
+      const balance = state.walletBalances[address];
+      const symbols = ['ETH', ...BALANCE_TOKENS.map(token => token.symbol)];
+      const tokens = symbols.map(symbol => {
+        const value = balance?.tokens?.[symbol];
+        const formatted = value?.raw !== null && value?.raw !== undefined ? formatTokenAmount(value.raw, value.decimals) : '—';
+        return `<div class="token-balance" title="${escapeHtml(symbol)}"><span>${escapeHtml(symbol)}</span><strong>${escapeHtml(formatted)}</strong></div>`;
+      }).join('');
+      return `<div class="wallet-balance-row"><div class="wallet-balance-title"><strong>${escapeHtml(walletLabel(address))}</strong><span>${shortAddress(address)}</span></div><div class="token-balances">${tokens}</div></div>`;
+    }).join('');
+  }
+
+  if (!validAddress(settings.gasAddress)) {
+    el.gasBalanceMeta.textContent = 'Not configured';
+    el.gasBalanceBody.innerHTML = '<div class="balance-empty">Add a Gas Station address in Settings.</div>';
+    return;
+  }
+
+  el.gasBalanceMeta.textContent = state.gasLoadError || `${state.gasBalance.updatedAt ? `Updated ${age(state.gasBalance.updatedAt)} ago` : 'Not updated yet'} · ${intervalLabel(settings.gasInterval)}`;
+  if (!state.gasBalance.raw && state.gasBalance.raw !== '0') {
+    el.gasBalanceBody.innerHTML = `<div class="balance-empty">${state.gasLoading ? 'Refreshing ETH balance…' : 'No balance data yet.'}<br><button class="secondary gas-refresh" type="button" data-refresh-gas>Refresh now</button></div>`;
+    return;
+  }
+  const formatted = formatTokenAmount(state.gasBalance.raw, 18);
+  const current = Number(formatted.replace(/,/g, ''));
+  const low = current < Number(settings.gasThreshold);
+  el.gasBalanceBody.innerHTML = `
+    <div class="gas-name">${escapeHtml(settings.gasName || 'Gas Station')}</div>
+    <div class="gas-address">${escapeHtml(shortAddress(settings.gasAddress))}</div>
+    <div class="gas-amount">${escapeHtml(formatted)} ETH</div>
+    <div class="gas-minimum">Minimum required: ${compactNumber(settings.gasThreshold, 6)} ETH</div>
+    <div class="gas-status ${low ? 'low' : ''}">${low ? 'Low balance · Refill required' : 'Balance is sufficient'}</div>
+    <button class="secondary gas-refresh" type="button" data-refresh-gas ${state.gasLoading ? 'disabled' : ''}>${state.gasLoading ? 'Refreshing…' : 'Refresh now'}</button>`;
 }
 
 function statusLabel(status) {
@@ -576,6 +814,18 @@ function openSettings() {
 function showTestStatus(message, isError = false) {
   el.testEmailStatus.textContent = message;
   el.testEmailStatus.classList.toggle('error', isError);
+}
+
+function openBalanceSettings() {
+  const settings = state.balanceSettings;
+  el.showBalances.checked = Boolean(settings.enabled);
+  el.balanceInterval.value = String(settings.balanceInterval);
+  el.gasName.value = settings.gasName || 'Main Gas Station';
+  el.gasAddress.value = settings.gasAddress || '';
+  el.gasThreshold.value = settings.gasThreshold;
+  el.gasInterval.value = String(settings.gasInterval);
+  el.balanceError.textContent = '';
+  el.balanceDialog.showModal();
 }
 
 el.settingsButton.addEventListener('click', openSettings);
@@ -610,6 +860,45 @@ el.form.addEventListener('submit', event => {
   if (email) localStorage.setItem(EMAIL_KEY, email); else localStorage.removeItem(EMAIL_KEY);
   el.dialog.close();
   reconnect();
+  scheduleBalanceRefresh(true);
+});
+
+el.balanceSettingsButton.addEventListener('click', openBalanceSettings);
+el.gasSettingsButton.addEventListener('click', openBalanceSettings);
+el.refreshBalancesButton.addEventListener('click', updateWalletBalances);
+el.gasBalanceBody.addEventListener('click', event => {
+  if (event.target.closest('[data-refresh-gas]')) updateGasBalance();
+});
+el.balanceForm.addEventListener('submit', event => {
+  if (event.submitter?.value !== 'default') return;
+  event.preventDefault();
+  const gasAddress = el.gasAddress.value.trim().toLowerCase();
+  const gasThreshold = Number(el.gasThreshold.value);
+  if (gasAddress && !validAddress(gasAddress)) {
+    el.balanceError.textContent = 'Enter a valid Gas Station Ethereum address or leave it empty.';
+    return;
+  }
+  if (!Number.isFinite(gasThreshold) || gasThreshold < 0) {
+    el.balanceError.textContent = 'Minimum ETH balance must be zero or greater.';
+    return;
+  }
+  const gasChanged = gasAddress !== state.balanceSettings.gasAddress || gasThreshold !== Number(state.balanceSettings.gasThreshold);
+  state.balanceSettings = {
+    enabled: el.showBalances.checked,
+    balanceInterval: Number(el.balanceInterval.value),
+    gasName: el.gasName.value.trim() || 'Main Gas Station',
+    gasAddress,
+    gasThreshold,
+    gasInterval: Number(el.gasInterval.value),
+  };
+  if (gasChanged) {
+    state.gasBalance = {};
+    localStorage.removeItem(GAS_BALANCE_KEY);
+    localStorage.removeItem(GAS_ALERT_KEY);
+  }
+  localStorage.setItem(BALANCE_SETTINGS_KEY, JSON.stringify(state.balanceSettings));
+  el.balanceDialog.close();
+  scheduleBalanceRefresh(true);
 });
 
 el.filter.addEventListener('change', render);
@@ -627,6 +916,7 @@ el.clearButton.addEventListener('click', () => {
 render();
 connect();
 hydrateStoredTokens();
+scheduleBalanceRefresh();
 setInterval(render, 1000);
 setInterval(checkStatuses, 12000);
 setInterval(updateGasPrice, 30000);
