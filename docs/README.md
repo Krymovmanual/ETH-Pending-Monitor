@@ -7,6 +7,7 @@ Live pending transaction monitor for one or more Ethereum addresses.
 - Monitor up to 50 Ethereum addresses from one dashboard.
 - Browser and optional email alerts when a transaction is pending for more than 15 minutes, is dropped, is replaced, or may need a gas boost.
 - `Needs boost` indicator when the transaction max fee is below the current network gas price returned by Alchemy.
+- Copy the full transaction hash directly from the table while keeping the Etherscan link.
 - Local browser storage for the Alchemy URL, addresses, alert email, and transaction history.
 
 ## Publishing with Visual Studio

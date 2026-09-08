@@ -13,6 +13,7 @@ const state = {
   email: localStorage.getItem(EMAIL_KEY) || '',
   transactions: loadTransactions(),
   currentGasPrice: null,
+  copiedHash: null,
   reconnectTimer: null,
   manualClose: false,
 };
@@ -340,6 +341,33 @@ function age(timestamp) {
 function dateTime(timestamp) { return new Intl.DateTimeFormat('en-GB', {hour:'2-digit', minute:'2-digit', second:'2-digit'}).format(timestamp); }
 function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[character])); }
 
+async function copyHash(hash) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(hash);
+    } else {
+      const helper = document.createElement('textarea');
+      helper.value = hash;
+      helper.style.position = 'fixed';
+      helper.style.opacity = '0';
+      document.body.appendChild(helper);
+      helper.select();
+      document.execCommand('copy');
+      helper.remove();
+    }
+    state.copiedHash = hash;
+    render();
+    setTimeout(() => {
+      if (state.copiedHash === hash) {
+        state.copiedHash = null;
+        render();
+      }
+    }, 1600);
+  } catch {
+    alert('Could not copy the transaction hash.');
+  }
+}
+
 function render() {
   const pending = state.transactions.filter(tx => tx.status === 'pending').length;
   const confirmed = state.transactions.filter(tx => ['confirmed','failed'].includes(tx.status)).length;
@@ -367,7 +395,7 @@ function render() {
     return `<tr>
       <td><span class="status ${escapeHtml(tx.status)}">${escapeHtml(statusLabel(tx.status))}</span></td>
       <td>${age(tx.firstSeen)}</td>
-      <td><a class="hash" href="https://etherscan.io/tx/${tx.hash}" target="_blank" rel="noreferrer">${shortHash(tx.hash)}</a></td>
+      <td><div class="hash-cell"><a class="hash" href="https://etherscan.io/tx/${tx.hash}" target="_blank" rel="noreferrer">${shortHash(tx.hash)}</a><button class="copy-button" type="button" data-copy-hash="${tx.hash}" aria-label="Copy full transaction hash">${state.copiedHash === tx.hash ? 'Copied' : 'Copy'}</button></div></td>
       <td title="${escapeHtml(matched)}">${matched ? shortAddress(matched) : '—'}</td>
       <td>${outgoing ? 'Outgoing' : 'Incoming'}</td>
       <td>${compactNumber(tx.value)} ETH</td>
@@ -431,6 +459,10 @@ el.form.addEventListener('submit', event => {
 });
 
 el.filter.addEventListener('change', render);
+el.txBody.addEventListener('click', event => {
+  const button = event.target.closest('[data-copy-hash]');
+  if (button) copyHash(button.dataset.copyHash);
+});
 el.clearButton.addEventListener('click', () => {
   if (!state.transactions.length || !confirm('Delete the saved transaction history?')) return;
   state.transactions = [];

@@ -64,6 +64,9 @@ th { color: #697588; font-size: .72rem; text-transform: uppercase; letter-spacin
 td { color: #c9d1dd; }
 .hash { color: #91a6ff; text-decoration: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .hash:hover { text-decoration: underline; }
+.hash-cell { display: inline-flex; align-items: center; gap: 8px; }
+.copy-button { min-height: 28px; padding: 0 9px; border-radius: 7px; color: #aeb8c8; font-size: .72rem; }
+.copy-button:hover { color: var(--text); border-color: #3a4659; }
 .status { display: inline-flex; align-items: center; gap: 7px; padding: 5px 9px; border-radius: 999px; font-size: .75rem; font-weight: 700; }
 .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .status.pending { color: var(--amber); background: rgba(245,189,88,.1); }
