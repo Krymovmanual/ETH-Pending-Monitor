@@ -38,6 +38,6 @@ After publishing, open the GitHub Pages URL and click **Connection settings**:
 4. Click **Enable browser notifications** and allow notifications in the browser.
 5. Click **Save and connect**.
 
-Use **Wallet balances → Settings** to enable balances and select the refresh interval. In the same dialog, optionally configure a Gas Station address, its minimum ETH balance, and a separate refresh interval. Use **Refresh now** at any time without changing the schedule.
+Use **Wallet balances → Settings** to enable wallet balances and select their refresh interval. Use the separate **Gas Station → Settings** dialog to configure its address, minimum ETH balance, and independent refresh interval. Use **Refresh now** at any time without changing either schedule.
 
 Monitoring and alerts run only while the page remains open. Email delivery uses the third-party FormSubmit service. The gas boost indicator is a recommendation based on the current network price, not a guarantee that a transaction is stuck.

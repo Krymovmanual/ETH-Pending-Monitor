@@ -77,11 +77,14 @@ const el = {
   balanceForm: document.querySelector('#balanceSettingsForm'),
   showBalances: document.querySelector('#showBalancesInput'),
   balanceInterval: document.querySelector('#balanceIntervalInput'),
+  gasDialog: document.querySelector('#gasSettingsDialog'),
+  gasForm: document.querySelector('#gasSettingsForm'),
   gasName: document.querySelector('#gasNameInput'),
   gasAddress: document.querySelector('#gasAddressInput'),
   gasThreshold: document.querySelector('#gasThresholdInput'),
   gasInterval: document.querySelector('#gasIntervalInput'),
   balanceError: document.querySelector('#balanceDialogError'),
+  gasError: document.querySelector('#gasDialogError'),
 };
 
 function loadAddresses() {
@@ -820,12 +823,18 @@ function openBalanceSettings() {
   const settings = state.balanceSettings;
   el.showBalances.checked = Boolean(settings.enabled);
   el.balanceInterval.value = String(settings.balanceInterval);
+  el.balanceError.textContent = '';
+  el.balanceDialog.showModal();
+}
+
+function openGasSettings() {
+  const settings = state.balanceSettings;
   el.gasName.value = settings.gasName || 'Main Gas Station';
   el.gasAddress.value = settings.gasAddress || '';
   el.gasThreshold.value = settings.gasThreshold;
   el.gasInterval.value = String(settings.gasInterval);
-  el.balanceError.textContent = '';
-  el.balanceDialog.showModal();
+  el.gasError.textContent = '';
+  el.gasDialog.showModal();
 }
 
 el.settingsButton.addEventListener('click', openSettings);
@@ -864,7 +873,7 @@ el.form.addEventListener('submit', event => {
 });
 
 el.balanceSettingsButton.addEventListener('click', openBalanceSettings);
-el.gasSettingsButton.addEventListener('click', openBalanceSettings);
+el.gasSettingsButton.addEventListener('click', openGasSettings);
 el.refreshBalancesButton.addEventListener('click', updateWalletBalances);
 el.gasBalanceBody.addEventListener('click', event => {
   if (event.target.closest('[data-refresh-gas]')) updateGasBalance();
@@ -872,20 +881,31 @@ el.gasBalanceBody.addEventListener('click', event => {
 el.balanceForm.addEventListener('submit', event => {
   if (event.submitter?.value !== 'default') return;
   event.preventDefault();
+  state.balanceSettings = {
+    ...state.balanceSettings,
+    enabled: el.showBalances.checked,
+    balanceInterval: Number(el.balanceInterval.value),
+  };
+  localStorage.setItem(BALANCE_SETTINGS_KEY, JSON.stringify(state.balanceSettings));
+  el.balanceDialog.close();
+  scheduleBalanceRefresh(true);
+});
+el.gasForm.addEventListener('submit', event => {
+  if (event.submitter?.value !== 'default') return;
+  event.preventDefault();
   const gasAddress = el.gasAddress.value.trim().toLowerCase();
   const gasThreshold = Number(el.gasThreshold.value);
   if (gasAddress && !validAddress(gasAddress)) {
-    el.balanceError.textContent = 'Enter a valid Gas Station Ethereum address or leave it empty.';
+    el.gasError.textContent = 'Enter a valid Gas Station Ethereum address or leave it empty.';
     return;
   }
   if (!Number.isFinite(gasThreshold) || gasThreshold < 0) {
-    el.balanceError.textContent = 'Minimum ETH balance must be zero or greater.';
+    el.gasError.textContent = 'Minimum ETH balance must be zero or greater.';
     return;
   }
   const gasChanged = gasAddress !== state.balanceSettings.gasAddress || gasThreshold !== Number(state.balanceSettings.gasThreshold);
   state.balanceSettings = {
-    enabled: el.showBalances.checked,
-    balanceInterval: Number(el.balanceInterval.value),
+    ...state.balanceSettings,
     gasName: el.gasName.value.trim() || 'Main Gas Station',
     gasAddress,
     gasThreshold,
@@ -897,7 +917,7 @@ el.balanceForm.addEventListener('submit', event => {
     localStorage.removeItem(GAS_ALERT_KEY);
   }
   localStorage.setItem(BALANCE_SETTINGS_KEY, JSON.stringify(state.balanceSettings));
-  el.balanceDialog.close();
+  el.gasDialog.close();
   scheduleBalanceRefresh(true);
 });
 

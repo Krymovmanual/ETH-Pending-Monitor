@@ -131,7 +131,24 @@
         <option value="0">Manual only</option>
       </select>
 
-      <div class="dialog-section-title">Gas Station</div>
+      <div class="dialog-error" id="balanceDialogError" role="alert"></div>
+      <div class="dialog-actions">
+        <button class="secondary" value="cancel" type="submit">Cancel</button>
+        <button class="primary" value="default" type="submit">Save settings</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="gasSettingsDialog">
+    <form method="dialog" id="gasSettingsForm">
+      <div class="dialog-head">
+        <div>
+          <span class="eyebrow">GAS STATION</span>
+          <h2>Gas Station settings</h2>
+        </div>
+        <button class="icon-button" value="cancel" aria-label="Close" type="submit">×</button>
+      </div>
+
       <label for="gasNameInput">Name</label>
       <input id="gasNameInput" type="text" maxlength="60" placeholder="Main Gas Station">
 
@@ -157,7 +174,7 @@
       </div>
       <p class="hint">A browser and email alert is sent when the ETH balance falls below the minimum.</p>
 
-      <div class="dialog-error" id="balanceDialogError" role="alert"></div>
+      <div class="dialog-error" id="gasDialogError" role="alert"></div>
       <div class="dialog-actions">
         <button class="secondary" value="cancel" type="submit">Cancel</button>
         <button class="primary" value="default" type="submit">Save settings</button>
