@@ -58,7 +58,7 @@ button, select { min-height: 40px; padding: 0 14px; }
 .primary { border-color: transparent; background: var(--blue); font-weight: 700; }
 .primary:hover { background: #718bf0; }
 .table-wrap { min-height: 340px; overflow-x: auto; position: relative; }
-table { width: 100%; border-collapse: collapse; min-width: 1120px; }
+table { width: 100%; border-collapse: collapse; min-width: 1340px; }
 th, td { padding: 15px 18px; text-align: left; border-bottom: 1px solid #18202d; font-size: .86rem; white-space: nowrap; }
 th { color: #697588; font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; background: #0a0e14; }
 td { color: #c9d1dd; }
@@ -76,6 +76,10 @@ td { color: #c9d1dd; }
 .gas-check strong { font-size: .76rem; color: var(--green); }
 .gas-check small { color: var(--muted); font-size: .7rem; }
 .gas-check.boost strong { color: var(--amber); }
+.queue-state { display: inline-flex; flex-direction: column; gap: 2px; }
+.queue-state strong { color: var(--red); font-size: .76rem; }
+.queue-state small { color: var(--muted); font-size: .7rem; }
+.queue-state.blocked strong { color: var(--amber); }
 .empty { min-height: 290px; padding: 70px 20px; text-align: center; }
 .empty.hidden { display: none; }
 .empty h3 { margin: 18px 0 7px; font-size: 1rem; }
