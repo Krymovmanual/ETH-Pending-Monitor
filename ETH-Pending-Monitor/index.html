@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Live-монитор pending-транзакций Ethereum">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://eth-mainnet.g.alchemy.com wss://eth-mainnet.g.alchemy.com; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+  <title>ETH Pending Monitor</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">ETHEREUM MAINNET</div>
+        <h1>Pending Monitor</h1>
+      </div>
+      <div class="connection" id="connectionBadge"><span class="dot"></span><span id="connectionText">Не подключено</span></div>
+    </header>
+
+    <section class="address-card">
+      <div>
+        <span class="label">Отслеживаемый адрес</span>
+        <a class="address" id="addressLink" href="https://etherscan.io/address/0xcED92FA7f0797cBc851B48140aE218a0b0D41ce0" target="_blank" rel="noreferrer">0xcED92FA7f0797cBc851B48140aE218a0b0D41ce0</a>
+      </div>
+      <button class="secondary" id="settingsButton" type="button">Настроить подключение</button>
+    </section>
+
+    <section class="stats" aria-label="Сводка">
+      <article><span>Сейчас pending</span><strong id="pendingCount">0</strong></article>
+      <article><span>Подтверждено</span><strong id="confirmedCount">0</strong></article>
+      <article><span>Dropped / replaced</span><strong id="problemCount">0</strong></article>
+      <article><span>Последнее событие</span><strong class="small" id="lastEvent">—</strong></article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Транзакции</h2>
+          <p>Данные обновляются автоматически, пока эта страница открыта.</p>
+        </div>
+        <div class="controls">
+          <select id="statusFilter" aria-label="Фильтр по статусу">
+            <option value="all">Все статусы</option>
+            <option value="pending">Только pending</option>
+            <option value="confirmed">Подтверждённые</option>
+            <option value="problem">Dropped / replaced</option>
+          </select>
+          <button class="secondary danger" id="clearButton" type="button">Очистить историю</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Статус</th>
+              <th>Возраст</th>
+              <th>Hash</th>
+              <th>Направление</th>
+              <th>Сумма</th>
+              <th>Nonce</th>
+              <th>Max fee</th>
+            </tr>
+          </thead>
+          <tbody id="txBody"></tbody>
+        </table>
+        <div class="empty" id="emptyState">
+          <div class="pulse-ring"></div>
+          <h3>Ждём pending-транзакции</h3>
+          <p id="emptyMessage">Настрой подключение к Alchemy, чтобы начать мониторинг.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="settingsDialog">
+    <form method="dialog" id="settingsForm">
+      <div class="dialog-head">
+        <div>
+          <span class="eyebrow">ALCHEMY</span>
+          <h2>Подключение</h2>
+        </div>
+        <button class="icon-button" value="cancel" aria-label="Закрыть" type="submit">×</button>
+      </div>
+      <label for="endpointInput">WebSocket URL</label>
+      <input id="endpointInput" type="password" spellcheck="false" autocomplete="off" placeholder="wss://eth-mainnet.g.alchemy.com/v2/…">
+      <p class="hint">URL хранится только в этом браузере и отправляется напрямую в Alchemy.</p>
+      <div class="dialog-error" id="dialogError" role="alert"></div>
+      <div class="dialog-actions">
+        <button class="secondary" value="cancel" type="submit">Отмена</button>
+        <button class="primary" id="connectButton" value="default" type="submit">Сохранить и подключить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
