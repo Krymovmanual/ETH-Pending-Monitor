@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Live monitor for pending Ethereum transactions">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://eth-mainnet.g.alchemy.com wss://eth-mainnet.g.alchemy.com; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://eth-mainnet.g.alchemy.com wss://eth-mainnet.g.alchemy.com https://formsubmit.co; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
   <title>ETH Pending Monitor</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -20,8 +20,8 @@
 
     <section class="address-card">
       <div>
-        <span class="label">Monitored address</span>
-        <a class="address" id="addressLink" href="https://etherscan.io/address/0xcED92FA7f0797cBc851B48140aE218a0b0D41ce0" target="_blank" rel="noreferrer">0xcED92FA7f0797cBc851B48140aE218a0b0D41ce0</a>
+        <span class="label">Monitored addresses</span>
+        <div class="address-list" id="addressList"></div>
       </div>
       <button class="secondary" id="settingsButton" type="button">Connection settings</button>
     </section>
@@ -37,12 +37,13 @@
       <div class="panel-head">
         <div>
           <h2>Transactions</h2>
-          <p>Data updates automatically while this page is open.</p>
+          <p>Live updates while this page is open. Gas check compares the transaction fee with the current network gas price.</p>
         </div>
         <div class="controls">
           <select id="statusFilter" aria-label="Filter by status">
             <option value="all">All statuses</option>
             <option value="pending">Pending only</option>
+            <option value="boost">Needs boost</option>
             <option value="confirmed">Confirmed</option>
             <option value="problem">Dropped / replaced</option>
           </select>
@@ -57,10 +58,12 @@
               <th>Status</th>
               <th>Age</th>
               <th>Hash</th>
+              <th>Address</th>
               <th>Direction</th>
               <th>Amount</th>
               <th>Nonce</th>
               <th>Max fee</th>
+              <th>Gas check</th>
             </tr>
           </thead>
           <tbody id="txBody"></tbody>
@@ -86,6 +89,22 @@
       <label for="endpointInput">WebSocket URL</label>
       <input id="endpointInput" type="password" spellcheck="false" autocomplete="off" placeholder="wss://eth-mainnet.g.alchemy.com/v2/…">
       <p class="hint">The URL is stored only in this browser and sent directly to Alchemy.</p>
+
+      <label for="addressesInput">Ethereum addresses</label>
+      <textarea id="addressesInput" spellcheck="false" placeholder="One 0x address per line"></textarea>
+      <p class="hint">Add up to 50 addresses, one per line.</p>
+
+      <label for="emailInput">Alert email</label>
+      <div class="inline-field">
+        <input id="emailInput" type="email" autocomplete="email" placeholder="alerts@example.com">
+        <button class="secondary" id="testEmailButton" type="button">Send test</button>
+      </div>
+      <p class="hint">Alerts are sent when a transaction stays pending for 15 minutes or becomes dropped/replaced. Monitoring must remain open. The first test requires email confirmation.</p>
+      <div class="test-status" id="testEmailStatus" role="status"></div>
+
+      <label>Browser notifications</label>
+      <button class="secondary full-width" id="notificationButton" type="button">Enable browser notifications</button>
+      <p class="hint" id="notificationStatus">Get an instant browser alert for stuck, dropped, replaced, or underpriced transactions while this page is open.</p>
       <div class="dialog-error" id="dialogError" role="alert"></div>
       <div class="dialog-actions">
         <button class="secondary" value="cancel" type="submit">Cancel</button>
