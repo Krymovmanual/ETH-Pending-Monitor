@@ -9,7 +9,7 @@ Live pending transaction monitor for one or more Ethereum addresses.
 - Every alert rule has its own enable switch, Browser/Email channels, delay where applicable, repeat interval where applicable, and urgent quiet-hours override.
 - Long-pending transactions are grouped into one wallet summary instead of sending a separate message for every transaction.
 - Gas boost analysis starts only after the configured Pending threshold. Emails show the full actionable TX hash first, followed by nonce, fee, network gas, and queue details.
-- Urgent queue alerts identify the blocking TX hash, nonce, and number of transactions behind it.
+- Urgent queue alerts identify the blocking TX hash, nonce, and number of transactions behind it. Immediately before delivery, the monitor rechecks receipts and current transaction state for both the blocker and the higher-nonce transactions; if either side of the queue is no longer pending, no urgent alert is sent.
 - `Needs boost` indicator when the transaction max fee is below the current network gas price returned by Alchemy.
 - Copy the full transaction hash directly from the table while keeping the Etherscan link.
 - Click any transaction row to inspect full From/To addresses, contract, method, fee data, nonce, queue state, and replacement hash.

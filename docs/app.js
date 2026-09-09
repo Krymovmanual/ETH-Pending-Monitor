@@ -40,6 +40,7 @@ const state = {
   balanceTimer: null,
   gasTimer: null,
   alertTimer: null,
+  alertEvaluationRunning: false,
   currentGasPrice: null,
   copiedHash: null,
   reconnectTimer: null,
@@ -181,7 +182,7 @@ function loadBalanceSettings() {
 function loadNotificationSettings() {
   const defaultRules = {
     pending: {enabled:true, browser:true, email:true, afterMinutes:15, repeatMinutes:30},
-    blocker: {enabled:true, browser:true, email:true, afterMinutes:0, repeatMinutes:30, ignoreQuiet:true},
+    blocker: {enabled:true, browser:true, email:true, afterMinutes:15, repeatMinutes:30, ignoreQuiet:true},
     dropped: {enabled:true, browser:true, email:true, afterMinutes:30, repeatMinutes:0},
     replaced: {enabled:true, browser:true, email:true, afterMinutes:0, repeatMinutes:0},
     gasLow: {enabled:true, browser:true, email:true, afterMinutes:0, repeatMinutes:60, ignoreQuiet:true},
@@ -196,7 +197,11 @@ function loadNotificationSettings() {
   try {
     const stored = JSON.parse(localStorage.getItem(NOTIFICATION_SETTINGS_KEY) || '{}');
     if (stored.rules) {
-      return {...defaults, ...stored, rules:Object.fromEntries(Object.entries(defaultRules).map(([key, rule]) => [key, {...rule, ...(stored.rules[key] || {})}]))};
+      const rules = Object.fromEntries(Object.entries(defaultRules).map(([key, rule]) => [key, {...rule, ...(stored.rules[key] || {})}]));
+      // Older builds used an immediate (0 minute) blocker alert. Migrate that
+      // unsafe default so an old browser configuration cannot bypass the wait.
+      if (Number(rules.blocker.afterMinutes) <= 0) rules.blocker.afterMinutes = defaultRules.blocker.afterMinutes;
+      return {...defaults, ...stored, rules};
     }
     const browser = stored.browserEnabled !== false;
     const email = stored.emailEnabled !== false;
@@ -479,6 +484,99 @@ async function checkStatuses() {
   } catch { /* The WebSocket badge remains the primary connection signal. */ }
 }
 
+async function verifyTransactionsStillPending(transactions) {
+  if (!state.endpoint) return [];
+  const candidates = [...new Map(
+    transactions
+      .filter(tx => tx?.status === 'pending' && tx.hash)
+      .map(tx => [tx.hash, tx]),
+  ).values()];
+  if (!candidates.length) return [];
+
+  const endpoint = toHttpEndpoint(state.endpoint);
+  try {
+    const receiptPayload = candidates.map((tx, index) => ({
+      jsonrpc: '2.0', id: index + 1, method: 'eth_getTransactionReceipt', params: [tx.hash],
+    }));
+    const receiptResponse = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify(receiptPayload),
+    });
+    if (!receiptResponse.ok) return [];
+    const receiptAnswers = await receiptResponse.json();
+    if (!Array.isArray(receiptAnswers)) return [];
+    const receipts = new Map(receiptAnswers.map(answer => [answer.id, answer]));
+    const unresolved = [];
+    let changed = false;
+
+    candidates.forEach((tx, index) => {
+      const answer = receipts.get(index + 1);
+      if (!answer || answer.error) return;
+      if (answer.result) {
+        tx.status = answer.result.status === '0x1' ? 'confirmed' : 'failed';
+        tx.blockNumber = hexToNumber(answer.result.blockNumber);
+        changed = true;
+      } else {
+        unresolved.push(tx);
+      }
+    });
+
+    const live = [];
+    if (unresolved.length) {
+      const transactionPayload = unresolved.map((tx, index) => ({
+        jsonrpc: '2.0', id: index + 1, method: 'eth_getTransactionByHash', params: [tx.hash],
+      }));
+      const transactionResponse = await fetch(endpoint, {
+        method: 'POST',
+        headers: {'content-type': 'application/json'},
+        body: JSON.stringify(transactionPayload),
+      });
+      if (!transactionResponse.ok) return [];
+      const transactionAnswers = await transactionResponse.json();
+      if (!Array.isArray(transactionAnswers)) return [];
+      const currentTransactions = new Map(transactionAnswers.map(answer => [answer.id, answer]));
+
+      unresolved.forEach((tx, index) => {
+        const answer = currentTransactions.get(index + 1);
+        // Fail closed: a missing/error response, a missing transaction, or a
+        // transaction with a block number must never produce a pending alert.
+        if (!answer || answer.error || !answer.result || answer.result.blockNumber) return;
+        live.push(tx);
+      });
+    }
+
+    if (changed) {
+      saveTransactions();
+      render();
+    }
+    return live;
+  } catch {
+    // If Alchemy cannot confirm the current state, skip this alert cycle.
+    return [];
+  }
+}
+
+async function verifyLiveBlocker(tx) {
+  if (!tx || tx.status !== 'pending' || !state.addresses.includes(tx.from)) return null;
+  const requiredAgeMs = Number(notificationRule('blocker').afterMinutes) * 60 * 1000;
+  if (Date.now() - tx.firstSeen < requiredAgeMs) return null;
+
+  const possibleQueue = state.transactions.filter(item =>
+    item.status === 'pending' && item.from === tx.from && item.nonce >= tx.nonce,
+  );
+  const live = await verifyTransactionsStillPending(possibleQueue);
+  if (!live.includes(tx) || tx.status !== 'pending') return null;
+
+  const higher = live.filter(item => item.nonce > tx.nonce);
+  const blockedNonceCount = new Set(higher.map(item => item.nonce)).size;
+  if (!blockedNonceCount) return null;
+
+  // A new lower nonce may have arrived while the RPC verification was running.
+  if (queueInfo(tx)?.role !== 'blocker') return null;
+  return {role: 'blocker', blockerNonce: tx.nonce, count: blockedNonceCount, transactions: higher};
+}
+
 async function updateGasPrice() {
   if (!state.endpoint) return;
   try {
@@ -503,24 +601,30 @@ function queueInfo(tx) {
   return null;
 }
 
-function evaluateAlerts() {
-  const pendingAfterMs = notificationRule('pending').afterMinutes * 60 * 1000;
-  for (const tx of state.transactions) {
-    tx.alerts ||= {};
-    if (tx.status === 'dropped' || tx.status === 'replaced') sendAlert(tx, tx.status);
-    const queue = queueInfo(tx);
-    if (queue?.role === 'blocker' && Date.now() - tx.firstSeen >= notificationRule('blocker').afterMinutes * 60 * 1000) {
-      sendAlert(tx, 'blocker', queue);
+async function evaluateAlerts() {
+  if (state.alertEvaluationRunning) return;
+  state.alertEvaluationRunning = true;
+  try {
+    const pendingAfterMs = notificationRule('pending').afterMinutes * 60 * 1000;
+    for (const tx of state.transactions) {
+      tx.alerts ||= {};
+      if (tx.status === 'dropped' || tx.status === 'replaced') await sendAlert(tx, tx.status);
+      const queue = queueInfo(tx);
+      if (queue?.role === 'blocker' && Date.now() - tx.firstSeen >= notificationRule('blocker').afterMinutes * 60 * 1000) {
+        await sendAlert(tx, 'blocker', queue);
+      }
     }
-  }
-  evaluatePendingSummaries(pendingAfterMs);
-  if (validAddress(state.balanceSettings.gasAddress) && (state.gasBalance.raw || state.gasBalance.raw === '0')) {
-    const currentGasBalance = Number(formatTokenAmount(state.gasBalance.raw, 18).replace(/,/g, ''));
-    if (currentGasBalance < Number(state.balanceSettings.gasThreshold)) sendGasAlert(currentGasBalance);
+    await evaluatePendingSummaries(pendingAfterMs);
+    if (validAddress(state.balanceSettings.gasAddress) && (state.gasBalance.raw || state.gasBalance.raw === '0')) {
+      const currentGasBalance = Number(formatTokenAmount(state.gasBalance.raw, 18).replace(/,/g, ''));
+      if (currentGasBalance < Number(state.balanceSettings.gasThreshold)) await sendGasAlert(currentGasBalance);
+    }
+  } finally {
+    state.alertEvaluationRunning = false;
   }
 }
 
-function evaluatePendingSummaries(pendingAfterMs) {
+async function evaluatePendingSummaries(pendingAfterMs) {
   const groups = new Map();
   for (const tx of state.transactions) {
     if (tx.status !== 'pending' || Date.now() - tx.firstSeen < pendingAfterMs) continue;
@@ -529,7 +633,7 @@ function evaluatePendingSummaries(pendingAfterMs) {
     groups.get(wallet).push(tx);
   }
   let changed = false;
-  for (const [wallet, transactions] of groups) sendPendingSummary(wallet, transactions);
+  for (const [wallet, transactions] of groups) await sendPendingSummary(wallet, transactions);
   for (const wallet of Object.keys(state.summaryAlerts)) {
     if (!groups.has(wallet)) { delete state.summaryAlerts[wallet]; changed = true; }
   }
@@ -539,30 +643,48 @@ function evaluatePendingSummaries(pendingAfterMs) {
 async function sendPendingSummary(wallet, transactions) {
   const rule = notificationRule('pending');
   if (!rule.enabled || inQuietHours('pending') || !transactions.length) return;
-  const sorted = [...transactions].sort((a, b) => a.nonce - b.nonce);
+  const walletPending = state.transactions.filter(tx =>
+    tx.status === 'pending' && (tx.matchedAddress || tx.from || 'unknown') === wallet,
+  );
+  const verifiedPending = await verifyTransactionsStillPending(walletPending);
+  const sorted = verifiedPending
+    .filter(tx => Date.now() - tx.firstSeen >= rule.afterMinutes * 60 * 1000)
+    .sort((a, b) => a.nonce - b.nonce);
+  if (!sorted.length) return;
+  const verifiedQueueInfo = tx => {
+    if (!verifiedPending.includes(tx) || !state.addresses.includes(tx.from)) return null;
+    const nonces = [...new Set(
+      verifiedPending.filter(item => item.from === tx.from).map(item => item.nonce),
+    )].sort((a, b) => a - b);
+    if (nonces.length < 2) return null;
+    const blockerNonce = nonces[0];
+    if (tx.nonce === blockerNonce) return {role:'blocker', blockerNonce, count:nonces.length - 1};
+    if (tx.nonce > blockerNonce) return {role:'blocked', blockerNonce, count:nonces.length - 1};
+    return null;
+  };
   const signature = sorted.map(tx => {
-    const queue = queueInfo(tx);
+    const queue = verifiedQueueInfo(tx);
     return `${tx.hash}:${needsBoost(tx) ? 'boost' : 'ok'}:${queue?.role || 'none'}:${queue?.count || 0}`;
   }).sort().join(',');
   const previous = state.summaryAlerts[wallet] || {};
   if (previous.signature === signature && !alertCanRepeat(previous.sentAt, 'stuck_summary')) return;
   const channels = activeAlertChannels('pending');
   if (!channels.browser && !channels.email) return;
-  const blocker = sorted.find(tx => queueInfo(tx)?.role === 'blocker');
+  const blocker = sorted.find(tx => verifiedQueueInfo(tx)?.role === 'blocker');
   const boostTransactions = sorted.filter(needsBoost);
   const actionable = blocker && needsBoost(blocker) ? blocker : boostTransactions[0];
   const primary = actionable || blocker || sorted[0];
-  const count = transactions.length;
+  const count = sorted.length;
   const title = actionable
-    ? `Boost required: ${shortHash(actionable.hash)}${queueInfo(actionable)?.role === 'blocker' ? ` is blocking ${queueInfo(actionable).count}` : ''}`
+    ? `Boost required: ${shortHash(actionable.hash)}${verifiedQueueInfo(actionable)?.role === 'blocker' ? ` is blocking ${verifiedQueueInfo(actionable).count}` : ''}`
     : `${count} transaction${count === 1 ? '' : 's'} pending for ${rule.afterMinutes}+ minutes`;
   const cause = blocker
-    ? `TX ${blocker.hash} (nonce ${blocker.nonce}) is blocking ${queueInfo(blocker).count}; ${needsBoost(blocker) ? `boost required — max fee ${compactNumber(blocker.maxFee, 2)} vs network ${compactNumber(state.currentGasPrice, 2)} Gwei` : 'fee looks sufficient, cause unknown'}.`
+    ? `TX ${blocker.hash} (nonce ${blocker.nonce}) is blocking ${verifiedQueueInfo(blocker).count}; ${needsBoost(blocker) ? `boost required — max fee ${compactNumber(blocker.maxFee, 2)} vs network ${compactNumber(state.currentGasPrice, 2)} Gwei` : 'fee looks sufficient, cause unknown'}.`
     : boostTransactions.length
       ? `${boostTransactions.length} transaction${boostTransactions.length === 1 ? '' : 's'} need a boost.`
       : 'Fees look sufficient; cause unknown.';
   const browserCause = blocker
-    ? `${actionable === blocker ? 'Blocking' : `${shortHash(blocker.hash)} is blocking`} ${queueInfo(blocker).count}; ${needsBoost(blocker) ? 'boost required' : 'fee looks sufficient'}.`
+    ? `${actionable === blocker ? 'Blocking' : `${shortHash(blocker.hash)} is blocking`} ${verifiedQueueInfo(blocker).count}; ${needsBoost(blocker) ? 'boost required' : 'fee looks sufficient'}.`
     : boostTransactions.length ? `${boostTransactions.length} need a boost.` : 'Fees look sufficient.';
   const bodyText = actionable
     ? `${walletLabel(wallet)} · ${shortHash(actionable.hash)} · nonce ${actionable.nonce} · ${browserCause}`
@@ -579,9 +701,9 @@ async function sendPendingSummary(wallet, transactions) {
   }
   if (channels.email) {
     const emailSubject = actionable
-      ? `Boost required: TX ${actionable.hash}${queueInfo(actionable)?.role === 'blocker' ? ` is blocking ${queueInfo(actionable).count} transactions` : ''}`
+      ? `Boost required: TX ${actionable.hash}${verifiedQueueInfo(actionable)?.role === 'blocker' ? ` is blocking ${verifiedQueueInfo(actionable).count} transactions` : ''}`
       : title;
-    try { await sendEmail(state.email, emailSubject, primary, 'stuck_summary', {count, transactions, blocker, boostTransactions, cause}); }
+    try { await sendEmail(state.email, emailSubject, primary, 'stuck_summary', {count, transactions:sorted, blocker, boostTransactions, cause}); }
     catch {
       if (!browserDelivered) delete state.summaryAlerts[wallet];
       localStorage.setItem(SUMMARY_ALERTS_KEY, JSON.stringify(state.summaryAlerts));
@@ -628,9 +750,15 @@ function activeAlertChannels(kind) {
 
 async function sendAlert(tx, kind, context = {}) {
   tx.alerts ||= {};
-  const alertKey = kind === 'blocker' ? `blocker-${context.count}` : kind;
   const rule = notificationRule(kind);
-  if (!rule.enabled || inQuietHours(kind) || !alertCanRepeat(tx.alerts[alertKey], kind)) return;
+  if (!rule.enabled || inQuietHours(kind)) return;
+  if (kind === 'blocker') {
+    const verifiedContext = await verifyLiveBlocker(tx);
+    if (!verifiedContext) return;
+    context = verifiedContext;
+  }
+  const alertKey = kind === 'blocker' ? `blocker-${context.count}` : kind;
+  if (!alertCanRepeat(tx.alerts[alertKey], kind)) return;
   const channels = activeAlertChannels(kind);
   if (!channels.browser && !channels.email) return;
   tx.alerts[alertKey] = Date.now();
@@ -651,7 +779,7 @@ async function sendAlert(tx, kind, context = {}) {
   }
 
   if (channels.email) {
-    const emailTitle = kind === 'blocker' ? `URGENT: TX ${tx.hash} is blocking ${context.count} transactions` : title;
+    const emailTitle = kind === 'blocker' ? `URGENT: TX ${tx.hash} is blocking ${context.count} transaction${context.count === 1 ? '' : 's'}` : title;
     try { await sendEmail(state.email, emailTitle, tx, kind, context); }
     catch {
       if (!browserDelivered) delete tx.alerts[alertKey];
@@ -661,7 +789,10 @@ async function sendAlert(tx, kind, context = {}) {
 }
 
 function alertTitle(kind, tx = null, context = {}) {
-  if (kind === 'blocker') return `URGENT: ${shortHash(tx?.hash || '')} is blocking ${context.count || 0} transactions`;
+  if (kind === 'blocker') {
+    const count = context.count || 0;
+    return `URGENT: ${shortHash(tx?.hash || '')} is blocking ${count} transaction${count === 1 ? '' : 's'}`;
+  }
   return ({
     stuck: `Transaction pending for ${notificationRule('pending').afterMinutes}+ minutes`,
     stuck_summary: `Transactions pending for ${notificationRule('pending').afterMinutes}+ minutes`,
@@ -1281,8 +1412,8 @@ el.notificationForm.addEventListener('submit', event => {
     el.notificationError.textContent = 'Pending alert time must be between 1 and 1,440 minutes.';
     return;
   }
-  if (!Number.isFinite(blockerMinutes) || blockerMinutes < 0 || blockerMinutes > 1440) {
-    el.notificationError.textContent = 'Queue blocker alert time must be between 0 and 1,440 minutes.';
+  if (!Number.isFinite(blockerMinutes) || blockerMinutes < 1 || blockerMinutes > 1440) {
+    el.notificationError.textContent = 'Queue blocker alert time must be between 1 and 1,440 minutes.';
     return;
   }
   if (!Number.isFinite(droppedMinutes) || droppedMinutes < 1 || droppedMinutes > 1440) {
