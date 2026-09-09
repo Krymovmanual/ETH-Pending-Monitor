@@ -10,7 +10,8 @@ const WALLET_BALANCES_KEY = 'eth-pending-monitor-wallet-balances';
 const GAS_BALANCE_KEY = 'eth-pending-monitor-gas-balance';
 const GAS_ALERT_KEY = 'eth-pending-monitor-gas-alert-sent';
 const PAGE_SIZE_KEY = 'eth-pending-monitor-page-size';
-const ALERT_AFTER_MS = 15 * 60 * 1000;
+const NOTIFICATION_SETTINGS_KEY = 'eth-pending-monitor-notification-settings';
+const SUMMARY_ALERTS_KEY = 'eth-pending-monitor-summary-alerts';
 const DROP_CHECK_AFTER_MS = 30 * 60 * 1000;
 const BALANCE_TOKENS = [
   { symbol: 'USDT ERC-20', contract: '0xdac17f958d2ee523a2206206994597c13d831ec7', decimals: 6 },
@@ -26,6 +27,8 @@ const state = {
   addresses: loadAddresses(),
   addressLabels: loadAddressLabels(),
   email: localStorage.getItem(EMAIL_KEY) || '',
+  notificationSettings: loadNotificationSettings(),
+  summaryAlerts: loadStoredObject(SUMMARY_ALERTS_KEY),
   transactions: loadTransactions(),
   tokenCache: loadTokenCache(),
   balanceSettings: loadBalanceSettings(),
@@ -37,6 +40,7 @@ const state = {
   gasLoadError: '',
   balanceTimer: null,
   gasTimer: null,
+  alertTimer: null,
   currentGasPrice: null,
   copiedHash: null,
   reconnectTimer: null,
@@ -67,6 +71,7 @@ const el = {
   paginationInfo: document.querySelector('#paginationInfo'),
   pageIndicator: document.querySelector('#pageIndicator'),
   settingsButton: document.querySelector('#settingsButton'),
+  notificationSettingsButton: document.querySelector('#notificationSettingsButton'),
   clearButton: document.querySelector('#clearButton'),
   dialog: document.querySelector('#settingsDialog'),
   form: document.querySelector('#settingsForm'),
@@ -97,6 +102,23 @@ const el = {
   gasInterval: document.querySelector('#gasIntervalInput'),
   balanceError: document.querySelector('#balanceDialogError'),
   gasError: document.querySelector('#gasDialogError'),
+  notificationDialog: document.querySelector('#notificationSettingsDialog'),
+  notificationForm: document.querySelector('#notificationSettingsForm'),
+  browserAlerts: document.querySelector('#browserAlertsInput'),
+  emailAlerts: document.querySelector('#emailAlertsInput'),
+  pendingAlerts: document.querySelector('#pendingAlertsInput'),
+  blockerAlerts: document.querySelector('#blockerAlertsInput'),
+  boostAlerts: document.querySelector('#boostAlertsInput'),
+  droppedAlerts: document.querySelector('#droppedAlertsInput'),
+  replacedAlerts: document.querySelector('#replacedAlertsInput'),
+  gasAlerts: document.querySelector('#gasAlertsInput'),
+  pendingMinutes: document.querySelector('#pendingMinutesInput'),
+  alertCheckInterval: document.querySelector('#alertCheckIntervalInput'),
+  alertRepeat: document.querySelector('#alertRepeatInput'),
+  quietHours: document.querySelector('#quietHoursInput'),
+  quietStart: document.querySelector('#quietStartInput'),
+  quietEnd: document.querySelector('#quietEndInput'),
+  notificationError: document.querySelector('#notificationDialogError'),
   transactionDialog: document.querySelector('#transactionDialog'),
   transactionDetails: document.querySelector('#transactionDetails'),
   closeTransactionDialog: document.querySelector('#closeTransactionDialog'),
@@ -141,6 +163,27 @@ function loadBalanceSettings() {
     gasInterval: 300000,
   };
   try { return {...defaults, ...JSON.parse(localStorage.getItem(BALANCE_SETTINGS_KEY) || '{}')}; }
+  catch { return defaults; }
+}
+
+function loadNotificationSettings() {
+  const defaults = {
+    browserEnabled: true,
+    emailEnabled: true,
+    pendingEnabled: true,
+    blockerEnabled: true,
+    boostEnabled: true,
+    droppedEnabled: true,
+    replacedEnabled: true,
+    gasLowEnabled: true,
+    pendingMinutes: 15,
+    repeatMinutes: 30,
+    checkIntervalSeconds: 10,
+    quietHoursEnabled: false,
+    quietStart: '22:00',
+    quietEnd: '08:00',
+  };
+  try { return {...defaults, ...JSON.parse(localStorage.getItem(NOTIFICATION_SETTINGS_KEY) || '{}')}; }
   catch { return defaults; }
 }
 
@@ -430,48 +473,155 @@ function queueInfo(tx) {
 }
 
 function evaluateAlerts() {
+  const pendingAfterMs = Number(state.notificationSettings.pendingMinutes) * 60 * 1000;
   for (const tx of state.transactions) {
     tx.alerts ||= {};
-    if (tx.status === 'pending' && Date.now() - tx.firstSeen >= ALERT_AFTER_MS) sendAlert(tx, 'stuck');
     if (tx.status === 'dropped' || tx.status === 'replaced') sendAlert(tx, tx.status);
-    if (needsBoost(tx)) sendAlert(tx, 'boost');
     const queue = queueInfo(tx);
-    if (queue?.role === 'blocker') sendAlert(tx, 'blocker', queue);
+    if (queue?.role === 'blocker') {
+      sendAlert(tx, 'blocker', queue);
+    } else {
+      if (needsBoost(tx)) sendAlert(tx, 'boost');
+    }
   }
+  evaluatePendingSummaries(pendingAfterMs);
+  if (validAddress(state.balanceSettings.gasAddress) && (state.gasBalance.raw || state.gasBalance.raw === '0')) {
+    const currentGasBalance = Number(formatTokenAmount(state.gasBalance.raw, 18).replace(/,/g, ''));
+    if (currentGasBalance < Number(state.balanceSettings.gasThreshold)) sendGasAlert(currentGasBalance);
+  }
+}
+
+function evaluatePendingSummaries(pendingAfterMs) {
+  const groups = new Map();
+  for (const tx of state.transactions) {
+    if (tx.status !== 'pending' || Date.now() - tx.firstSeen < pendingAfterMs) continue;
+    const wallet = tx.matchedAddress || tx.from || 'unknown';
+    if (!groups.has(wallet)) groups.set(wallet, []);
+    groups.get(wallet).push(tx);
+  }
+  let changed = false;
+  for (const [wallet, transactions] of groups) sendPendingSummary(wallet, transactions);
+  for (const wallet of Object.keys(state.summaryAlerts)) {
+    if (!groups.has(wallet)) { delete state.summaryAlerts[wallet]; changed = true; }
+  }
+  if (changed) localStorage.setItem(SUMMARY_ALERTS_KEY, JSON.stringify(state.summaryAlerts));
+}
+
+async function sendPendingSummary(wallet, transactions) {
+  if (!state.notificationSettings.pendingEnabled || inQuietHours() || !transactions.length) return;
+  const sorted = [...transactions].sort((a, b) => a.nonce - b.nonce);
+  const signature = sorted.map(tx => tx.hash).sort().join(',');
+  const previous = state.summaryAlerts[wallet] || {};
+  if (previous.signature === signature && !alertCanRepeat(previous.sentAt, 'stuck_summary')) return;
+  const channels = activeAlertChannels();
+  if (!channels.browser && !channels.email) return;
+  const primary = sorted[0];
+  const blocker = sorted.find(tx => queueInfo(tx)?.role === 'blocker');
+  const count = transactions.length;
+  const title = `${count} transaction${count === 1 ? '' : 's'} pending for ${state.notificationSettings.pendingMinutes}+ minutes`;
+  const cause = blocker
+    ? `Nonce ${blocker.nonce} is blocking ${queueInfo(blocker).count}; ${needsBoost(blocker) ? `low fee ${compactNumber(blocker.maxFee, 2)} vs network ${compactNumber(state.currentGasPrice, 2)} Gwei` : 'fee looks sufficient, cause unknown'}.`
+    : 'No nonce queue blocker detected.';
+  const bodyText = `${walletLabel(wallet)}: ${count} pending. ${cause}`;
+  state.summaryAlerts[wallet] = {signature, sentAt:Date.now()};
+  localStorage.setItem(SUMMARY_ALERTS_KEY, JSON.stringify(state.summaryAlerts));
+  let browserDelivered = false;
+  if (channels.browser) {
+    try {
+      const notification = new Notification(title, {body:bodyText, tag:`pending-summary-${wallet}`, requireInteraction:Boolean(blocker)});
+      notification.onclick = () => window.open(`https://etherscan.io/tx/${primary.hash}`, '_blank', 'noopener');
+      browserDelivered = true;
+    } catch { /* Browser support varies. */ }
+  }
+  if (channels.email) {
+    try { await sendEmail(state.email, title, primary, 'stuck_summary', {count, transactions, blocker, cause}); }
+    catch {
+      if (!browserDelivered) delete state.summaryAlerts[wallet];
+      localStorage.setItem(SUMMARY_ALERTS_KEY, JSON.stringify(state.summaryAlerts));
+    }
+  }
+}
+
+function alertTypeEnabled(kind) {
+  const settings = state.notificationSettings;
+  return ({
+    stuck: settings.pendingEnabled,
+    stuck_summary: settings.pendingEnabled,
+    blocker: settings.blockerEnabled,
+    boost: settings.boostEnabled,
+    dropped: settings.droppedEnabled,
+    replaced: settings.replacedEnabled,
+  })[kind] !== false;
+}
+
+function inQuietHours() {
+  const settings = state.notificationSettings;
+  if (!settings.quietHoursEnabled || settings.quietStart === settings.quietEnd) return false;
+  const toMinutes = value => {
+    const [hours, minutes] = String(value || '00:00').split(':').map(Number);
+    return hours * 60 + minutes;
+  };
+  const now = new Date();
+  const current = now.getHours() * 60 + now.getMinutes();
+  const start = toMinutes(settings.quietStart);
+  const end = toMinutes(settings.quietEnd);
+  return start < end ? current >= start && current < end : current >= start || current < end;
+}
+
+function alertCanRepeat(lastSent, kind = '') {
+  if (!lastSent) return true;
+  if (['dropped', 'replaced'].includes(kind)) return false;
+  const repeatMinutes = Number(state.notificationSettings.repeatMinutes);
+  return repeatMinutes > 0 && Date.now() - Number(lastSent) >= repeatMinutes * 60 * 1000;
+}
+
+function activeAlertChannels() {
+  const settings = state.notificationSettings;
+  return {
+    browser: Boolean(settings.browserEnabled && 'Notification' in window && Notification.permission === 'granted'),
+    email: Boolean(settings.emailEnabled && validEmail(state.email)),
+  };
 }
 
 async function sendAlert(tx, kind, context = {}) {
   tx.alerts ||= {};
   const alertKey = kind === 'blocker' ? `blocker-${context.count}` : kind;
-  if (tx.alerts[alertKey]) return;
+  if (!alertTypeEnabled(kind) || inQuietHours() || !alertCanRepeat(tx.alerts[alertKey], kind)) return;
+  const channels = activeAlertChannels();
+  if (!channels.browser && !channels.email) return;
   tx.alerts[alertKey] = Date.now();
   saveTransactions();
 
   const title = alertTitle(kind, tx, context);
   const wallet = walletLabel(tx.matchedAddress);
   const detail = kind === 'blocker'
-    ? `${wallet}: nonce ${tx.nonce} blocks ${context.count} transaction${context.count === 1 ? '' : 's'}`
-    : `${wallet}: ${shortHash(tx.hash)} · ${transactionAmount(tx)}`;
-  if ('Notification' in window && Notification.permission === 'granted') {
+    ? `${wallet}: nonce ${tx.nonce} blocks ${context.count} transaction${context.count === 1 ? '' : 's'}. ${needsBoost(tx) ? `Low fee: ${compactNumber(tx.maxFee, 2)} vs network ${compactNumber(state.currentGasPrice, 2)} Gwei.` : 'Fee is not below the current network price; cause unknown.'}`
+    : kind === 'stuck' && needsBoost(tx)
+      ? `${wallet}: ${shortHash(tx.hash)} has a low fee (${compactNumber(tx.maxFee, 2)} vs network ${compactNumber(state.currentGasPrice, 2)} Gwei) and may be holding the queue.`
+      : `${wallet}: ${shortHash(tx.hash)} · ${transactionAmount(tx)}`;
+  let browserDelivered = false;
+  if (channels.browser) {
     try {
       const notification = new Notification(title, { body: detail, tag: `${tx.hash}-${alertKey}`, requireInteraction: kind === 'blocker' });
       notification.onclick = () => window.open(`https://etherscan.io/tx/${tx.hash}`, '_blank', 'noopener');
+      browserDelivered = true;
     } catch { /* Browser support varies. */ }
   }
 
-  if (state.email) {
+  if (channels.email) {
     try { await sendEmail(state.email, title, tx, kind, context); }
     catch {
-      delete tx.alerts[alertKey];
+      if (!browserDelivered) delete tx.alerts[alertKey];
       saveTransactions();
     }
   }
 }
 
 function alertTitle(kind, tx = null, context = {}) {
-  if (kind === 'blocker') return `URGENT: Nonce ${tx?.nonce ?? '—'} is blocking ${context.count || 0} transactions`;
+  if (kind === 'blocker') return `URGENT: ${needsBoost(tx) ? 'Low-fee ' : ''}nonce ${tx?.nonce ?? '—'} is blocking ${context.count || 0} transactions`;
   return ({
-    stuck: 'Transaction pending for 15+ minutes',
+    stuck: `Transaction pending for ${state.notificationSettings.pendingMinutes}+ minutes`,
+    stuck_summary: `Transactions pending for ${state.notificationSettings.pendingMinutes}+ minutes`,
     dropped: 'Transaction dropped',
     replaced: 'Transaction replaced',
     boost: 'Transaction may need a gas boost',
@@ -499,6 +649,10 @@ async function sendEmail(email, subject, tx, kind, context = {}) {
       token_contract: tx?.tokenContract || '—',
       nonce: tx?.nonce ?? '—',
       blocking_transactions: kind === 'blocker' ? context.count : '—',
+      blocking_cause: kind === 'blocker' ? (needsBoost(tx) ? 'Transaction fee is below the current network gas price' : 'Unknown — fee is not below the current network gas price') : '—',
+      pending_transactions: kind === 'stuck_summary' ? context.count : '—',
+      pending_hashes: kind === 'stuck_summary' ? context.transactions.map(item => item.hash).join(', ') : '—',
+      pending_summary: kind === 'stuck_summary' ? context.cause : '—',
       transaction_max_fee: tx ? `${compactNumber(tx.maxFee, 2)} Gwei` : '—',
       current_network_gas: state.currentGasPrice ? `${compactNumber(state.currentGasPrice, 2)} Gwei` : 'Unavailable',
       first_seen: tx ? new Date(tx.firstSeen).toISOString() : new Date().toISOString(),
@@ -643,16 +797,20 @@ async function updateGasBalance() {
 }
 
 async function sendGasAlert(currentBalance) {
-  if (localStorage.getItem(GAS_ALERT_KEY) === '1') return;
-  localStorage.setItem(GAS_ALERT_KEY, '1');
+  const lastSent = Number(localStorage.getItem(GAS_ALERT_KEY) || 0);
+  if (!state.notificationSettings.gasLowEnabled || inQuietHours() || !alertCanRepeat(lastSent)) return;
+  const channels = activeAlertChannels();
+  if (!channels.browser && !channels.email) return;
+  localStorage.setItem(GAS_ALERT_KEY, String(Date.now()));
   const settings = state.balanceSettings;
   const title = 'URGENT: Gas Station balance is low';
   const bodyText = `${settings.gasName}: ${compactNumber(currentBalance, 6)} ETH. Minimum: ${compactNumber(settings.gasThreshold, 6)} ETH.`;
-  if ('Notification' in window && Notification.permission === 'granted') {
-    try { new Notification(title, {body:bodyText, tag:'gas-station-low', requireInteraction:true}); }
+  let browserDelivered = false;
+  if (channels.browser) {
+    try { new Notification(title, {body:bodyText, tag:'gas-station-low', requireInteraction:true}); browserDelivered = true; }
     catch { /* Browser support varies. */ }
   }
-  if (!state.email) return;
+  if (!channels.email) return;
   try {
     const response = await fetch(`https://formsubmit.co/ajax/${encodeURIComponent(state.email)}`, {
       method:'POST',
@@ -671,7 +829,7 @@ async function sendGasAlert(currentBalance) {
     });
     if (!response.ok) throw new Error('Email failed');
   } catch {
-    localStorage.removeItem(GAS_ALERT_KEY);
+    if (!browserDelivered) localStorage.removeItem(GAS_ALERT_KEY);
   }
 }
 
@@ -819,7 +977,7 @@ function render() {
       ? '<span class="gas-check"><strong>—</strong></span>'
       : `<span class="gas-check ${boost ? 'boost' : ''}"><strong>${boost ? 'Boost recommended' : 'OK'}</strong><small>Network ${state.currentGasPrice ? `${compactNumber(state.currentGasPrice, 2)} Gwei` : '—'}</small></span>`;
     const queueLabel = queue?.role === 'blocker'
-      ? `<span class="queue-state"><strong>Blocking ${queue.count} transaction${queue.count === 1 ? '' : 's'}</strong><small>Nonce ${queue.blockerNonce}</small></span>`
+      ? `<span class="queue-state"><strong>Blocking ${queue.count} transaction${queue.count === 1 ? '' : 's'}</strong><small>Nonce ${queue.blockerNonce}${boost ? ' · Low fee' : ' · Cause unknown'}</small></span>`
       : queue?.role === 'blocked'
         ? `<span class="queue-state blocked"><strong>Blocked</strong><small>By nonce ${queue.blockerNonce}</small></span>`
         : '—';
@@ -952,16 +1110,43 @@ function statusLabel(status) {
 function openSettings() {
   el.endpoint.value = state.endpoint;
   el.addresses.value = state.addresses.map(address => state.addressLabels[address] ? `${state.addressLabels[address]} | ${address}` : address).join('\n');
-  el.email.value = state.email;
   el.error.textContent = '';
-  showTestStatus('');
-  updateNotificationStatus();
   el.dialog.showModal();
 }
 
 function showTestStatus(message, isError = false) {
   el.testEmailStatus.textContent = message;
   el.testEmailStatus.classList.toggle('error', isError);
+}
+
+function openNotificationSettings() {
+  const settings = state.notificationSettings;
+  el.browserAlerts.checked = Boolean(settings.browserEnabled);
+  el.emailAlerts.checked = Boolean(settings.emailEnabled);
+  el.pendingAlerts.checked = Boolean(settings.pendingEnabled);
+  el.blockerAlerts.checked = Boolean(settings.blockerEnabled);
+  el.boostAlerts.checked = Boolean(settings.boostEnabled);
+  el.droppedAlerts.checked = Boolean(settings.droppedEnabled);
+  el.replacedAlerts.checked = Boolean(settings.replacedEnabled);
+  el.gasAlerts.checked = Boolean(settings.gasLowEnabled);
+  el.pendingMinutes.value = settings.pendingMinutes;
+  el.alertCheckInterval.value = String(settings.checkIntervalSeconds);
+  el.alertRepeat.value = String(settings.repeatMinutes);
+  el.quietHours.checked = Boolean(settings.quietHoursEnabled);
+  el.quietStart.value = settings.quietStart;
+  el.quietEnd.value = settings.quietEnd;
+  el.email.value = state.email;
+  el.notificationError.textContent = '';
+  showTestStatus('');
+  updateNotificationStatus();
+  el.notificationDialog.showModal();
+}
+
+function scheduleNotificationChecks() {
+  clearInterval(state.alertTimer);
+  const interval = Math.max(10, Number(state.notificationSettings.checkIntervalSeconds) || 10) * 1000;
+  state.alertTimer = setInterval(evaluateAlerts, interval);
+  evaluateAlerts();
 }
 
 function openBalanceSettings() {
@@ -983,6 +1168,7 @@ function openGasSettings() {
 }
 
 el.settingsButton.addEventListener('click', openSettings);
+el.notificationSettingsButton.addEventListener('click', openNotificationSettings);
 el.testEmailButton.addEventListener('click', sendTestEmail);
 el.notificationButton.addEventListener('click', enableNotifications);
 el.form.addEventListener('submit', event => {
@@ -991,7 +1177,6 @@ el.form.addEventListener('submit', event => {
   const endpoint = el.endpoint.value.trim();
   const parsed = parseAddressLines(el.addresses.value);
   const addresses = parsed.addresses;
-  const email = el.email.value.trim();
   if (!/^wss:\/\/eth-mainnet\.g\.alchemy\.com\/v2\/[A-Za-z0-9_-]+$/.test(endpoint)) {
     el.error.textContent = 'Enter the full WebSocket URL starting with wss://';
     return;
@@ -1000,21 +1185,51 @@ el.form.addEventListener('submit', event => {
     el.error.textContent = 'Enter 1–50 valid Ethereum addresses, one per line.';
     return;
   }
-  if (email && !validEmail(email)) {
-    el.error.textContent = 'Enter a valid alert email or leave the field empty.';
-    return;
-  }
   state.endpoint = endpoint;
   state.addresses = addresses;
   state.addressLabels = parsed.labels;
-  state.email = email;
   localStorage.setItem(ENDPOINT_KEY, endpoint);
   localStorage.setItem(ADDRESSES_KEY, JSON.stringify(addresses));
   localStorage.setItem(LABELS_KEY, JSON.stringify(parsed.labels));
-  if (email) localStorage.setItem(EMAIL_KEY, email); else localStorage.removeItem(EMAIL_KEY);
   el.dialog.close();
   reconnect();
   scheduleBalanceRefresh(true);
+});
+
+el.notificationForm.addEventListener('submit', event => {
+  if (event.submitter?.value !== 'default') return;
+  event.preventDefault();
+  const email = el.email.value.trim();
+  const pendingMinutes = Number(el.pendingMinutes.value);
+  if (el.emailAlerts.checked && !validEmail(email)) {
+    el.notificationError.textContent = 'Enter a valid alert email or disable email notifications.';
+    return;
+  }
+  if (!Number.isFinite(pendingMinutes) || pendingMinutes < 1 || pendingMinutes > 1440) {
+    el.notificationError.textContent = 'Pending alert time must be between 1 and 1,440 minutes.';
+    return;
+  }
+  state.email = email;
+  state.notificationSettings = {
+    browserEnabled: el.browserAlerts.checked,
+    emailEnabled: el.emailAlerts.checked,
+    pendingEnabled: el.pendingAlerts.checked,
+    blockerEnabled: el.blockerAlerts.checked,
+    boostEnabled: el.boostAlerts.checked,
+    droppedEnabled: el.droppedAlerts.checked,
+    replacedEnabled: el.replacedAlerts.checked,
+    gasLowEnabled: el.gasAlerts.checked,
+    pendingMinutes,
+    repeatMinutes: Number(el.alertRepeat.value),
+    checkIntervalSeconds: Number(el.alertCheckInterval.value),
+    quietHoursEnabled: el.quietHours.checked,
+    quietStart: el.quietStart.value || '22:00',
+    quietEnd: el.quietEnd.value || '08:00',
+  };
+  if (email) localStorage.setItem(EMAIL_KEY, email); else localStorage.removeItem(EMAIL_KEY);
+  localStorage.setItem(NOTIFICATION_SETTINGS_KEY, JSON.stringify(state.notificationSettings));
+  el.notificationDialog.close();
+  scheduleNotificationChecks();
 });
 
 el.balanceSettingsButton.addEventListener('click', openBalanceSettings);
@@ -1113,6 +1328,8 @@ el.transactionDetails.addEventListener('click', event => {
 el.clearButton.addEventListener('click', () => {
   if (!state.transactions.length || !confirm('Delete the saved transaction history?')) return;
   state.transactions = [];
+  state.summaryAlerts = {};
+  localStorage.removeItem(SUMMARY_ALERTS_KEY);
   saveTransactions();
   render();
 });
@@ -1121,7 +1338,7 @@ render();
 connect();
 hydrateStoredTokens();
 scheduleBalanceRefresh();
+scheduleNotificationChecks();
 setInterval(render, 1000);
 setInterval(checkStatuses, 12000);
 setInterval(updateGasPrice, 30000);
-setInterval(evaluateAlerts, 10000);

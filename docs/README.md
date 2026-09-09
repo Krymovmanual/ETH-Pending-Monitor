@@ -6,6 +6,9 @@ Live pending transaction monitor for one or more Ethereum addresses.
 
 - Monitor up to 50 Ethereum addresses from one dashboard.
 - Browser and optional email alerts when a transaction is pending for more than 15 minutes, is dropped, is replaced, or may need a gas boost.
+- A dedicated Notification settings dialog controls browser/email delivery, every alert type, the pending threshold, repeat interval, alert check interval, and optional quiet hours.
+- Long-pending transactions are grouped into one wallet summary instead of sending a separate message for every transaction.
+- Urgent queue alerts identify the blocking nonce and state whether its fee is below the current network gas price or the cause is unknown.
 - `Needs boost` indicator when the transaction max fee is below the current network gas price returned by Alchemy.
 - Copy the full transaction hash directly from the table while keeping the Etherscan link.
 - Click any transaction row to inspect full From/To addresses, contract, method, fee data, nonce, queue state, and replacement hash.
@@ -39,9 +42,10 @@ After publishing, open the GitHub Pages URL and click **Connection settings**:
 `wss://eth-mainnet.g.alchemy.com/v2/YOUR_KEY`
 
 2. Add 1–50 Ethereum addresses, one per line.
-3. Optionally enter an alert email and click **Send test**. Confirm the first FormSubmit email before expecting automatic alerts.
-4. Click **Enable browser notifications** and allow notifications in the browser.
-5. Click **Save and connect**.
+3. Click **Save and connect**.
+4. Open **Notification settings**, choose the alert types and delivery channels, and configure the timing.
+5. Optionally enter an alert email and click **Send test**. Confirm the first FormSubmit email before expecting automatic alerts.
+6. Click **Enable browser notifications** and allow notifications in the browser.
 
 Use **Wallet balances → Settings** to enable wallet balances and select their refresh interval. Use the separate **Gas Station → Settings** dialog to configure its address, minimum ETH balance, and independent refresh interval. Use **Refresh now** at any time without changing either schedule.
 

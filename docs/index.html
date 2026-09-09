@@ -23,7 +23,10 @@
         <span class="label">Monitored addresses</span>
         <div class="address-list" id="addressList"></div>
       </div>
-      <button class="secondary" id="settingsButton" type="button">Connection settings</button>
+      <div class="address-actions">
+        <button class="secondary" id="notificationSettingsButton" type="button">Notification settings</button>
+        <button class="secondary" id="settingsButton" type="button">Connection settings</button>
+      </div>
     </section>
 
     <section class="stats" aria-label="Summary">
@@ -133,6 +136,74 @@
     </div>
   </dialog>
 
+  <dialog id="notificationSettingsDialog" class="notification-dialog">
+    <form method="dialog" id="notificationSettingsForm">
+      <div class="dialog-head">
+        <div>
+          <span class="eyebrow">ALERTS</span>
+          <h2>Notification settings</h2>
+        </div>
+        <button class="icon-button" value="cancel" aria-label="Close" type="submit">×</button>
+      </div>
+
+      <div class="settings-section first-section">
+        <h3>Delivery channels</h3>
+        <div class="toggle-grid">
+          <label class="check-label" for="browserAlertsInput"><input id="browserAlertsInput" type="checkbox"><span>Browser notifications</span></label>
+          <label class="check-label" for="emailAlertsInput"><input id="emailAlertsInput" type="checkbox"><span>Email notifications</span></label>
+        </div>
+        <button class="secondary full-width" id="notificationButton" type="button">Enable browser notifications</button>
+        <p class="hint" id="notificationStatus">Allow browser notifications to receive alerts.</p>
+
+        <label for="emailInput">Alert email</label>
+        <div class="inline-field">
+          <input id="emailInput" type="email" autocomplete="email" placeholder="alerts@example.com">
+          <button class="secondary" id="testEmailButton" type="button">Send test</button>
+        </div>
+        <div class="test-status" id="testEmailStatus" role="status"></div>
+        <p class="hint">The first test may require FormSubmit activation from your inbox.</p>
+      </div>
+
+      <div class="settings-section">
+        <h3>Alert types</h3>
+        <div class="event-grid">
+          <label class="check-label" for="pendingAlertsInput"><input id="pendingAlertsInput" type="checkbox"><span>Pending too long</span></label>
+          <label class="check-label" for="blockerAlertsInput"><input id="blockerAlertsInput" type="checkbox"><span>Nonce queue blocked</span></label>
+          <label class="check-label" for="boostAlertsInput"><input id="boostAlertsInput" type="checkbox"><span>Low fee / boost required</span></label>
+          <label class="check-label" for="droppedAlertsInput"><input id="droppedAlertsInput" type="checkbox"><span>Dropped transaction</span></label>
+          <label class="check-label" for="replacedAlertsInput"><input id="replacedAlertsInput" type="checkbox"><span>Replaced transaction</span></label>
+          <label class="check-label" for="gasAlertsInput"><input id="gasAlertsInput" type="checkbox"><span>Low Gas Station balance</span></label>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>Timing</h3>
+        <div class="split-fields compact-fields">
+          <div><label for="pendingMinutesInput">Pending alert after</label><div class="number-suffix"><input id="pendingMinutesInput" type="number" min="1" max="1440" step="1"><span>min</span></div></div>
+          <div><label for="alertCheckIntervalInput">Check alerts</label><select id="alertCheckIntervalInput" class="dialog-select"><option value="10">Every 10 seconds</option><option value="30">Every 30 seconds</option><option value="60">Every 1 minute</option></select></div>
+        </div>
+        <label for="alertRepeatInput">Repeat active alerts</label>
+        <select id="alertRepeatInput" class="dialog-select"><option value="0">Do not repeat</option><option value="15">Every 15 minutes</option><option value="30">Every 30 minutes</option><option value="60">Every 1 hour</option><option value="180">Every 3 hours</option></select>
+      </div>
+
+      <div class="settings-section">
+        <label class="check-label" for="quietHoursInput"><input id="quietHoursInput" type="checkbox"><span>Quiet hours</span></label>
+        <div class="split-fields compact-fields">
+          <div><label for="quietStartInput">From</label><input id="quietStartInput" type="time"></div>
+          <div><label for="quietEndInput">Until</label><input id="quietEndInput" type="time"></div>
+        </div>
+        <p class="hint">Alerts resume after quiet hours. Time is based on this device.</p>
+      </div>
+
+      <p class="hint">Monitoring and notifications work while this page remains open.</p>
+      <div class="dialog-error" id="notificationDialogError" role="alert"></div>
+      <div class="dialog-actions">
+        <button class="secondary" value="cancel" type="submit">Cancel</button>
+        <button class="primary" value="default" type="submit">Save settings</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="balanceSettingsDialog">
     <form method="dialog" id="balanceSettingsForm">
       <div class="dialog-head">
@@ -227,17 +298,6 @@
       <textarea id="addressesInput" spellcheck="false" placeholder="Fireblocks ETH | 0x1234…"></textarea>
       <p class="hint">Add up to 50 addresses. Use “Wallet name | 0x address”, one per line. The name is optional.</p>
 
-      <label for="emailInput">Alert email</label>
-      <div class="inline-field">
-        <input id="emailInput" type="email" autocomplete="email" placeholder="alerts@example.com">
-        <button class="secondary" id="testEmailButton" type="button">Send test</button>
-      </div>
-      <p class="hint">Alerts are sent when a transaction stays pending for 15 minutes or becomes dropped/replaced. Monitoring must remain open. The first test requires email confirmation.</p>
-      <div class="test-status" id="testEmailStatus" role="status"></div>
-
-      <label>Browser notifications</label>
-      <button class="secondary full-width" id="notificationButton" type="button">Enable browser notifications</button>
-      <p class="hint" id="notificationStatus">Get an instant browser alert for stuck, dropped, replaced, or underpriced transactions while this page is open.</p>
       <div class="dialog-error" id="dialogError" role="alert"></div>
       <div class="dialog-actions">
         <button class="secondary" value="cancel" type="submit">Cancel</button>

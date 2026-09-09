@@ -36,6 +36,7 @@ h2 { margin: 0; font-size: 1.2rem; letter-spacing: -.02em; }
 .connection.error .dot { background: var(--red); }
 .connection.error { color: var(--red); }
 .address-card { margin-top: 32px; padding: 22px 24px; border: 1px solid var(--border); background: linear-gradient(120deg, var(--surface-2), var(--surface)); border-radius: 16px; }
+.address-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .label { display: block; color: var(--muted); font-size: .78rem; margin-bottom: 7px; }
 .address { color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .95rem; text-decoration: none; overflow-wrap: anywhere; }
 .address:hover { color: #9eafff; }
@@ -128,6 +129,7 @@ th[aria-sort]:not([aria-sort="none"]) .sort-indicator { color: var(--blue); }
 .pagination-controls select, .pagination-controls button { min-height: 34px; padding: 0 10px; font-size: .78rem; }
 .pagination-controls button:disabled { cursor: default; opacity: .42; }
 .transaction-dialog { width: min(720px, calc(100% - 32px)); }
+.notification-dialog { width: min(690px, calc(100% - 32px)); }
 .transaction-dialog-body { padding: 24px; }
 .detail-status { margin: -6px 0 14px; }
 .transaction-details dl { margin: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
@@ -165,6 +167,15 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
 .hint { color: var(--muted); font-size: .78rem; line-height: 1.5; margin: 9px 0 0; }
 .dialog-error { min-height: 20px; color: var(--red); font-size: .8rem; margin-top: 10px; }
 .dialog-actions { justify-content: flex-end; margin-top: 12px; }
+.settings-section { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--border); }
+.settings-section.first-section { margin-top: 0; padding-top: 0; border-top: 0; }
+.settings-section h3 { margin: 0 0 14px; color: #b9c4d4; font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; }
+.toggle-grid, .event-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 16px; margin-bottom: 14px; }
+.toggle-grid .check-label, .event-grid .check-label { margin: 0; padding: 10px 11px; border: 1px solid #222c3b; border-radius: 9px; background: rgba(17,23,34,.62); font-size: .8rem; }
+.compact-fields label { margin-top: 0; }
+.number-suffix { position: relative; }
+.number-suffix input { padding-right: 48px; }
+.number-suffix span { position: absolute; right: 13px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: .78rem; pointer-events: none; }
 
 @media (max-width: 800px) {
   .shell { width: min(100% - 24px, 720px); padding-top: 24px; }
@@ -172,6 +183,7 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
   .address-card, .panel-head { flex-direction: column; }
   .stats { grid-template-columns: repeat(2, 1fr); }
   .address-card button { width: 100%; }
+  .address-actions { width: 100%; }
   .balances-layout { grid-template-columns: 1fr; }
   .token-balances { grid-template-columns: repeat(3, minmax(82px, 1fr)); }
 }
@@ -192,4 +204,5 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
   .balance-actions button { flex: 1; }
   .token-balances { grid-template-columns: repeat(2, minmax(90px, 1fr)); }
   .split-fields { grid-template-columns: 1fr; gap: 0; }
+  .toggle-grid, .event-grid { grid-template-columns: 1fr; }
 }
