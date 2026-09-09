@@ -12,7 +12,6 @@ const GAS_ALERT_KEY = 'eth-pending-monitor-gas-alert-sent';
 const PAGE_SIZE_KEY = 'eth-pending-monitor-page-size';
 const NOTIFICATION_SETTINGS_KEY = 'eth-pending-monitor-notification-settings';
 const SUMMARY_ALERTS_KEY = 'eth-pending-monitor-summary-alerts';
-const DROP_CHECK_AFTER_MS = 30 * 60 * 1000;
 const BALANCE_TOKENS = [
   { symbol: 'USDT ERC-20', contract: '0xdac17f958d2ee523a2206206994597c13d831ec7', decimals: 6 },
   { symbol: 'USDC', contract: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', decimals: 6 },
@@ -104,17 +103,30 @@ const el = {
   gasError: document.querySelector('#gasDialogError'),
   notificationDialog: document.querySelector('#notificationSettingsDialog'),
   notificationForm: document.querySelector('#notificationSettingsForm'),
-  browserAlerts: document.querySelector('#browserAlertsInput'),
-  emailAlerts: document.querySelector('#emailAlertsInput'),
   pendingAlerts: document.querySelector('#pendingAlertsInput'),
+  pendingBrowser: document.querySelector('#pendingBrowserInput'),
+  pendingEmail: document.querySelector('#pendingEmailInput'),
   blockerAlerts: document.querySelector('#blockerAlertsInput'),
-  boostAlerts: document.querySelector('#boostAlertsInput'),
+  blockerBrowser: document.querySelector('#blockerBrowserInput'),
+  blockerEmail: document.querySelector('#blockerEmailInput'),
+  blockerIgnoreQuiet: document.querySelector('#blockerIgnoreQuietInput'),
+  blockerMinutes: document.querySelector('#blockerMinutesInput'),
+  blockerRepeat: document.querySelector('#blockerRepeatInput'),
   droppedAlerts: document.querySelector('#droppedAlertsInput'),
+  droppedBrowser: document.querySelector('#droppedBrowserInput'),
+  droppedEmail: document.querySelector('#droppedEmailInput'),
+  droppedMinutes: document.querySelector('#droppedMinutesInput'),
   replacedAlerts: document.querySelector('#replacedAlertsInput'),
+  replacedBrowser: document.querySelector('#replacedBrowserInput'),
+  replacedEmail: document.querySelector('#replacedEmailInput'),
   gasAlerts: document.querySelector('#gasAlertsInput'),
+  gasBrowser: document.querySelector('#gasBrowserInput'),
+  gasEmail: document.querySelector('#gasEmailInput'),
+  gasIgnoreQuiet: document.querySelector('#gasIgnoreQuietInput'),
+  gasRepeat: document.querySelector('#gasRepeatInput'),
   pendingMinutes: document.querySelector('#pendingMinutesInput'),
+  pendingRepeat: document.querySelector('#pendingRepeatInput'),
   alertCheckInterval: document.querySelector('#alertCheckIntervalInput'),
-  alertRepeat: document.querySelector('#alertRepeatInput'),
   quietHours: document.querySelector('#quietHoursInput'),
   quietStart: document.querySelector('#quietStartInput'),
   quietEnd: document.querySelector('#quietEndInput'),
@@ -167,23 +179,42 @@ function loadBalanceSettings() {
 }
 
 function loadNotificationSettings() {
+  const defaultRules = {
+    pending: {enabled:true, browser:true, email:true, afterMinutes:15, repeatMinutes:30},
+    blocker: {enabled:true, browser:true, email:true, afterMinutes:0, repeatMinutes:30, ignoreQuiet:true},
+    dropped: {enabled:true, browser:true, email:true, afterMinutes:30, repeatMinutes:0},
+    replaced: {enabled:true, browser:true, email:true, afterMinutes:0, repeatMinutes:0},
+    gasLow: {enabled:true, browser:true, email:true, afterMinutes:0, repeatMinutes:60, ignoreQuiet:true},
+  };
   const defaults = {
-    browserEnabled: true,
-    emailEnabled: true,
-    pendingEnabled: true,
-    blockerEnabled: true,
-    boostEnabled: true,
-    droppedEnabled: true,
-    replacedEnabled: true,
-    gasLowEnabled: true,
-    pendingMinutes: 15,
-    repeatMinutes: 30,
+    rules: defaultRules,
     checkIntervalSeconds: 10,
     quietHoursEnabled: false,
     quietStart: '22:00',
     quietEnd: '08:00',
   };
-  try { return {...defaults, ...JSON.parse(localStorage.getItem(NOTIFICATION_SETTINGS_KEY) || '{}')}; }
+  try {
+    const stored = JSON.parse(localStorage.getItem(NOTIFICATION_SETTINGS_KEY) || '{}');
+    if (stored.rules) {
+      return {...defaults, ...stored, rules:Object.fromEntries(Object.entries(defaultRules).map(([key, rule]) => [key, {...rule, ...(stored.rules[key] || {})}]))};
+    }
+    const browser = stored.browserEnabled !== false;
+    const email = stored.emailEnabled !== false;
+    return {
+      ...defaults,
+      checkIntervalSeconds: stored.checkIntervalSeconds || defaults.checkIntervalSeconds,
+      quietHoursEnabled: Boolean(stored.quietHoursEnabled),
+      quietStart: stored.quietStart || defaults.quietStart,
+      quietEnd: stored.quietEnd || defaults.quietEnd,
+      rules: {
+        pending: {...defaultRules.pending, enabled:stored.pendingEnabled !== false, browser, email, afterMinutes:Number(stored.pendingMinutes) || 15, repeatMinutes:Number(stored.repeatMinutes) || 0},
+        blocker: {...defaultRules.blocker, enabled:stored.blockerEnabled !== false, browser, email, repeatMinutes:Number(stored.repeatMinutes) || 0},
+        dropped: {...defaultRules.dropped, enabled:stored.droppedEnabled !== false, browser, email},
+        replaced: {...defaultRules.replaced, enabled:stored.replacedEnabled !== false, browser, email},
+        gasLow: {...defaultRules.gasLow, enabled:stored.gasLowEnabled !== false, browser, email, repeatMinutes:Number(stored.repeatMinutes) || 0},
+      },
+    };
+  }
   catch { return defaults; }
 }
 
@@ -435,7 +466,7 @@ async function checkStatuses() {
         tx.status = answer.result.status === '0x1' ? 'confirmed' : 'failed';
         tx.blockNumber = hexToNumber(answer.result.blockNumber);
         changed = true;
-      } else if (Date.now() - tx.firstSeen > DROP_CHECK_AFTER_MS) {
+      } else if (Date.now() - tx.firstSeen > notificationRule('dropped').afterMinutes * 60 * 1000) {
         const stillExists = await rpc(httpEndpoint, 'eth_getTransactionByHash', [tx.hash]);
         if (!stillExists) {
           tx.status = 'dropped';
@@ -473,15 +504,13 @@ function queueInfo(tx) {
 }
 
 function evaluateAlerts() {
-  const pendingAfterMs = Number(state.notificationSettings.pendingMinutes) * 60 * 1000;
+  const pendingAfterMs = notificationRule('pending').afterMinutes * 60 * 1000;
   for (const tx of state.transactions) {
     tx.alerts ||= {};
     if (tx.status === 'dropped' || tx.status === 'replaced') sendAlert(tx, tx.status);
     const queue = queueInfo(tx);
-    if (queue?.role === 'blocker') {
+    if (queue?.role === 'blocker' && Date.now() - tx.firstSeen >= notificationRule('blocker').afterMinutes * 60 * 1000) {
       sendAlert(tx, 'blocker', queue);
-    } else {
-      if (needsBoost(tx)) sendAlert(tx, 'boost');
     }
   }
   evaluatePendingSummaries(pendingAfterMs);
@@ -508,21 +537,36 @@ function evaluatePendingSummaries(pendingAfterMs) {
 }
 
 async function sendPendingSummary(wallet, transactions) {
-  if (!state.notificationSettings.pendingEnabled || inQuietHours() || !transactions.length) return;
+  const rule = notificationRule('pending');
+  if (!rule.enabled || inQuietHours('pending') || !transactions.length) return;
   const sorted = [...transactions].sort((a, b) => a.nonce - b.nonce);
-  const signature = sorted.map(tx => tx.hash).sort().join(',');
+  const signature = sorted.map(tx => {
+    const queue = queueInfo(tx);
+    return `${tx.hash}:${needsBoost(tx) ? 'boost' : 'ok'}:${queue?.role || 'none'}:${queue?.count || 0}`;
+  }).sort().join(',');
   const previous = state.summaryAlerts[wallet] || {};
   if (previous.signature === signature && !alertCanRepeat(previous.sentAt, 'stuck_summary')) return;
-  const channels = activeAlertChannels();
+  const channels = activeAlertChannels('pending');
   if (!channels.browser && !channels.email) return;
-  const primary = sorted[0];
   const blocker = sorted.find(tx => queueInfo(tx)?.role === 'blocker');
+  const boostTransactions = sorted.filter(needsBoost);
+  const actionable = blocker && needsBoost(blocker) ? blocker : boostTransactions[0];
+  const primary = actionable || blocker || sorted[0];
   const count = transactions.length;
-  const title = `${count} transaction${count === 1 ? '' : 's'} pending for ${state.notificationSettings.pendingMinutes}+ minutes`;
+  const title = actionable
+    ? `Boost required: ${shortHash(actionable.hash)}${queueInfo(actionable)?.role === 'blocker' ? ` is blocking ${queueInfo(actionable).count}` : ''}`
+    : `${count} transaction${count === 1 ? '' : 's'} pending for ${rule.afterMinutes}+ minutes`;
   const cause = blocker
-    ? `Nonce ${blocker.nonce} is blocking ${queueInfo(blocker).count}; ${needsBoost(blocker) ? `low fee ${compactNumber(blocker.maxFee, 2)} vs network ${compactNumber(state.currentGasPrice, 2)} Gwei` : 'fee looks sufficient, cause unknown'}.`
-    : 'No nonce queue blocker detected.';
-  const bodyText = `${walletLabel(wallet)}: ${count} pending. ${cause}`;
+    ? `TX ${blocker.hash} (nonce ${blocker.nonce}) is blocking ${queueInfo(blocker).count}; ${needsBoost(blocker) ? `boost required — max fee ${compactNumber(blocker.maxFee, 2)} vs network ${compactNumber(state.currentGasPrice, 2)} Gwei` : 'fee looks sufficient, cause unknown'}.`
+    : boostTransactions.length
+      ? `${boostTransactions.length} transaction${boostTransactions.length === 1 ? '' : 's'} need a boost.`
+      : 'Fees look sufficient; cause unknown.';
+  const browserCause = blocker
+    ? `${actionable === blocker ? 'Blocking' : `${shortHash(blocker.hash)} is blocking`} ${queueInfo(blocker).count}; ${needsBoost(blocker) ? 'boost required' : 'fee looks sufficient'}.`
+    : boostTransactions.length ? `${boostTransactions.length} need a boost.` : 'Fees look sufficient.';
+  const bodyText = actionable
+    ? `${walletLabel(wallet)} · ${shortHash(actionable.hash)} · nonce ${actionable.nonce} · ${browserCause}`
+    : `${walletLabel(wallet)}: ${count} pending. ${browserCause}`;
   state.summaryAlerts[wallet] = {signature, sentAt:Date.now()};
   localStorage.setItem(SUMMARY_ALERTS_KEY, JSON.stringify(state.summaryAlerts));
   let browserDelivered = false;
@@ -534,7 +578,10 @@ async function sendPendingSummary(wallet, transactions) {
     } catch { /* Browser support varies. */ }
   }
   if (channels.email) {
-    try { await sendEmail(state.email, title, primary, 'stuck_summary', {count, transactions, blocker, cause}); }
+    const emailSubject = actionable
+      ? `Boost required: TX ${actionable.hash}${queueInfo(actionable)?.role === 'blocker' ? ` is blocking ${queueInfo(actionable).count} transactions` : ''}`
+      : title;
+    try { await sendEmail(state.email, emailSubject, primary, 'stuck_summary', {count, transactions, blocker, boostTransactions, cause}); }
     catch {
       if (!browserDelivered) delete state.summaryAlerts[wallet];
       localStorage.setItem(SUMMARY_ALERTS_KEY, JSON.stringify(state.summaryAlerts));
@@ -542,21 +589,18 @@ async function sendPendingSummary(wallet, transactions) {
   }
 }
 
-function alertTypeEnabled(kind) {
-  const settings = state.notificationSettings;
-  return ({
-    stuck: settings.pendingEnabled,
-    stuck_summary: settings.pendingEnabled,
-    blocker: settings.blockerEnabled,
-    boost: settings.boostEnabled,
-    dropped: settings.droppedEnabled,
-    replaced: settings.replacedEnabled,
-  })[kind] !== false;
+function ruleNameForKind(kind) {
+  return ({stuck:'pending', stuck_summary:'pending', blocker:'blocker', dropped:'dropped', replaced:'replaced', gasLow:'gasLow'})[kind] || kind;
 }
 
-function inQuietHours() {
+function notificationRule(kind) {
+  return state.notificationSettings.rules[ruleNameForKind(kind)] || {enabled:false, browser:false, email:false, afterMinutes:0, repeatMinutes:0};
+}
+
+function inQuietHours(kind) {
   const settings = state.notificationSettings;
-  if (!settings.quietHoursEnabled || settings.quietStart === settings.quietEnd) return false;
+  const rule = notificationRule(kind);
+  if (rule.ignoreQuiet || !settings.quietHoursEnabled || settings.quietStart === settings.quietEnd) return false;
   const toMinutes = value => {
     const [hours, minutes] = String(value || '00:00').split(':').map(Number);
     return hours * 60 + minutes;
@@ -570,24 +614,24 @@ function inQuietHours() {
 
 function alertCanRepeat(lastSent, kind = '') {
   if (!lastSent) return true;
-  if (['dropped', 'replaced'].includes(kind)) return false;
-  const repeatMinutes = Number(state.notificationSettings.repeatMinutes);
+  const repeatMinutes = Number(notificationRule(kind).repeatMinutes);
   return repeatMinutes > 0 && Date.now() - Number(lastSent) >= repeatMinutes * 60 * 1000;
 }
 
-function activeAlertChannels() {
-  const settings = state.notificationSettings;
+function activeAlertChannels(kind) {
+  const rule = notificationRule(kind);
   return {
-    browser: Boolean(settings.browserEnabled && 'Notification' in window && Notification.permission === 'granted'),
-    email: Boolean(settings.emailEnabled && validEmail(state.email)),
+    browser: Boolean(rule.browser && 'Notification' in window && Notification.permission === 'granted'),
+    email: Boolean(rule.email && validEmail(state.email)),
   };
 }
 
 async function sendAlert(tx, kind, context = {}) {
   tx.alerts ||= {};
   const alertKey = kind === 'blocker' ? `blocker-${context.count}` : kind;
-  if (!alertTypeEnabled(kind) || inQuietHours() || !alertCanRepeat(tx.alerts[alertKey], kind)) return;
-  const channels = activeAlertChannels();
+  const rule = notificationRule(kind);
+  if (!rule.enabled || inQuietHours(kind) || !alertCanRepeat(tx.alerts[alertKey], kind)) return;
+  const channels = activeAlertChannels(kind);
   if (!channels.browser && !channels.email) return;
   tx.alerts[alertKey] = Date.now();
   saveTransactions();
@@ -595,10 +639,8 @@ async function sendAlert(tx, kind, context = {}) {
   const title = alertTitle(kind, tx, context);
   const wallet = walletLabel(tx.matchedAddress);
   const detail = kind === 'blocker'
-    ? `${wallet}: nonce ${tx.nonce} blocks ${context.count} transaction${context.count === 1 ? '' : 's'}. ${needsBoost(tx) ? `Low fee: ${compactNumber(tx.maxFee, 2)} vs network ${compactNumber(state.currentGasPrice, 2)} Gwei.` : 'Fee is not below the current network price; cause unknown.'}`
-    : kind === 'stuck' && needsBoost(tx)
-      ? `${wallet}: ${shortHash(tx.hash)} has a low fee (${compactNumber(tx.maxFee, 2)} vs network ${compactNumber(state.currentGasPrice, 2)} Gwei) and may be holding the queue.`
-      : `${wallet}: ${shortHash(tx.hash)} · ${transactionAmount(tx)}`;
+    ? `${wallet} · ${shortHash(tx.hash)} · nonce ${tx.nonce} · blocking ${context.count} transaction${context.count === 1 ? '' : 's'}`
+    : `${wallet}: ${shortHash(tx.hash)} · ${transactionAmount(tx)}`;
   let browserDelivered = false;
   if (channels.browser) {
     try {
@@ -609,7 +651,8 @@ async function sendAlert(tx, kind, context = {}) {
   }
 
   if (channels.email) {
-    try { await sendEmail(state.email, title, tx, kind, context); }
+    const emailTitle = kind === 'blocker' ? `URGENT: TX ${tx.hash} is blocking ${context.count} transactions` : title;
+    try { await sendEmail(state.email, emailTitle, tx, kind, context); }
     catch {
       if (!browserDelivered) delete tx.alerts[alertKey];
       saveTransactions();
@@ -618,13 +661,12 @@ async function sendAlert(tx, kind, context = {}) {
 }
 
 function alertTitle(kind, tx = null, context = {}) {
-  if (kind === 'blocker') return `URGENT: ${needsBoost(tx) ? 'Low-fee ' : ''}nonce ${tx?.nonce ?? '—'} is blocking ${context.count || 0} transactions`;
+  if (kind === 'blocker') return `URGENT: ${shortHash(tx?.hash || '')} is blocking ${context.count || 0} transactions`;
   return ({
-    stuck: `Transaction pending for ${state.notificationSettings.pendingMinutes}+ minutes`,
-    stuck_summary: `Transactions pending for ${state.notificationSettings.pendingMinutes}+ minutes`,
+    stuck: `Transaction pending for ${notificationRule('pending').afterMinutes}+ minutes`,
+    stuck_summary: `Transactions pending for ${notificationRule('pending').afterMinutes}+ minutes`,
     dropped: 'Transaction dropped',
     replaced: 'Transaction replaced',
-    boost: 'Transaction may need a gas boost',
     test: 'ETH Pending Monitor test alert',
   })[kind] || 'ETH transaction alert';
 }
@@ -653,6 +695,8 @@ async function sendEmail(email, subject, tx, kind, context = {}) {
       pending_transactions: kind === 'stuck_summary' ? context.count : '—',
       pending_hashes: kind === 'stuck_summary' ? context.transactions.map(item => item.hash).join(', ') : '—',
       pending_summary: kind === 'stuck_summary' ? context.cause : '—',
+      boost_required_tx_hashes: kind === 'stuck_summary' && context.boostTransactions?.length ? context.boostTransactions.map(item => item.hash).join(', ') : 'None',
+      boost_required_details: kind === 'stuck_summary' && context.boostTransactions?.length ? context.boostTransactions.map(item => `${item.hash} | nonce ${item.nonce} | max fee ${compactNumber(item.maxFee, 2)} Gwei`).join('; ') : 'None',
       transaction_max_fee: tx ? `${compactNumber(tx.maxFee, 2)} Gwei` : '—',
       current_network_gas: state.currentGasPrice ? `${compactNumber(state.currentGasPrice, 2)} Gwei` : 'Unavailable',
       first_seen: tx ? new Date(tx.firstSeen).toISOString() : new Date().toISOString(),
@@ -798,8 +842,9 @@ async function updateGasBalance() {
 
 async function sendGasAlert(currentBalance) {
   const lastSent = Number(localStorage.getItem(GAS_ALERT_KEY) || 0);
-  if (!state.notificationSettings.gasLowEnabled || inQuietHours() || !alertCanRepeat(lastSent)) return;
-  const channels = activeAlertChannels();
+  const rule = notificationRule('gasLow');
+  if (!rule.enabled || inQuietHours('gasLow') || !alertCanRepeat(lastSent, 'gasLow')) return;
+  const channels = activeAlertChannels('gasLow');
   if (!channels.browser && !channels.email) return;
   localStorage.setItem(GAS_ALERT_KEY, String(Date.now()));
   const settings = state.balanceSettings;
@@ -1121,17 +1166,35 @@ function showTestStatus(message, isError = false) {
 
 function openNotificationSettings() {
   const settings = state.notificationSettings;
-  el.browserAlerts.checked = Boolean(settings.browserEnabled);
-  el.emailAlerts.checked = Boolean(settings.emailEnabled);
-  el.pendingAlerts.checked = Boolean(settings.pendingEnabled);
-  el.blockerAlerts.checked = Boolean(settings.blockerEnabled);
-  el.boostAlerts.checked = Boolean(settings.boostEnabled);
-  el.droppedAlerts.checked = Boolean(settings.droppedEnabled);
-  el.replacedAlerts.checked = Boolean(settings.replacedEnabled);
-  el.gasAlerts.checked = Boolean(settings.gasLowEnabled);
-  el.pendingMinutes.value = settings.pendingMinutes;
+  const pending = notificationRule('pending');
+  const blocker = notificationRule('blocker');
+  const dropped = notificationRule('dropped');
+  const replaced = notificationRule('replaced');
+  const gasLow = notificationRule('gasLow');
+  el.pendingAlerts.checked = Boolean(pending.enabled);
+  el.pendingBrowser.checked = Boolean(pending.browser);
+  el.pendingEmail.checked = Boolean(pending.email);
+  el.pendingMinutes.value = pending.afterMinutes;
+  el.pendingRepeat.value = String(pending.repeatMinutes);
+  el.blockerAlerts.checked = Boolean(blocker.enabled);
+  el.blockerBrowser.checked = Boolean(blocker.browser);
+  el.blockerEmail.checked = Boolean(blocker.email);
+  el.blockerIgnoreQuiet.checked = Boolean(blocker.ignoreQuiet);
+  el.blockerMinutes.value = blocker.afterMinutes;
+  el.blockerRepeat.value = String(blocker.repeatMinutes);
+  el.droppedAlerts.checked = Boolean(dropped.enabled);
+  el.droppedBrowser.checked = Boolean(dropped.browser);
+  el.droppedEmail.checked = Boolean(dropped.email);
+  el.droppedMinutes.value = dropped.afterMinutes;
+  el.replacedAlerts.checked = Boolean(replaced.enabled);
+  el.replacedBrowser.checked = Boolean(replaced.browser);
+  el.replacedEmail.checked = Boolean(replaced.email);
+  el.gasAlerts.checked = Boolean(gasLow.enabled);
+  el.gasBrowser.checked = Boolean(gasLow.browser);
+  el.gasEmail.checked = Boolean(gasLow.email);
+  el.gasIgnoreQuiet.checked = Boolean(gasLow.ignoreQuiet);
+  el.gasRepeat.value = String(gasLow.repeatMinutes);
   el.alertCheckInterval.value = String(settings.checkIntervalSeconds);
-  el.alertRepeat.value = String(settings.repeatMinutes);
   el.quietHours.checked = Boolean(settings.quietHoursEnabled);
   el.quietStart.value = settings.quietStart;
   el.quietEnd.value = settings.quietEnd;
@@ -1201,26 +1264,40 @@ el.notificationForm.addEventListener('submit', event => {
   event.preventDefault();
   const email = el.email.value.trim();
   const pendingMinutes = Number(el.pendingMinutes.value);
-  if (el.emailAlerts.checked && !validEmail(email)) {
-    el.notificationError.textContent = 'Enter a valid alert email or disable email notifications.';
+  const blockerMinutes = Number(el.blockerMinutes.value);
+  const droppedMinutes = Number(el.droppedMinutes.value);
+  const emailRequired = [
+    el.pendingAlerts.checked && el.pendingEmail.checked,
+    el.blockerAlerts.checked && el.blockerEmail.checked,
+    el.droppedAlerts.checked && el.droppedEmail.checked,
+    el.replacedAlerts.checked && el.replacedEmail.checked,
+    el.gasAlerts.checked && el.gasEmail.checked,
+  ].some(Boolean);
+  if (emailRequired && !validEmail(email)) {
+    el.notificationError.textContent = 'Enter a valid alert email or disable Email for every active rule.';
     return;
   }
   if (!Number.isFinite(pendingMinutes) || pendingMinutes < 1 || pendingMinutes > 1440) {
     el.notificationError.textContent = 'Pending alert time must be between 1 and 1,440 minutes.';
     return;
   }
+  if (!Number.isFinite(blockerMinutes) || blockerMinutes < 0 || blockerMinutes > 1440) {
+    el.notificationError.textContent = 'Queue blocker alert time must be between 0 and 1,440 minutes.';
+    return;
+  }
+  if (!Number.isFinite(droppedMinutes) || droppedMinutes < 1 || droppedMinutes > 1440) {
+    el.notificationError.textContent = 'Dropped transaction check time must be between 1 and 1,440 minutes.';
+    return;
+  }
   state.email = email;
   state.notificationSettings = {
-    browserEnabled: el.browserAlerts.checked,
-    emailEnabled: el.emailAlerts.checked,
-    pendingEnabled: el.pendingAlerts.checked,
-    blockerEnabled: el.blockerAlerts.checked,
-    boostEnabled: el.boostAlerts.checked,
-    droppedEnabled: el.droppedAlerts.checked,
-    replacedEnabled: el.replacedAlerts.checked,
-    gasLowEnabled: el.gasAlerts.checked,
-    pendingMinutes,
-    repeatMinutes: Number(el.alertRepeat.value),
+    rules: {
+      pending: {enabled:el.pendingAlerts.checked, browser:el.pendingBrowser.checked, email:el.pendingEmail.checked, afterMinutes:pendingMinutes, repeatMinutes:Number(el.pendingRepeat.value)},
+      blocker: {enabled:el.blockerAlerts.checked, browser:el.blockerBrowser.checked, email:el.blockerEmail.checked, afterMinutes:blockerMinutes, repeatMinutes:Number(el.blockerRepeat.value), ignoreQuiet:el.blockerIgnoreQuiet.checked},
+      dropped: {enabled:el.droppedAlerts.checked, browser:el.droppedBrowser.checked, email:el.droppedEmail.checked, afterMinutes:droppedMinutes, repeatMinutes:0},
+      replaced: {enabled:el.replacedAlerts.checked, browser:el.replacedBrowser.checked, email:el.replacedEmail.checked, afterMinutes:0, repeatMinutes:0},
+      gasLow: {enabled:el.gasAlerts.checked, browser:el.gasBrowser.checked, email:el.gasEmail.checked, afterMinutes:0, repeatMinutes:Number(el.gasRepeat.value), ignoreQuiet:el.gasIgnoreQuiet.checked},
+    },
     checkIntervalSeconds: Number(el.alertCheckInterval.value),
     quietHoursEnabled: el.quietHours.checked,
     quietStart: el.quietStart.value || '22:00',

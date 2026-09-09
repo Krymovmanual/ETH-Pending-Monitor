@@ -172,6 +172,19 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
 .settings-section h3 { margin: 0 0 14px; color: #b9c4d4; font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; }
 .toggle-grid, .event-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 16px; margin-bottom: 14px; }
 .toggle-grid .check-label, .event-grid .check-label { margin: 0; padding: 10px 11px; border: 1px solid #222c3b; border-radius: 9px; background: rgba(17,23,34,.62); font-size: .8rem; }
+.alert-rule { margin-top: 12px; padding: 14px; border: 1px solid #222c3b; border-radius: 12px; background: rgba(17,23,34,.55); }
+.alert-rule:first-of-type { margin-top: 0; }
+.alert-rule.urgent-rule { border-color: rgba(245,189,88,.32); background: linear-gradient(135deg, rgba(245,189,88,.07), rgba(17,23,34,.55)); }
+.alert-rule-head .check-label { margin: 0; align-items: flex-start; }
+.alert-rule-head .check-label input { margin-top: 3px; flex: 0 0 auto; }
+.alert-rule-head strong { display: block; color: var(--text); font-size: .87rem; }
+.alert-rule-head small { display: block; margin-top: 4px; color: var(--muted); font-size: .74rem; font-weight: 400; line-height: 1.4; }
+.rule-channels { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 13px 0; padding: 10px 0; border-top: 1px solid #202938; border-bottom: 1px solid #202938; }
+.rule-channels .check-label { margin: 0; font-size: .76rem; font-weight: 600; }
+.rule-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.rule-fields.single-rule-field { grid-template-columns: minmax(0, 1fr); }
+.rule-fields label { margin: 0 0 7px; color: var(--muted); font-size: .74rem; }
+.rule-fields input, .rule-fields select { height: 42px; }
 .compact-fields label { margin-top: 0; }
 .number-suffix { position: relative; }
 .number-suffix input { padding-right: 48px; }
@@ -205,4 +218,5 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
   .token-balances { grid-template-columns: repeat(2, minmax(90px, 1fr)); }
   .split-fields { grid-template-columns: 1fr; gap: 0; }
   .toggle-grid, .event-grid { grid-template-columns: 1fr; }
+  .rule-fields { grid-template-columns: 1fr; }
 }
