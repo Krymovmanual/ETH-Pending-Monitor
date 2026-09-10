@@ -13,6 +13,8 @@ const GAS_ALERT_KEY = 'eth-pending-monitor-gas-alert-sent';
 const PAGE_SIZE_KEY = 'eth-pending-monitor-page-size';
 const NOTIFICATION_SETTINGS_KEY = 'eth-pending-monitor-notification-settings';
 const SUMMARY_ALERTS_KEY = 'eth-pending-monitor-summary-alerts';
+const NEWS_CACHE_KEY = 'eth-pending-monitor-news-cache';
+const NEWS_REFRESH_MS = 15 * 60 * 1000;
 const BALANCE_TOKENS = [
   { symbol: 'USDT ERC-20', contract: '0xdac17f958d2ee523a2206206994597c13d831ec7', decimals: 6 },
   { symbol: 'USDC', contract: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', decimals: 6 },
@@ -20,6 +22,7 @@ const BALANCE_TOKENS = [
   { symbol: 'DAI', contract: '0x6b175474e89094c44da98b954eedeac495271d0f', decimals: 18 },
   { symbol: 'USDS', contract: '0xdc035d45d973e3ec169d2276ddab16f1e407384f', decimals: 18 },
 ];
+const storedNews = loadStoredObject(NEWS_CACHE_KEY);
 
 const state = {
   ws: null,
@@ -51,6 +54,12 @@ const state = {
   pendingDiagnostics: {},
   etherscanDiagnostics: {},
   etherscanSyncError: '',
+  newsItems: Array.isArray(storedNews.items) ? storedNews.items : [],
+  newsUpdatedAt: Number(storedNews.updatedAt) || 0,
+  newsLoading: false,
+  newsError: '',
+  newsTimer: null,
+  newsFilter: 'all',
   currentGasPrice: null,
   copiedHash: null,
   reconnectTimer: null,
@@ -77,6 +86,10 @@ const el = {
   pendingEtherscanLink: document.querySelector('#pendingEtherscanLink'),
   pendingSyncStatus: document.querySelector('#pendingSyncStatus'),
   pendingSyncButton: document.querySelector('#pendingSyncButton'),
+  newsStatus: document.querySelector('#newsStatus'),
+  newsGrid: document.querySelector('#newsGrid'),
+  newsFilter: document.querySelector('#newsFilter'),
+  refreshNewsButton: document.querySelector('#refreshNewsButton'),
   txBody: document.querySelector('#txBody'),
   emptyState: document.querySelector('#emptyState'),
   emptyMessage: document.querySelector('#emptyMessage'),
@@ -1236,6 +1249,118 @@ function age(timestamp) {
 function dateTime(timestamp) { return new Intl.DateTimeFormat('en-GB', {hour:'2-digit', minute:'2-digit', second:'2-digit'}).format(timestamp); }
 function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[character])); }
 
+function cleanNewsText(value, maximumLength = 500) {
+  const entities = {'&amp;':'&', '&quot;':'"', '&#39;':"'", '&apos;':"'", '&lt;':'<', '&gt;':'>'};
+  const text = String(value || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&(amp|quot|#39|apos|lt|gt);/g, entity => entities[entity] || entity)
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text.length > maximumLength ? `${text.slice(0, maximumLength - 1).trim()}…` : text;
+}
+
+function safeNewsUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' ? url.href : '';
+  } catch { return ''; }
+}
+
+function normalizeNewsItem(item) {
+  const url = safeNewsUrl(item?.url || item?.guid);
+  const title = cleanNewsText(item?.title, 220);
+  if (!url || !title) return null;
+  const publishedSeconds = Number(item.published_on);
+  const categories = String(item.categories || '')
+    .split(/[|,]/)
+    .map(category => cleanNewsText(category, 30))
+    .filter(Boolean)
+    .slice(0, 6);
+  return {
+    id: String(item.id || url),
+    title,
+    summary: cleanNewsText(item.body, 420),
+    url,
+    source: cleanNewsText(item.source_info?.name || item.source || 'Crypto news', 60),
+    publishedAt: Number.isFinite(publishedSeconds) && publishedSeconds > 0 ? publishedSeconds * 1000 : Date.now(),
+    categories,
+  };
+}
+
+function newsMatchesFilter(item, filter) {
+  if (filter === 'all') return true;
+  const text = [item.title, item.summary, item.categories.join(' ')].join(' ').toLowerCase();
+  const patterns = {
+    ethereum: /\b(ethereum|ether|eth|erc-?20|defi|stablecoin|usdt|usdc|dai|gas fee)\b/i,
+    bitcoin: /\b(bitcoin|btc|satoshi|lightning)\b/i,
+    market: /\b(market|price|trading|exchange|etf|bull|bear|rally|institutional|liquidity)\b/i,
+    regulation: /\b(regulation|regulator|regulated|sec|policy|law|legal|compliance|court|government)\b/i,
+  };
+  return patterns[filter]?.test(text) || false;
+}
+
+function renderNews() {
+  el.refreshNewsButton.disabled = state.newsLoading;
+  el.refreshNewsButton.textContent = state.newsLoading ? 'Refreshing…' : 'Refresh news';
+  if (state.newsLoading && !state.newsItems.length) el.newsStatus.textContent = 'Loading market updates…';
+  else if (state.newsLoading) el.newsStatus.textContent = 'Updating news…';
+  else if (state.newsError && state.newsItems.length) el.newsStatus.textContent = 'Showing saved news · update temporarily unavailable';
+  else if (state.newsError) el.newsStatus.textContent = 'News temporarily unavailable';
+  else if (state.newsUpdatedAt) el.newsStatus.textContent = `Updated ${age(state.newsUpdatedAt)} ago · every 15 minutes`;
+  else el.newsStatus.textContent = 'News not loaded yet';
+
+  const visible = state.newsItems
+    .filter(item => newsMatchesFilter(item, state.newsFilter))
+    .sort((left, right) => right.publishedAt - left.publishedAt)
+    .slice(0, 6);
+  if (!visible.length) {
+    const message = state.newsError && !state.newsItems.length
+      ? 'The public news feed is unavailable. Use Refresh news to try again.'
+      : 'No recent stories match this filter.';
+    el.newsGrid.innerHTML = `<div class="news-empty">${escapeHtml(message)}</div>`;
+    return;
+  }
+  el.newsGrid.innerHTML = visible.map(item => {
+    const tags = item.categories.slice(0, 2).map(category => `<span class="news-tag">${escapeHtml(category)}</span>`).join('');
+    return `<article class="news-card">
+      <div class="news-meta"><span class="news-source">${escapeHtml(item.source)}</span><time datetime="${new Date(item.publishedAt).toISOString()}">${age(item.publishedAt)} ago</time></div>
+      <h3><a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a></h3>
+      <p class="news-summary">${escapeHtml(item.summary || 'Open the article to read the full story.')}</p>
+      <div class="news-footer"><div class="news-tags">${tags}</div><a class="news-read" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">Read article ↗</a></div>
+    </article>`;
+  }).join('');
+}
+
+async function updateNews() {
+  if (state.newsLoading) return;
+  state.newsLoading = true;
+  state.newsError = '';
+  renderNews();
+  try {
+    const params = new URLSearchParams({lang:'EN', excludeCategories:'Sponsored', extraParams:'ETHPendingMonitor'});
+    const response = await fetch(`https://min-api.cryptocompare.com/data/v2/news/?${params}`);
+    const body = await response.json();
+    if (!response.ok || !Array.isArray(body?.Data)) throw new Error(body?.Message || 'News request failed');
+    const items = body.Data.map(normalizeNewsItem).filter(Boolean).slice(0, 40);
+    if (!items.length) throw new Error('No news returned');
+    state.newsItems = items;
+    state.newsUpdatedAt = Date.now();
+    localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify({updatedAt:state.newsUpdatedAt, items}));
+  } catch (error) {
+    state.newsError = error?.message || 'News update failed';
+  } finally {
+    state.newsLoading = false;
+    renderNews();
+  }
+}
+
+function scheduleNewsRefresh() {
+  clearInterval(state.newsTimer);
+  state.newsTimer = setInterval(updateNews, NEWS_REFRESH_MS);
+  if (!state.newsUpdatedAt || Date.now() - state.newsUpdatedAt >= NEWS_REFRESH_MS) updateNews();
+  else renderNews();
+}
+
 async function copyHash(hash) {
   try {
     if (navigator.clipboard?.writeText) {
@@ -1625,6 +1750,11 @@ function openGasSettings() {
 
 el.settingsButton.addEventListener('click', openSettings);
 el.notificationSettingsButton.addEventListener('click', openNotificationSettings);
+el.newsFilter.addEventListener('change', () => {
+  state.newsFilter = el.newsFilter.value;
+  renderNews();
+});
+el.refreshNewsButton.addEventListener('click', updateNews);
 el.pendingSyncButton.addEventListener('click', () => syncPendingState(true));
 el.pendingSyncNoticeButton.addEventListener('click', () => syncPendingState(true));
 el.testEmailButton.addEventListener('click', sendTestEmail);
@@ -1825,6 +1955,8 @@ connect();
 hydrateStoredTokens();
 scheduleBalanceRefresh();
 scheduleNotificationChecks();
+scheduleNewsRefresh();
 setInterval(render, 1000);
+setInterval(renderNews, 60000);
 setInterval(checkStatuses, 12000);
 setInterval(updateGasPrice, 30000);

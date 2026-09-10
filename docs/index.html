@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Live monitor for pending Ethereum transactions">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://eth-mainnet.g.alchemy.com wss://eth-mainnet.g.alchemy.com https://api.etherscan.io https://formsubmit.co; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://eth-mainnet.g.alchemy.com wss://eth-mainnet.g.alchemy.com https://api.etherscan.io https://min-api.cryptocompare.com https://formsubmit.co; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
   <title>ETH Pending Monitor</title>
   <link rel="stylesheet" href="styles.css?v=20260910-pending-sync">
 </head>
@@ -72,6 +72,26 @@
         </div>
         <div id="gasBalanceBody" class="gas-balance-body"></div>
       </article>
+    </section>
+
+    <section class="panel news-panel" aria-labelledby="newsTitle">
+      <div class="panel-head">
+        <div>
+          <h2 id="newsTitle">Crypto News</h2>
+          <p><span id="newsStatus">Loading market updates…</span> · <a class="source-link" href="https://www.cryptocompare.com/" target="_blank" rel="noreferrer">Powered by CryptoCompare</a></p>
+        </div>
+        <div class="controls news-controls">
+          <select id="newsFilter" aria-label="Filter crypto news">
+            <option value="all">All news</option>
+            <option value="ethereum">Ethereum</option>
+            <option value="bitcoin">Bitcoin</option>
+            <option value="market">Market</option>
+            <option value="regulation">Regulation</option>
+          </select>
+          <button class="secondary" id="refreshNewsButton" type="button">Refresh news</button>
+        </div>
+      </div>
+      <div class="news-grid" id="newsGrid"></div>
     </section>
 
     <section class="panel">
@@ -330,6 +350,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=20260910-etherscan-sync"></script>
+  <script src="app.js?v=20260910-news"></script>
 </body>
 </html>

@@ -27,6 +27,7 @@ Live pending transaction monitor for one or more Ethereum addresses.
 - Configure wallet balance refresh separately: 5, 15 or 30 minutes; 1 or 6 hours; or manual only.
 - Configure a dedicated Gas Station address, minimum ETH threshold, independent refresh interval, and low-balance browser/email alerts.
 - Show the Gas Station ETH balance change since the previous refresh.
+- Display a client-only English crypto news feed with Ethereum, Bitcoin, market, and regulation filters. News refreshes every 15 minutes and the last successful response is cached in the browser.
 - Local browser storage for the Alchemy URL, addresses, alert email, and transaction history.
 
 ## Publishing with Visual Studio
@@ -60,3 +61,5 @@ Monitoring and alerts run only while the page remains open. Email delivery uses 
 Pending synchronization is best-effort. Ethereum JSON-RPC can reveal a difference between the confirmed and pending account nonce, but it cannot always return every transaction hash from another provider's mempool. The dashboard reports such missing transactions instead of silently showing zero.
 
 The Etherscan key is stored only in the current browser. Etherscan's official API can confirm a higher pending nonce but does not provide the address pending list with full transaction hashes, so Alchemy remains the primary live transaction source.
+
+Crypto news is loaded directly from CryptoCompare without a project backend. The dashboard excludes sponsored stories, links to the original publisher, attributes CryptoCompare, and keeps the latest successful news response in local browser storage. If the public feed is temporarily unavailable, transaction monitoring continues unaffected.
