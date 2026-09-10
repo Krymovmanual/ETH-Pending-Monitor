@@ -30,6 +30,7 @@ Live pending transaction monitor for one or more Ethereum addresses.
 - Display a client-only English crypto news feed with Ethereum, Bitcoin, market, and regulation filters. News refreshes every 15 minutes and the last successful response is cached in the browser.
 - Support an optional browser-local CryptoCompare API key for authenticated news requests, with an automatic public-feed fallback when no key is configured.
 - Local browser storage for the Alchemy URL, addresses, alert email, and transaction history.
+- Optional Railway backend for continuous monitoring, PostgreSQL transaction state, server-side email alerts, and Web Push while the dashboard is closed.
 
 ## Publishing with Visual Studio
 
@@ -58,7 +59,7 @@ After publishing, open the GitHub Pages URL and click **Connection settings**:
 
 Use **Wallet balances → Settings** to enable wallet balances and select their refresh interval. Use the separate **Gas Station → Settings** dialog to configure its address, minimum ETH balance, and independent refresh interval. Use **Refresh now** at any time without changing either schedule.
 
-Monitoring and alerts run only while the page remains open. Email delivery uses the third-party FormSubmit service. The gas boost indicator is a recommendation based on the current network price, not a guarantee that a transaction is stuck.
+Without a Railway backend, monitoring and alerts run only while the page remains open. With the backend configured, server-side email and Web Push alerts continue while the dashboard is closed. Email delivery uses Resend when configured and otherwise falls back to the activated FormSubmit recipient. The gas boost indicator is a recommendation based on the current network price, not a guarantee that a transaction is stuck.
 
 Pending synchronization is best-effort. Ethereum JSON-RPC can reveal a difference between the confirmed and pending account nonce, but it cannot always return every transaction hash from another provider's mempool. The dashboard reports such missing transactions instead of silently showing zero.
 

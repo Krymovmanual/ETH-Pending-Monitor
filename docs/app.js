@@ -15,6 +15,8 @@ const PAGE_SIZE_KEY = 'eth-pending-monitor-page-size';
 const NOTIFICATION_SETTINGS_KEY = 'eth-pending-monitor-notification-settings';
 const SUMMARY_ALERTS_KEY = 'eth-pending-monitor-summary-alerts';
 const NEWS_CACHE_KEY = 'eth-pending-monitor-news-cache';
+const BACKEND_URL_KEY = 'eth-pending-monitor-backend-url';
+const BACKEND_TOKEN_KEY = 'eth-pending-monitor-backend-token';
 const NEWS_REFRESH_MS = 15 * 60 * 1000;
 const BALANCE_TOKENS = [
   { symbol: 'USDT ERC-20', contract: '0xdac17f958d2ee523a2206206994597c13d831ec7', decimals: 6 },
@@ -30,6 +32,8 @@ const state = {
   endpoint: localStorage.getItem(ENDPOINT_KEY) || '',
   etherscanKey: localStorage.getItem(ETHERSCAN_KEY) || '',
   cryptoCompareKey: localStorage.getItem(CRYPTOCOMPARE_KEY) || '',
+  backendUrl: localStorage.getItem(BACKEND_URL_KEY) || '',
+  backendToken: localStorage.getItem(BACKEND_TOKEN_KEY) || '',
   addresses: loadAddresses(),
   addressLabels: loadAddressLabels(),
   email: localStorage.getItem(EMAIL_KEY) || '',
@@ -110,6 +114,9 @@ const el = {
   endpoint: document.querySelector('#endpointInput'),
   etherscanKey: document.querySelector('#etherscanKeyInput'),
   cryptoCompareKey: document.querySelector('#cryptoCompareKeyInput'),
+  backendUrl: document.querySelector('#backendUrlInput'),
+  backendToken: document.querySelector('#backendTokenInput'),
+  backendStatus: document.querySelector('#backendStatus'),
   addresses: document.querySelector('#addressesInput'),
   email: document.querySelector('#emailInput'),
   testEmailButton: document.querySelector('#testEmailButton'),
@@ -1049,7 +1056,15 @@ async function sendTestEmail() {
   el.testEmailButton.disabled = true;
   showTestStatus('Sending…');
   try {
-    await sendEmail(email, alertTitle('test'), null, 'test');
+    if (backendConfigured()) {
+      const response = await fetch(`${normalizedBackendUrl()}/api/test-email`, {
+        method: 'POST', headers: backendHeaders(), body: JSON.stringify({ email }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || 'Server email test failed');
+    } else {
+      await sendEmail(email, alertTitle('test'), null, 'test');
+    }
     state.email = email;
     localStorage.setItem(EMAIL_KEY, email);
     showTestStatus('Sent. Check your inbox and confirm the address if requested.');
@@ -1066,13 +1081,21 @@ async function enableNotifications() {
     return;
   }
   const permission = await Notification.requestPermission();
-  updateNotificationStatus(permission);
-  if (permission === 'granted') new Notification('ETH Pending Monitor', { body: 'Browser notifications are enabled.' });
+  if (permission === 'granted') {
+    try {
+      const serverPush = await subscribeServerPush();
+      updateNotificationStatus(permission, serverPush);
+      new Notification('ETH Pending Monitor', { body: serverPush ? '24/7 server push notifications are enabled.' : 'Browser notifications are enabled.' });
+    } catch (error) {
+      updateNotificationStatus(permission, false);
+      el.notificationStatus.textContent = error.message || 'Browser notifications work while this page is open; server push setup failed.';
+    }
+  } else updateNotificationStatus(permission);
 }
 
-function updateNotificationStatus(permission = ('Notification' in window ? Notification.permission : 'unsupported')) {
+function updateNotificationStatus(permission = ('Notification' in window ? Notification.permission : 'unsupported'), serverPush = false) {
   const messages = {
-    granted: 'Browser notifications are enabled. Keep this page open to receive them.',
+    granted: serverPush ? '24/7 browser push notifications are enabled.' : 'Browser notifications are enabled. Keep this page open to receive them.',
     denied: 'Notifications are blocked. Allow them in your browser site settings.',
     default: 'Click the button to allow browser notifications.',
     unsupported: 'This browser does not support notifications.',
@@ -1677,9 +1700,83 @@ function openSettings() {
   el.endpoint.value = state.endpoint;
   el.etherscanKey.value = state.etherscanKey;
   el.cryptoCompareKey.value = state.cryptoCompareKey;
+  el.backendUrl.value = state.backendUrl;
+  el.backendToken.value = state.backendToken;
+  updateBackendStatus();
   el.addresses.value = state.addresses.map(address => state.addressLabels[address] ? `${state.addressLabels[address]} | ${address}` : address).join('\n');
   el.error.textContent = '';
   el.dialog.showModal();
+}
+
+function normalizedBackendUrl(value = state.backendUrl) {
+  return String(value || '').trim().replace(/\/$/, '');
+}
+
+function backendConfigured() {
+  return /^https:\/\//.test(normalizedBackendUrl()) && state.backendToken.length >= 24;
+}
+
+function updateBackendStatus(message, isError = false) {
+  if (!el.backendStatus) return;
+  el.backendStatus.textContent = message || (backendConfigured()
+    ? '24/7 server configured. Saving settings will synchronize this monitor with Railway.'
+    : 'When connected, settings are synchronized to Railway. The 24/7 monitor uses provider keys from Railway; browser mode remains available as a fallback.');
+  el.backendStatus.classList.toggle('error', isError);
+}
+
+function backendHeaders() {
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${state.backendToken}` };
+}
+
+function serverSettingsPayload() {
+  return {
+    addresses: state.addresses,
+    labels: state.addressLabels,
+    email: state.email,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    notificationSettings: state.notificationSettings,
+    balanceSettings: state.balanceSettings,
+  };
+}
+
+async function syncBackendSettings({ report = false } = {}) {
+  if (!backendConfigured()) return false;
+  try {
+    const response = await fetch(`${normalizedBackendUrl()}/api/settings`, {
+      method: 'PUT', headers: backendHeaders(), body: JSON.stringify(serverSettingsPayload()),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || `Server returned ${response.status}`);
+    if (report) updateBackendStatus('Connected. Settings synchronized with the 24/7 Railway monitor.');
+    return true;
+  } catch (error) {
+    if (report) updateBackendStatus(error.message || 'Could not connect to the Railway server.', true);
+    return false;
+  }
+}
+
+function urlBase64ToUint8Array(value) {
+  const padding = '='.repeat((4 - value.length % 4) % 4);
+  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(base64), character => character.charCodeAt(0));
+}
+
+async function subscribeServerPush() {
+  if (!backendConfigured() || !('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+  const configResponse = await fetch(`${normalizedBackendUrl()}/api/public-config`);
+  const publicConfig = await configResponse.json();
+  if (!publicConfig.pushEnabled || !publicConfig.vapidPublicKey) return false;
+  const registration = await navigator.serviceWorker.register('./sw.js');
+  const existing = await registration.pushManager.getSubscription();
+  const subscription = existing || await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(publicConfig.vapidPublicKey),
+  });
+  const response = await fetch(`${normalizedBackendUrl()}/api/push/subscribe`, {
+    method: 'POST', headers: backendHeaders(), body: JSON.stringify(subscription),
+  });
+  if (!response.ok) throw new Error('Could not register server push notifications');
+  return true;
 }
 
 function showTestStatus(message, isError = false) {
@@ -1764,12 +1861,14 @@ el.pendingSyncButton.addEventListener('click', () => syncPendingState(true));
 el.pendingSyncNoticeButton.addEventListener('click', () => syncPendingState(true));
 el.testEmailButton.addEventListener('click', sendTestEmail);
 el.notificationButton.addEventListener('click', enableNotifications);
-el.form.addEventListener('submit', event => {
+el.form.addEventListener('submit', async event => {
   if (event.submitter?.value !== 'default') return;
   event.preventDefault();
   const endpoint = el.endpoint.value.trim();
   const etherscanKey = el.etherscanKey.value.trim();
   const cryptoCompareKey = el.cryptoCompareKey.value.trim();
+  const backendUrl = normalizedBackendUrl(el.backendUrl.value);
+  const backendToken = el.backendToken.value.trim();
   const parsed = parseAddressLines(el.addresses.value);
   const addresses = parsed.addresses;
   if (!/^wss:\/\/eth-mainnet\.g\.alchemy\.com\/v2\/[A-Za-z0-9_-]+$/.test(endpoint)) {
@@ -1788,10 +1887,16 @@ el.form.addEventListener('submit', event => {
     el.error.textContent = 'Enter a valid CryptoCompare API key or leave the field empty.';
     return;
   }
+  if ((backendUrl || backendToken) && (!/^https:\/\/[A-Za-z0-9.-]+(?::\d+)?(?:\/.*)?$/.test(backendUrl) || backendToken.length < 24)) {
+    el.error.textContent = 'Enter both the HTTPS Railway URL and its ADMIN_TOKEN (at least 24 characters), or leave both empty.';
+    return;
+  }
   state.endpoint = endpoint;
   state.etherscanKey = etherscanKey;
   const newsKeyChanged = state.cryptoCompareKey !== cryptoCompareKey;
   state.cryptoCompareKey = cryptoCompareKey;
+  state.backendUrl = backendUrl;
+  state.backendToken = backendToken;
   state.addresses = addresses;
   state.addressLabels = parsed.labels;
   state.pendingDiagnostics = {};
@@ -1805,15 +1910,18 @@ el.form.addEventListener('submit', event => {
   else localStorage.removeItem(ETHERSCAN_KEY);
   if (cryptoCompareKey) localStorage.setItem(CRYPTOCOMPARE_KEY, cryptoCompareKey);
   else localStorage.removeItem(CRYPTOCOMPARE_KEY);
+  if (backendUrl) localStorage.setItem(BACKEND_URL_KEY, backendUrl); else localStorage.removeItem(BACKEND_URL_KEY);
+  if (backendToken) localStorage.setItem(BACKEND_TOKEN_KEY, backendToken); else localStorage.removeItem(BACKEND_TOKEN_KEY);
   localStorage.setItem(ADDRESSES_KEY, JSON.stringify(addresses));
   localStorage.setItem(LABELS_KEY, JSON.stringify(parsed.labels));
+  if (backendConfigured() && !(await syncBackendSettings({ report: true }))) return;
   el.dialog.close();
   reconnect();
   scheduleBalanceRefresh(true);
   if (newsKeyChanged) updateNews();
 });
 
-el.notificationForm.addEventListener('submit', event => {
+el.notificationForm.addEventListener('submit', async event => {
   if (event.submitter?.value !== 'default') return;
   event.preventDefault();
   const email = el.email.value.trim();
@@ -1859,6 +1967,7 @@ el.notificationForm.addEventListener('submit', event => {
   };
   if (email) localStorage.setItem(EMAIL_KEY, email); else localStorage.removeItem(EMAIL_KEY);
   localStorage.setItem(NOTIFICATION_SETTINGS_KEY, JSON.stringify(state.notificationSettings));
+  await syncBackendSettings();
   el.notificationDialog.close();
   scheduleNotificationChecks();
 });
@@ -1869,7 +1978,7 @@ el.refreshBalancesButton.addEventListener('click', updateWalletBalances);
 el.gasBalanceBody.addEventListener('click', event => {
   if (event.target.closest('[data-refresh-gas]')) updateGasBalance();
 });
-el.balanceForm.addEventListener('submit', event => {
+el.balanceForm.addEventListener('submit', async event => {
   if (event.submitter?.value !== 'default') return;
   event.preventDefault();
   state.balanceSettings = {
@@ -1878,10 +1987,11 @@ el.balanceForm.addEventListener('submit', event => {
     balanceInterval: Number(el.balanceInterval.value),
   };
   localStorage.setItem(BALANCE_SETTINGS_KEY, JSON.stringify(state.balanceSettings));
+  await syncBackendSettings();
   el.balanceDialog.close();
   scheduleBalanceRefresh(true);
 });
-el.gasForm.addEventListener('submit', event => {
+el.gasForm.addEventListener('submit', async event => {
   if (event.submitter?.value !== 'default') return;
   event.preventDefault();
   const gasAddress = el.gasAddress.value.trim().toLowerCase();
@@ -1908,6 +2018,7 @@ el.gasForm.addEventListener('submit', event => {
     localStorage.removeItem(GAS_ALERT_KEY);
   }
   localStorage.setItem(BALANCE_SETTINGS_KEY, JSON.stringify(state.balanceSettings));
+  await syncBackendSettings();
   el.gasDialog.close();
   scheduleBalanceRefresh(true);
 });

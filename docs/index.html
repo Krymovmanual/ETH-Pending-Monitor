@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Live monitor for pending Ethereum transactions">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://eth-mainnet.g.alchemy.com wss://eth-mainnet.g.alchemy.com https://api.etherscan.io https://min-api.cryptocompare.com https://formsubmit.co; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: wss:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
   <title>ETH Pending Monitor</title>
   <link rel="stylesheet" href="styles.css?v=20260910-pending-sync">
 </head>
@@ -330,6 +330,16 @@
         </div>
         <button class="icon-button" value="cancel" aria-label="Close" type="submit">×</button>
       </div>
+
+      <div class="settings-section first-section">
+        <h3>24/7 server <span class="optional">Optional until Railway is deployed</span></h3>
+        <label for="backendUrlInput">Railway backend URL</label>
+        <input id="backendUrlInput" type="url" spellcheck="false" autocomplete="url" placeholder="https://your-service.up.railway.app">
+        <label for="backendTokenInput">Server access token</label>
+        <input id="backendTokenInput" type="password" spellcheck="false" autocomplete="off" placeholder="The ADMIN_TOKEN value from Railway">
+        <p class="hint" id="backendStatus">When connected, settings are synchronized to Railway. The 24/7 monitor uses provider keys from Railway; the browser fields below remain available as a fallback.</p>
+      </div>
+
       <label for="endpointInput">WebSocket URL</label>
       <input id="endpointInput" type="password" spellcheck="false" autocomplete="off" placeholder="wss://eth-mainnet.g.alchemy.com/v2/…">
       <p class="hint">The URL is stored only in this browser and sent directly to Alchemy.</p>
@@ -354,6 +364,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=20260910-news-key"></script>
+  <script src="app.js?v=20260910-railway-backend"></script>
 </body>
 </html>

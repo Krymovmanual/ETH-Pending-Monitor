@@ -1,0 +1,21 @@
+{
+  "name": "eth-pending-monitor-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "24/7 backend for ETH Pending Monitor",
+  "main": "server/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "check": "node --check server/index.js && node --check server/monitor.js && node --check server/db.js && node --check server/notifier.js && node --check server/config.js && node --check docs/app.js && node --check docs/sw.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "pg": "^8.16.3",
+    "web-push": "^3.6.7",
+    "ws": "^8.18.3"
+  }
+}
