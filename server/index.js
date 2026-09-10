@@ -131,7 +131,9 @@ app.put('/api/settings', requireAdmin, async (req, res, next) => {
 });
 
 app.get('/api/transactions', requireAdmin, async (req, res, next) => {
-  try { res.json({ items: await db.recentTransactions(req.query.limit) }); } catch (error) { next(error); }
+  try {
+    res.json({ items: await db.recentTransactions(req.query.limit), monitor: monitor.getStatus() });
+  } catch (error) { next(error); }
 });
 
 app.post('/api/providers/alchemy/rpc', requireAdmin, async (req, res, next) => {

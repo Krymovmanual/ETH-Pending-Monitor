@@ -14,10 +14,16 @@ class EthereumMonitor {
     this.reconnectTimer = null;
     this.statusTimer = null;
     this.snapshotTimer = null;
+    this.fallbackTimer = null;
     this.gasTimer = null;
     this.lastGasCheck = 0;
     this.currentGasGwei = 0;
     this.subscriptionIds = new Set();
+    this.connected = false;
+    this.lastEventAt = null;
+    this.lastStoredAt = null;
+    this.lastSnapshotAt = null;
+    this.lastError = '';
   }
 
   async start() {
@@ -26,6 +32,9 @@ class EthereumMonitor {
     this.connect();
     this.statusTimer = setInterval(() => this.checkPending().catch(this.logError), 30_000);
     this.snapshotTimer = setInterval(() => this.scanPendingBlock().catch(this.logError), 60_000);
+    this.fallbackTimer = setInterval(() => {
+      if (this.subscriptionIds.size < 2) this.scanPendingBlock().catch(this.logError);
+    }, 15_000);
     this.gasTimer = setInterval(() => this.checkGasStation().catch(this.logError), 60_000);
     await Promise.allSettled([this.scanPendingBlock(), this.checkPending(), this.checkGasStation()]);
   }
@@ -42,6 +51,7 @@ class EthereumMonitor {
     this.disconnect();
     clearInterval(this.statusTimer);
     clearInterval(this.snapshotTimer);
+    clearInterval(this.fallbackTimer);
     clearInterval(this.gasTimer);
   }
 
@@ -52,6 +62,7 @@ class EthereumMonitor {
       this.ws.close();
       this.ws = null;
     }
+    this.connected = false;
     this.subscriptionIds.clear();
   }
 
@@ -59,6 +70,9 @@ class EthereumMonitor {
     if (!this.running || !config.alchemyWssUrl || !this.settings?.addresses?.length) return;
     this.ws = new WebSocket(config.alchemyWssUrl);
     this.ws.on('open', () => {
+      this.connected = true;
+      this.lastError = '';
+      this.subscriptionIds.clear();
       const addresses = this.settings.addresses.map(value => value.toLowerCase());
       this.ws.send(JSON.stringify({
         jsonrpc: '2.0', id: 1, method: 'eth_subscribe',
@@ -71,8 +85,14 @@ class EthereumMonitor {
       console.log(`Monitoring ${addresses.length} Ethereum address(es)`);
     });
     this.ws.on('message', data => this.handleMessage(data).catch(this.logError));
-    this.ws.on('error', error => console.error('Alchemy WebSocket error:', error.message));
+    this.ws.on('error', error => {
+      this.lastError = error.message || 'Alchemy WebSocket error';
+      console.error('Alchemy WebSocket error:', this.lastError);
+    });
     this.ws.on('close', () => {
+      this.connected = false;
+      this.subscriptionIds.clear();
+      if (!this.lastError) this.lastError = 'Alchemy WebSocket disconnected';
       this.ws = null;
       if (this.running) this.reconnectTimer = setTimeout(() => this.connect(), 5_000);
     });
@@ -80,9 +100,18 @@ class EthereumMonitor {
 
   async handleMessage(data) {
     const message = JSON.parse(data.toString());
+    if (message.error) {
+      this.lastError = message.error.message || 'Alchemy subscription failed';
+      console.error('Alchemy subscription error:', this.lastError);
+      await this.scanPendingBlock().catch(this.logError);
+      return;
+    }
     if (message.id && message.result) this.subscriptionIds.add(message.result);
     const tx = message.params?.result;
-    if (tx?.hash) await this.observeTransaction(tx);
+    if (tx?.hash) {
+      this.lastEventAt = Date.now();
+      await this.observeTransaction(tx, 'websocket');
+    }
   }
 
   normalizeTransaction(tx) {
@@ -106,11 +135,13 @@ class EthereumMonitor {
     return addresses.has(String(tx.from || '').toLowerCase()) || addresses.has(String(tx.to || '').toLowerCase());
   }
 
-  async observeTransaction(raw) {
+  async observeTransaction(raw, source = 'websocket') {
     if (!this.isMonitored(raw)) return;
     const tx = this.normalizeTransaction(raw);
+    tx.discoveredBy = source;
     const replacements = await db.findSameNonce(tx.from, tx.nonce, tx.hash);
     const row = await db.upsertTransaction(tx);
+    this.lastStoredAt = Date.now();
     for (const old of replacements) {
       await db.markStatus(old.hash, 'replaced', tx.hash);
       await this.notifyReplacement(old, row);
@@ -131,9 +162,23 @@ class EthereumMonitor {
   async scanPendingBlock() {
     if (!this.settings?.addresses?.length) return;
     const transactions = await this.rpc('eth_getBlockByNumber', ['pending', true]);
+    this.lastSnapshotAt = Date.now();
     for (const tx of transactions?.transactions || []) {
-      if (this.isMonitored(tx)) await this.observeTransaction(tx);
+      if (this.isMonitored(tx)) await this.observeTransaction(tx, 'pending snapshot');
     }
+  }
+
+  getStatus() {
+    return {
+      running: this.running,
+      connected: this.connected,
+      subscriptions: this.subscriptionIds.size,
+      monitoredAddresses: this.settings?.addresses?.length || 0,
+      lastEventAt: this.lastEventAt,
+      lastStoredAt: this.lastStoredAt,
+      lastSnapshotAt: this.lastSnapshotAt,
+      lastError: this.lastError || null,
+    };
   }
 
   async checkPending() {

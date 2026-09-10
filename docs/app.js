@@ -32,6 +32,7 @@ const storedNews = loadStoredObject(NEWS_CACHE_KEY);
 
 const state = {
   serverPollTimer: null,
+  serverMonitorStatus: null,
   backendUrl: localStorage.getItem(BACKEND_URL_KEY) || '',
   backendToken: localStorage.getItem(BACKEND_TOKEN_KEY) || '',
   addresses: loadAddresses(),
@@ -285,7 +286,9 @@ function validAddress(value) { return /^0x[a-f0-9]{40}$/.test(value); }
 function validEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
 
 function setConnection(status, text) {
-  el.badge.className = `connection ${status}`;
+  const className = `connection ${status}`;
+  if (el.badge.className === className && el.connectionText.textContent === text) return;
+  el.badge.className = className;
   el.connectionText.textContent = text;
   render();
 }
@@ -302,6 +305,7 @@ async function syncServerTransactions() {
   const response = await fetch(`${normalizedBackendUrl()}/api/transactions?limit=500`, { headers: backendHeaders() });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || !Array.isArray(body.items)) throw new Error(body.error || `Server returned ${response.status}`);
+  state.serverMonitorStatus = body.monitor || null;
   let changed = false;
   let added = 0;
   for (const row of [...body.items].reverse()) {
@@ -322,6 +326,14 @@ async function syncServerTransactions() {
   return added;
 }
 
+function showServerConnectionStatus() {
+  const monitor = state.serverMonitorStatus;
+  if (!monitor) return setConnection('live', 'Railway live');
+  if (!monitor.connected) return setConnection('error', 'Railway online · Alchemy reconnecting');
+  if (Number(monitor.subscriptions) < 1) return setConnection('', 'Railway live · snapshot fallback');
+  setConnection('live', 'Railway + Alchemy live');
+}
+
 async function connect() {
   clearTimeout(state.reconnectTimer);
   clearInterval(state.serverPollTimer);
@@ -334,13 +346,13 @@ async function connect() {
   setConnection('', 'Connecting to Railway…');
   try {
     await syncServerTransactions();
-    setConnection('live', 'Railway live');
+    showServerConnectionStatus();
     updateGasPrice();
     schedulePendingSync(true);
     state.serverPollTimer = setInterval(async () => {
       try {
         await syncServerTransactions();
-        if (el.connectionText.textContent !== 'Railway live') setConnection('live', 'Railway live');
+        showServerConnectionStatus();
       } catch {
         setConnection('error', 'Railway connection lost');
       }
@@ -1086,7 +1098,8 @@ async function rpcBatch(requests) {
       body: JSON.stringify(chunk.map(item => ({jsonrpc:'2.0', ...item}))),
     });
     const body = await response.json();
-    if (!response.ok || !Array.isArray(body)) throw new Error('RPC batch request failed');
+    if (!response.ok) throw new Error(body?.error || `Railway RPC returned ${response.status}`);
+    if (!Array.isArray(body)) throw new Error(body?.error?.message || 'Unexpected RPC batch response');
     for (const answer of body) answers.set(answer.id, answer);
   }
   return answers;
@@ -1452,7 +1465,7 @@ function renderPendingSync() {
   if (state.pendingSyncError) {
     el.pendingSyncNotice.hidden = false;
     el.pendingSyncTitle.textContent = 'Pending synchronization unavailable';
-    el.pendingSyncMessage.textContent = `${state.pendingSyncError}. Live WebSocket monitoring continues.`;
+    el.pendingSyncMessage.textContent = `${state.pendingSyncError}. Railway transaction monitoring continues; only the nonce cross-check is temporarily unavailable.`;
     return;
   }
   if (etherscanExtra > 0) {
