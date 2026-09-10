@@ -1,6 +1,6 @@
 # ETH Pending Monitor
 
-Ethereum pending-transaction dashboard with a secure 24/7 Railway backend.
+Ethereum pending-transaction dashboard with an optional 24/7 Railway backend.
 
 - `docs/` contains the GitHub Pages dashboard.
 - `server/` contains the Node.js monitoring service.
@@ -24,6 +24,6 @@ Ethereum pending-transaction dashboard with a secure 24/7 Railway backend.
 
 Email alerts use Resend when `RESEND_API_KEY` and `EMAIL_FROM` are configured. Without Resend, the service uses the already activated FormSubmit recipient. Web Push requires `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT`.
 
-The browser talks to Railway for Alchemy RPC data, Etherscan diagnostics, CryptoCompare news, and live transaction state. Provider credentials are never exposed in GitHub Pages or browser storage.
+The browser talks to Railway for Etherscan diagnostics and CryptoCompare news, so those provider keys are never exposed in GitHub Pages or browser storage. Both integrations require the Railway backend.
 
 See [docs/README.md](docs/README.md) for the dashboard feature list and GitHub Pages instructions.

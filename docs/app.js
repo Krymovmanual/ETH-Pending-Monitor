@@ -1,4 +1,5 @@
 const DEFAULT_ADDRESS = '0xced92fa7f0797cbc851b48140ae218a0b0d41ce0';
+const ENDPOINT_KEY = 'eth-pending-monitor-endpoint';
 const ADDRESSES_KEY = 'eth-pending-monitor-addresses';
 const LABELS_KEY = 'eth-pending-monitor-address-labels';
 const EMAIL_KEY = 'eth-pending-monitor-email';
@@ -20,7 +21,6 @@ const NEWS_REFRESH_MS = 15 * 60 * 1000;
 // Remove provider secrets saved by older browser-only versions.
 localStorage.removeItem('eth-pending-monitor-etherscan-key');
 localStorage.removeItem('eth-pending-monitor-cryptocompare-key');
-localStorage.removeItem('eth-pending-monitor-endpoint');
 const BALANCE_TOKENS = [
   { symbol: 'USDT ERC-20', contract: '0xdac17f958d2ee523a2206206994597c13d831ec7', decimals: 6 },
   { symbol: 'USDC', contract: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', decimals: 6 },
@@ -31,8 +31,8 @@ const BALANCE_TOKENS = [
 const storedNews = loadStoredObject(NEWS_CACHE_KEY);
 
 const state = {
-  serverPollTimer: null,
-  serverMonitorStatus: null,
+  ws: null,
+  endpoint: localStorage.getItem(ENDPOINT_KEY) || '',
   backendUrl: localStorage.getItem(BACKEND_URL_KEY) || '',
   backendToken: localStorage.getItem(BACKEND_TOKEN_KEY) || '',
   addresses: loadAddresses(),
@@ -71,6 +71,7 @@ const state = {
   currentGasPrice: null,
   copiedHash: null,
   reconnectTimer: null,
+  manualClose: false,
   searchQuery: '',
   sortKey: 'age',
   sortDirection: 'asc',
@@ -112,6 +113,7 @@ const el = {
   clearButton: document.querySelector('#clearButton'),
   dialog: document.querySelector('#settingsDialog'),
   form: document.querySelector('#settingsForm'),
+  endpoint: document.querySelector('#endpointInput'),
   backendUrl: document.querySelector('#backendUrlInput'),
   backendToken: document.querySelector('#backendTokenInput'),
   backendStatus: document.querySelector('#backendStatus'),
@@ -286,9 +288,7 @@ function validAddress(value) { return /^0x[a-f0-9]{40}$/.test(value); }
 function validEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
 
 function setConnection(status, text) {
-  const className = `connection ${status}`;
-  if (el.badge.className === className && el.connectionText.textContent === text) return;
-  el.badge.className = className;
+  el.badge.className = `connection ${status}`;
   el.connectionText.textContent = text;
   render();
 }
@@ -296,71 +296,59 @@ function setConnection(status, text) {
 function reconnect() {
   clearTimeout(state.reconnectTimer);
   clearInterval(state.pendingSyncTimer);
-  clearInterval(state.serverPollTimer);
+  if (state.ws) {
+    state.manualClose = true;
+    state.ws.close();
+    state.ws = null;
+  }
   setTimeout(connect, 50);
 }
 
-async function syncServerTransactions() {
-  if (!backendConfigured()) return 0;
-  const response = await fetch(`${normalizedBackendUrl()}/api/transactions?limit=500`, { headers: backendHeaders() });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok || !Array.isArray(body.items)) throw new Error(body.error || `Server returned ${response.status}`);
-  state.serverMonitorStatus = body.monitor || null;
-  let changed = false;
-  let added = 0;
-  for (const row of [...body.items].reverse()) {
-    const hash = String(row.hash || row.tx_data?.hash || '').toLowerCase();
-    if (!hash) continue;
-    let tx = state.transactions.find(item => item.hash === hash);
-    if (!tx && row.tx_data) {
-      tx = addTransaction(row.tx_data, 'Railway');
-      if (tx) added += 1;
-    }
-    if (!tx) continue;
-    const firstSeen = Date.parse(row.first_seen);
-    if (Number.isFinite(firstSeen) && tx.firstSeen !== firstSeen) { tx.firstSeen = firstSeen; changed = true; }
-    if (row.status && tx.status !== row.status) { tx.status = row.status; changed = true; }
-    if (row.replacement_hash && tx.replacedBy !== row.replacement_hash) { tx.replacedBy = row.replacement_hash; changed = true; }
-  }
-  if (changed) { saveTransactions(); render(); }
-  return added;
-}
-
-function showServerConnectionStatus() {
-  const monitor = state.serverMonitorStatus;
-  if (!monitor) return setConnection('live', 'Railway live');
-  if (!monitor.connected) return setConnection('error', 'Railway online · Alchemy reconnecting');
-  if (Number(monitor.subscriptions) < 1) return setConnection('', 'Railway live · snapshot fallback');
-  setConnection('live', 'Railway + Alchemy live');
-}
-
-async function connect() {
+function connect() {
   clearTimeout(state.reconnectTimer);
-  clearInterval(state.serverPollTimer);
-  if (!backendConfigured()) {
+  if (!state.endpoint) {
     clearInterval(state.pendingSyncTimer);
     setConnection('', 'Not connected');
     if (!el.dialog.open) openSettings();
     return;
   }
-  setConnection('', 'Connecting to Railway…');
-  try {
-    await syncServerTransactions();
-    showServerConnectionStatus();
+
+  state.manualClose = false;
+  setConnection('', 'Connecting…');
+  try { state.ws = new WebSocket(state.endpoint); }
+  catch { setConnection('error', 'Invalid URL'); return; }
+
+  state.ws.addEventListener('open', () => {
+    setConnection('live', 'Live');
+    state.ws.send(JSON.stringify({
+      jsonrpc: '2.0', id: 1, method: 'eth_subscribe',
+      params: ['alchemy_pendingTransactions', {
+        fromAddress: state.addresses,
+        toAddress: state.addresses,
+        hashesOnly: false,
+      }],
+    }));
     updateGasPrice();
     schedulePendingSync(true);
-    state.serverPollTimer = setInterval(async () => {
-      try {
-        await syncServerTransactions();
-        showServerConnectionStatus();
-      } catch {
-        setConnection('error', 'Railway connection lost');
-      }
-    }, 5000);
-  } catch {
-    setConnection('error', 'Railway connection failed');
+  });
+
+  state.ws.addEventListener('message', event => {
+    let message;
+    try { message = JSON.parse(event.data); } catch { return; }
+    if (message.error) {
+      setConnection('error', message.error.message || 'Alchemy error');
+      return;
+    }
+    const tx = message?.params?.result;
+    if (tx?.hash) addTransaction(tx);
+  });
+
+  state.ws.addEventListener('close', () => {
+    if (state.manualClose) return;
+    setConnection('error', 'Connection lost');
     state.reconnectTimer = setTimeout(connect, 5000);
-  }
+  });
+  state.ws.addEventListener('error', () => setConnection('error', 'Connection error'));
 }
 
 function addTransaction(tx, discoveredBy = 'live') {
@@ -369,7 +357,7 @@ function addTransaction(tx, discoveredBy = 'live') {
 
   const from = (tx.from || '').toLowerCase();
   const to = (tx.to || '').toLowerCase();
-  const nonce = Number.isInteger(tx.nonce) ? tx.nonce : hexToNumber(tx.nonce);
+  const nonce = hexToNumber(tx.nonce);
   const replaced = state.transactions.filter(item => item.status === 'pending' && item.from === from && item.nonce === nonce);
   for (const item of replaced) {
     item.status = 'replaced';
@@ -489,11 +477,19 @@ async function fetchEtherscanPendingDiagnostics(alchemyDiagnostics) {
 }
 
 async function loadPendingBlockSnapshot() {
-  return syncServerTransactions();
+  const block = await rpc(toHttpEndpoint(state.endpoint), 'eth_getBlockByNumber', ['pending', true]);
+  const transactions = Array.isArray(block?.transactions) ? block.transactions : [];
+  let added = 0;
+  for (const tx of transactions) {
+    if (!tx?.hash || tx.blockNumber || !transactionMatchesMonitoredAddress(tx)) continue;
+    if (state.transactions.some(item => item.hash === tx.hash.toLowerCase())) continue;
+    if (addTransaction(tx, 'pending snapshot')) added += 1;
+  }
+  return added;
 }
 
 async function syncPendingState(scanSnapshot = false) {
-  if (!backendConfigured() || state.pendingSyncRunning) return;
+  if (!state.endpoint || state.pendingSyncRunning) return;
   state.pendingSyncRunning = true;
   state.pendingSyncError = '';
   renderPendingSync();
@@ -567,12 +563,13 @@ function transactionMethod(input, value) {
 async function hydrateTokenMetadata(tx) {
   const contract = tx.tokenContract;
   let metadata = state.tokenCache[contract];
-  if (!metadata && backendConfigured()) {
+  if (!metadata && state.endpoint) {
     try {
+      const endpoint = toHttpEndpoint(state.endpoint);
       const [symbolResult, nameResult, decimalsResult] = await Promise.allSettled([
-        rpc(null, 'eth_call', [{to: contract, data: '0x95d89b41'}, 'latest']),
-        rpc(null, 'eth_call', [{to: contract, data: '0x06fdde03'}, 'latest']),
-        rpc(null, 'eth_call', [{to: contract, data: '0x313ce567'}, 'latest']),
+        rpc(endpoint, 'eth_call', [{to: contract, data: '0x95d89b41'}, 'latest']),
+        rpc(endpoint, 'eth_call', [{to: contract, data: '0x06fdde03'}, 'latest']),
+        rpc(endpoint, 'eth_call', [{to: contract, data: '0x313ce567'}, 'latest']),
       ]);
       metadata = {
         symbol: symbolResult.status === 'fulfilled' ? decodeAbiString(symbolResult.value).slice(0, 24) : 'ERC-20',
@@ -641,13 +638,14 @@ function hydrateStoredTokens() {
 }
 
 async function checkStatuses() {
-  if (!backendConfigured()) return;
+  if (!state.endpoint) return;
   const pending = state.transactions.filter(tx => tx.status === 'pending');
   if (!pending.length) return;
+  const httpEndpoint = toHttpEndpoint(state.endpoint);
   try {
     const payload = pending.map((tx, index) => ({ jsonrpc: '2.0', id: index + 1, method: 'eth_getTransactionReceipt', params: [tx.hash] }));
-    const answerMap = await rpcBatch(payload);
-    const results = [...answerMap.values()];
+    const response = await fetch(httpEndpoint, { method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(payload) });
+    const results = await response.json();
     let changed = false;
     for (const answer of results) {
       const tx = pending[answer.id - 1];
@@ -657,7 +655,7 @@ async function checkStatuses() {
         tx.blockNumber = hexToNumber(answer.result.blockNumber);
         changed = true;
       } else if (Date.now() - tx.firstSeen > notificationRule('dropped').afterMinutes * 60 * 1000) {
-        const stillExists = await rpc(null, 'eth_getTransactionByHash', [tx.hash]);
+        const stillExists = await rpc(httpEndpoint, 'eth_getTransactionByHash', [tx.hash]);
         if (!stillExists) {
           tx.status = 'dropped';
           changed = true;
@@ -666,11 +664,11 @@ async function checkStatuses() {
       }
     }
     if (changed) { saveTransactions(); render(); }
-  } catch { /* The Railway poll remains the primary connection signal. */ }
+  } catch { /* The WebSocket badge remains the primary connection signal. */ }
 }
 
 async function verifyTransactionsStillPending(transactions) {
-  if (!backendConfigured()) return [];
+  if (!state.endpoint) return [];
   const candidates = [...new Map(
     transactions
       .filter(tx => tx?.status === 'pending' && tx.hash)
@@ -678,11 +676,20 @@ async function verifyTransactionsStillPending(transactions) {
   ).values()];
   if (!candidates.length) return [];
 
+  const endpoint = toHttpEndpoint(state.endpoint);
   try {
     const receiptPayload = candidates.map((tx, index) => ({
       jsonrpc: '2.0', id: index + 1, method: 'eth_getTransactionReceipt', params: [tx.hash],
     }));
-    const receipts = await rpcBatch(receiptPayload);
+    const receiptResponse = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify(receiptPayload),
+    });
+    if (!receiptResponse.ok) return [];
+    const receiptAnswers = await receiptResponse.json();
+    if (!Array.isArray(receiptAnswers)) return [];
+    const receipts = new Map(receiptAnswers.map(answer => [answer.id, answer]));
     const unresolved = [];
     let changed = false;
 
@@ -703,7 +710,15 @@ async function verifyTransactionsStillPending(transactions) {
       const transactionPayload = unresolved.map((tx, index) => ({
         jsonrpc: '2.0', id: index + 1, method: 'eth_getTransactionByHash', params: [tx.hash],
       }));
-      const currentTransactions = await rpcBatch(transactionPayload);
+      const transactionResponse = await fetch(endpoint, {
+        method: 'POST',
+        headers: {'content-type': 'application/json'},
+        body: JSON.stringify(transactionPayload),
+      });
+      if (!transactionResponse.ok) return [];
+      const transactionAnswers = await transactionResponse.json();
+      if (!Array.isArray(transactionAnswers)) return [];
+      const currentTransactions = new Map(transactionAnswers.map(answer => [answer.id, answer]));
 
       unresolved.forEach((tx, index) => {
         const answer = currentTransactions.get(index + 1);
@@ -746,9 +761,9 @@ async function verifyLiveBlocker(tx) {
 }
 
 async function updateGasPrice() {
-  if (!backendConfigured()) return;
+  if (!state.endpoint) return;
   try {
-    const result = await rpc(null, 'eth_gasPrice', []);
+    const result = await rpc(toHttpEndpoint(state.endpoint), 'eth_gasPrice', []);
     state.currentGasPrice = hexToGwei(result);
     render();
   } catch { /* Keep the last successful price. */ }
@@ -1077,29 +1092,25 @@ function updateNotificationStatus(permission = ('Notification' in window ? Notif
   el.notificationButton.disabled = permission === 'granted' && registered;
 }
 
-async function rpc(_endpoint, method, params) {
-  if (!backendConfigured()) throw new Error('Railway backend is not connected');
-  const response = await fetch(`${normalizedBackendUrl()}/api/providers/alchemy/rpc`, {
-    method: 'POST', headers: backendHeaders(), body: JSON.stringify({jsonrpc:'2.0', id:1, method, params}),
-  });
+async function rpc(endpoint, method, params) {
+  const response = await fetch(endpoint, { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({jsonrpc:'2.0', id:1, method, params}) });
   const body = await response.json();
-  if (!response.ok || body.error) throw new Error(body.error?.message || body.error || `RPC ${method} failed`);
+  if (!response.ok || body.error) throw new Error(body.error?.message || `RPC ${method} failed`);
   return body.result;
 }
 
 async function rpcBatch(requests) {
-  if (!backendConfigured()) throw new Error('Railway backend is not connected');
+  const endpoint = toHttpEndpoint(state.endpoint);
   const answers = new Map();
   for (let start = 0; start < requests.length; start += 100) {
     const chunk = requests.slice(start, start + 100);
-    const response = await fetch(`${normalizedBackendUrl()}/api/providers/alchemy/rpc`, {
+    const response = await fetch(endpoint, {
       method: 'POST',
-      headers: backendHeaders(),
+      headers: {'content-type':'application/json'},
       body: JSON.stringify(chunk.map(item => ({jsonrpc:'2.0', ...item}))),
     });
     const body = await response.json();
-    if (!response.ok) throw new Error(body?.error || `Railway RPC returned ${response.status}`);
-    if (!Array.isArray(body)) throw new Error(body?.error?.message || 'Unexpected RPC batch response');
+    if (!response.ok || !Array.isArray(body)) throw new Error('RPC batch request failed');
     for (const answer of body) answers.set(answer.id, answer);
   }
   return answers;
@@ -1110,7 +1121,7 @@ function balanceOfData(address) {
 }
 
 async function updateWalletBalances() {
-  if (!backendConfigured() || !state.balanceSettings.enabled || state.balanceLoading) return;
+  if (!state.endpoint || !state.balanceSettings.enabled || state.balanceLoading) return;
   state.balanceLoading = true;
   state.balanceLoadError = '';
   renderBalances();
@@ -1149,12 +1160,12 @@ async function updateWalletBalances() {
 
 async function updateGasBalance() {
   const settings = state.balanceSettings;
-  if (!backendConfigured() || !validAddress(settings.gasAddress) || state.gasLoading) return;
+  if (!state.endpoint || !validAddress(settings.gasAddress) || state.gasLoading) return;
   state.gasLoading = true;
   state.gasLoadError = '';
   renderBalances();
   try {
-    const result = await rpc(null, 'eth_getBalance', [settings.gasAddress, 'latest']);
+    const result = await rpc(toHttpEndpoint(state.endpoint), 'eth_getBalance', [settings.gasAddress, 'latest']);
     const raw = BigInt(result).toString();
     const previousRaw = state.gasBalance.raw;
     const changeRaw = previousRaw !== undefined && previousRaw !== null ? (BigInt(raw) - BigInt(previousRaw)).toString() : null;
@@ -1233,6 +1244,7 @@ function scheduleBalanceRefresh(force = false) {
   renderBalances();
 }
 
+function toHttpEndpoint(value) { return value.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:'); }
 function hexToNumber(value) { return value ? Number.parseInt(value, 16) : 0; }
 function hexToEth(value) { return value ? Number(BigInt(value)) / 1e18 : 0; }
 function hexToGwei(value) { return value ? Number(BigInt(value)) / 1e9 : 0; }
@@ -1443,8 +1455,8 @@ function renderPendingSync() {
   const missing = diagnostics.reduce((total, item) => total + Number(item.missing || 0), 0);
   const etherscanExtra = etherscanDiagnostics.reduce((total, item) => total + Number(item.extraVsAlchemy || 0), 0);
 
-  el.pendingSyncButton.disabled = state.pendingSyncRunning || !backendConfigured();
-  el.pendingSyncNoticeButton.disabled = state.pendingSyncRunning || !backendConfigured();
+  el.pendingSyncButton.disabled = state.pendingSyncRunning || !state.endpoint;
+  el.pendingSyncNoticeButton.disabled = state.pendingSyncRunning || !state.endpoint;
   el.pendingSyncButton.textContent = state.pendingSyncRunning ? 'Syncing…' : 'Sync pending';
   el.pendingSyncNoticeButton.textContent = state.pendingSyncRunning ? 'Scanning…' : 'Scan again';
   el.pendingEtherscanLink.hidden = true;
@@ -1465,7 +1477,7 @@ function renderPendingSync() {
   if (state.pendingSyncError) {
     el.pendingSyncNotice.hidden = false;
     el.pendingSyncTitle.textContent = 'Pending synchronization unavailable';
-    el.pendingSyncMessage.textContent = `${state.pendingSyncError}. Railway transaction monitoring continues; only the nonce cross-check is temporarily unavailable.`;
+    el.pendingSyncMessage.textContent = `${state.pendingSyncError}. Live WebSocket monitoring continues.`;
     return;
   }
   if (etherscanExtra > 0) {
@@ -1559,7 +1571,7 @@ function render() {
     </tr>`;
   }).join('');
   el.emptyState.classList.toggle('hidden', filtered.length > 0);
-  el.emptyMessage.textContent = query ? 'No transactions match your search.' : backendConfigured() ? 'Railway monitoring is active. New events will appear here.' : 'Connect the Railway backend to start monitoring.';
+  el.emptyMessage.textContent = query ? 'No transactions match your search.' : state.endpoint ? 'Connection active. New events will appear here.' : 'Configure the Alchemy connection to start monitoring.';
   el.paginationInfo.textContent = visible.length ? `${start + 1}–${Math.min(start + state.pageSize, visible.length)} of ${visible.length}` : '0 transactions';
   el.pageIndicator.textContent = `Page ${state.page} of ${totalPages}`;
   el.previousPage.disabled = state.page <= 1;
@@ -1674,6 +1686,7 @@ function statusLabel(status) {
 }
 
 function openSettings() {
+  el.endpoint.value = state.endpoint;
   el.backendUrl.value = state.backendUrl;
   el.backendToken.value = state.backendToken;
   updateBackendStatus();
@@ -1839,10 +1852,15 @@ el.notificationButton.addEventListener('click', enableNotifications);
 el.form.addEventListener('submit', async event => {
   if (event.submitter?.value !== 'default') return;
   event.preventDefault();
+  const endpoint = el.endpoint.value.trim();
   const backendUrl = normalizedBackendUrl(el.backendUrl.value);
   const backendToken = el.backendToken.value.trim();
   const parsed = parseAddressLines(el.addresses.value);
   const addresses = parsed.addresses;
+  if (!/^wss:\/\/eth-mainnet\.g\.alchemy\.com\/v2\/[A-Za-z0-9_-]+$/.test(endpoint)) {
+    el.error.textContent = 'Enter the full WebSocket URL starting with wss://';
+    return;
+  }
   if (!addresses.length || addresses.length > 50 || addresses.some(address => !validAddress(address))) {
     el.error.textContent = 'Enter 1–50 valid Ethereum addresses, one per line.';
     return;
@@ -1851,6 +1869,7 @@ el.form.addEventListener('submit', async event => {
     el.error.textContent = 'Enter both the HTTPS Railway URL and its ADMIN_TOKEN (at least 24 characters), or leave both empty.';
     return;
   }
+  state.endpoint = endpoint;
   state.backendUrl = backendUrl;
   state.backendToken = backendToken;
   state.addresses = addresses;
@@ -1861,6 +1880,7 @@ el.form.addEventListener('submit', async event => {
   state.pendingSnapshotError = '';
   state.etherscanDiagnostics = {};
   state.etherscanSyncError = '';
+  localStorage.setItem(ENDPOINT_KEY, endpoint);
   if (backendUrl) localStorage.setItem(BACKEND_URL_KEY, backendUrl); else localStorage.removeItem(BACKEND_URL_KEY);
   if (backendToken) localStorage.setItem(BACKEND_TOKEN_KEY, backendToken); else localStorage.removeItem(BACKEND_TOKEN_KEY);
   localStorage.setItem(ADDRESSES_KEY, JSON.stringify(addresses));
