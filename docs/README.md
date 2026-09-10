@@ -28,6 +28,7 @@ Live pending transaction monitor for one or more Ethereum addresses.
 - Configure a dedicated Gas Station address, minimum ETH threshold, independent refresh interval, and low-balance browser/email alerts.
 - Show the Gas Station ETH balance change since the previous refresh.
 - Display a client-only English crypto news feed with Ethereum, Bitcoin, market, and regulation filters. News refreshes every 15 minutes and the last successful response is cached in the browser.
+- Support an optional browser-local CryptoCompare API key for authenticated news requests, with an automatic public-feed fallback when no key is configured.
 - Local browser storage for the Alchemy URL, addresses, alert email, and transaction history.
 
 ## Publishing with Visual Studio
@@ -49,10 +50,11 @@ After publishing, open the GitHub Pages URL and click **Connection settings**:
 
 2. Add 1–50 Ethereum addresses, one per line.
 3. Optionally enter an Etherscan API key to enable the second-source pending nonce check.
-4. Click **Save and connect**.
-5. Open **Notification settings**, choose the alert types and delivery channels, and configure the timing.
-6. Optionally enter an alert email and click **Send test**. Confirm the first FormSubmit email before expecting automatic alerts.
-7. Click **Enable browser notifications** and allow notifications in the browser.
+4. Optionally enter a CryptoCompare API key with the `Poll Live and Historical Data` permission for authenticated news requests.
+5. Click **Save and connect**.
+6. Open **Notification settings**, choose the alert types and delivery channels, and configure the timing.
+7. Optionally enter an alert email and click **Send test**. Confirm the first FormSubmit email before expecting automatic alerts.
+8. Click **Enable browser notifications** and allow notifications in the browser.
 
 Use **Wallet balances → Settings** to enable wallet balances and select their refresh interval. Use the separate **Gas Station → Settings** dialog to configure its address, minimum ETH balance, and independent refresh interval. Use **Refresh now** at any time without changing either schedule.
 

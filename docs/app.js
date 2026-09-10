@@ -1,6 +1,7 @@
 const DEFAULT_ADDRESS = '0xced92fa7f0797cbc851b48140ae218a0b0d41ce0';
 const ENDPOINT_KEY = 'eth-pending-monitor-endpoint';
 const ETHERSCAN_KEY = 'eth-pending-monitor-etherscan-key';
+const CRYPTOCOMPARE_KEY = 'eth-pending-monitor-cryptocompare-key';
 const ADDRESSES_KEY = 'eth-pending-monitor-addresses';
 const LABELS_KEY = 'eth-pending-monitor-address-labels';
 const EMAIL_KEY = 'eth-pending-monitor-email';
@@ -28,6 +29,7 @@ const state = {
   ws: null,
   endpoint: localStorage.getItem(ENDPOINT_KEY) || '',
   etherscanKey: localStorage.getItem(ETHERSCAN_KEY) || '',
+  cryptoCompareKey: localStorage.getItem(CRYPTOCOMPARE_KEY) || '',
   addresses: loadAddresses(),
   addressLabels: loadAddressLabels(),
   email: localStorage.getItem(EMAIL_KEY) || '',
@@ -107,6 +109,7 @@ const el = {
   form: document.querySelector('#settingsForm'),
   endpoint: document.querySelector('#endpointInput'),
   etherscanKey: document.querySelector('#etherscanKeyInput'),
+  cryptoCompareKey: document.querySelector('#cryptoCompareKeyInput'),
   addresses: document.querySelector('#addressesInput'),
   email: document.querySelector('#emailInput'),
   testEmailButton: document.querySelector('#testEmailButton'),
@@ -1306,7 +1309,7 @@ function renderNews() {
   else if (state.newsLoading) el.newsStatus.textContent = 'Updating news…';
   else if (state.newsError && state.newsItems.length) el.newsStatus.textContent = 'Showing saved news · update temporarily unavailable';
   else if (state.newsError) el.newsStatus.textContent = 'News temporarily unavailable';
-  else if (state.newsUpdatedAt) el.newsStatus.textContent = `Updated ${age(state.newsUpdatedAt)} ago · every 15 minutes`;
+  else if (state.newsUpdatedAt) el.newsStatus.textContent = `Updated ${age(state.newsUpdatedAt)} ago · every 15 minutes · ${state.cryptoCompareKey ? 'authenticated feed' : 'public feed'}`;
   else el.newsStatus.textContent = 'News not loaded yet';
 
   const visible = state.newsItems
@@ -1338,6 +1341,7 @@ async function updateNews() {
   renderNews();
   try {
     const params = new URLSearchParams({lang:'EN', excludeCategories:'Sponsored', extraParams:'ETHPendingMonitor'});
+    if (state.cryptoCompareKey) params.set('api_key', state.cryptoCompareKey);
     const response = await fetch(`https://min-api.cryptocompare.com/data/v2/news/?${params}`);
     const body = await response.json();
     if (!response.ok || !Array.isArray(body?.Data)) throw new Error(body?.Message || 'News request failed');
@@ -1672,6 +1676,7 @@ function statusLabel(status) {
 function openSettings() {
   el.endpoint.value = state.endpoint;
   el.etherscanKey.value = state.etherscanKey;
+  el.cryptoCompareKey.value = state.cryptoCompareKey;
   el.addresses.value = state.addresses.map(address => state.addressLabels[address] ? `${state.addressLabels[address]} | ${address}` : address).join('\n');
   el.error.textContent = '';
   el.dialog.showModal();
@@ -1764,6 +1769,7 @@ el.form.addEventListener('submit', event => {
   event.preventDefault();
   const endpoint = el.endpoint.value.trim();
   const etherscanKey = el.etherscanKey.value.trim();
+  const cryptoCompareKey = el.cryptoCompareKey.value.trim();
   const parsed = parseAddressLines(el.addresses.value);
   const addresses = parsed.addresses;
   if (!/^wss:\/\/eth-mainnet\.g\.alchemy\.com\/v2\/[A-Za-z0-9_-]+$/.test(endpoint)) {
@@ -1778,8 +1784,14 @@ el.form.addEventListener('submit', event => {
     el.error.textContent = 'Enter a valid Etherscan API key or leave the field empty.';
     return;
   }
+  if (cryptoCompareKey && !/^\S{8,256}$/.test(cryptoCompareKey)) {
+    el.error.textContent = 'Enter a valid CryptoCompare API key or leave the field empty.';
+    return;
+  }
   state.endpoint = endpoint;
   state.etherscanKey = etherscanKey;
+  const newsKeyChanged = state.cryptoCompareKey !== cryptoCompareKey;
+  state.cryptoCompareKey = cryptoCompareKey;
   state.addresses = addresses;
   state.addressLabels = parsed.labels;
   state.pendingDiagnostics = {};
@@ -1791,11 +1803,14 @@ el.form.addEventListener('submit', event => {
   localStorage.setItem(ENDPOINT_KEY, endpoint);
   if (etherscanKey) localStorage.setItem(ETHERSCAN_KEY, etherscanKey);
   else localStorage.removeItem(ETHERSCAN_KEY);
+  if (cryptoCompareKey) localStorage.setItem(CRYPTOCOMPARE_KEY, cryptoCompareKey);
+  else localStorage.removeItem(CRYPTOCOMPARE_KEY);
   localStorage.setItem(ADDRESSES_KEY, JSON.stringify(addresses));
   localStorage.setItem(LABELS_KEY, JSON.stringify(parsed.labels));
   el.dialog.close();
   reconnect();
   scheduleBalanceRefresh(true);
+  if (newsKeyChanged) updateNews();
 });
 
 el.notificationForm.addEventListener('submit', event => {
