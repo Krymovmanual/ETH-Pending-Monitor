@@ -5,7 +5,7 @@ Live pending transaction monitor for one or more Ethereum addresses.
 ## Features
 
 - Monitor up to 50 Ethereum addresses from one dashboard.
-- Scan Alchemy's pending-block snapshot immediately after connection and on demand, including incoming transactions that existed before the page opened. A lighter outgoing-nonce reconciliation then runs every minute.
+- Receive live transaction state from the 24/7 Railway monitor and reconcile outgoing nonces every minute.
 - Cross-check every monitored wallet's pending nonce with Etherscan through Railway once per minute. Server requests are sent in groups of three to respect the free API rate limit.
 - Show an `Etherscan detects additional pending transactions` warning and a direct link to the affected wallet's Etherscan pending page when Etherscan sees a higher pending nonce than Alchemy.
 - Show a visible warning when Alchemy reports a pending nonce gap but does not expose the missing transaction hashes in its mempool.
@@ -28,9 +28,9 @@ Live pending transaction monitor for one or more Ethereum addresses.
 - Configure a dedicated Gas Station address, minimum ETH threshold, independent refresh interval, and low-balance browser/email alerts.
 - Show the Gas Station ETH balance change since the previous refresh.
 - Display an English crypto news feed with Ethereum, Bitcoin, market, and regulation filters. Railway caches CryptoCompare responses for 15 minutes, and the last successful result is also cached in the browser.
-- Keep the Etherscan and CryptoCompare API keys exclusively in Railway environment variables.
-- Local browser storage for the Alchemy URL, addresses, alert email, and transaction history.
-- Optional Railway backend for continuous monitoring, PostgreSQL transaction state, server-side email alerts, and Web Push while the dashboard is closed.
+- Keep the Alchemy, Etherscan and CryptoCompare credentials exclusively in Railway environment variables.
+- Local browser storage for addresses, alert email, display preferences, and transaction history.
+- Railway backend for continuous monitoring, PostgreSQL transaction state, server-side email alerts, provider requests, and Web Push while the dashboard is closed.
 
 ## Publishing with Visual Studio
 
@@ -45,23 +45,19 @@ Live pending transaction monitor for one or more Ethereum addresses.
 
 After publishing, open the GitHub Pages URL and click **Connection settings**:
 
-1. Enter the Alchemy WebSocket URL in this format:
-
-`wss://eth-mainnet.g.alchemy.com/v2/YOUR_KEY`
-
+1. Enter the Railway backend URL and its `ADMIN_TOKEN`.
 2. Add 1–50 Ethereum addresses, one per line.
-3. Enter the Railway backend URL and its `ADMIN_TOKEN`.
-4. Click **Save and connect**.
-5. Open **Notification settings**, choose the alert types and delivery channels, and configure the timing.
-6. Optionally enter an alert email and click **Send test**. Confirm the first FormSubmit email before expecting automatic alerts.
-7. Click **Enable browser notifications** and allow notifications in the browser.
+3. Click **Save and connect**.
+4. Open **Notification settings**, choose the alert types and delivery channels, and configure the timing.
+5. Optionally enter an alert email and click **Send test**. Confirm the first FormSubmit email before expecting automatic alerts.
+6. Click **Enable browser notifications** and allow notifications in the browser.
 
 Use **Wallet balances → Settings** to enable wallet balances and select their refresh interval. Use the separate **Gas Station → Settings** dialog to configure its address, minimum ETH balance, and independent refresh interval. Use **Refresh now** at any time without changing either schedule.
 
-Without a Railway backend, monitoring and alerts run only while the page remains open. With the backend configured, server-side email and Web Push alerts continue while the dashboard is closed. Email delivery uses Resend when configured and otherwise falls back to the activated FormSubmit recipient. The gas boost indicator is a recommendation based on the current network price, not a guarantee that a transaction is stuck.
+The Railway backend is required for monitoring and provider data. Server-side email and Web Push alerts continue while the dashboard is closed. Email delivery uses Resend when configured and otherwise falls back to the activated FormSubmit recipient. The gas boost indicator is a recommendation based on the current network price, not a guarantee that a transaction is stuck.
 
 Pending synchronization is best-effort. Ethereum JSON-RPC can reveal a difference between the confirmed and pending account nonce, but it cannot always return every transaction hash from another provider's mempool. The dashboard reports such missing transactions instead of silently showing zero.
 
-The Etherscan key is stored only on Railway. Etherscan's official API can confirm a higher pending nonce but does not provide the address pending list with full transaction hashes, so Alchemy remains the primary live transaction source.
+Alchemy and Etherscan credentials are stored only on Railway. Etherscan's official API can confirm a higher pending nonce but does not provide the address pending list with full transaction hashes, so Alchemy remains the primary live transaction source.
 
 Crypto news is loaded through the Railway backend. The dashboard excludes sponsored stories, links to the original publisher, attributes CryptoCompare, and keeps the latest successful news response in local browser storage. If the feed is temporarily unavailable, transaction monitoring continues unaffected.

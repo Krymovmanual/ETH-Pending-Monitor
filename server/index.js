@@ -4,7 +4,7 @@ const { config, tokenMatches, validateEnvironment, normalizeOrigin } = require('
 const db = require('./db');
 const { EthereumMonitor } = require('./monitor');
 const { sendEmail, sendPush, hasPushConfiguration } = require('./notifier');
-const { fetchEtherscanPendingNonces, fetchCryptoCompareNews } = require('./providers');
+const { proxyAlchemyRpc, fetchEtherscanPendingNonces, fetchCryptoCompareNews } = require('./providers');
 
 const app = express();
 const monitor = new EthereumMonitor();
@@ -99,6 +99,7 @@ app.get('/health', (_req, res) => {
     missing,
     pushConfigured: hasPushConfiguration(),
     providers: {
+      alchemy: Boolean(config.alchemyWssUrl),
       etherscan: Boolean(config.etherscanApiKey),
       cryptoCompare: Boolean(config.cryptoCompareApiKey),
     },
@@ -131,6 +132,17 @@ app.put('/api/settings', requireAdmin, async (req, res, next) => {
 
 app.get('/api/transactions', requireAdmin, async (req, res, next) => {
   try { res.json({ items: await db.recentTransactions(req.query.limit) }); } catch (error) { next(error); }
+});
+
+app.post('/api/providers/alchemy/rpc', requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await proxyAlchemyRpc(req.body));
+  } catch (error) {
+    if (/not configured|must contain|not allowed|Invalid params/.test(error.message)) {
+      return res.status(/not configured/.test(error.message) ? 503 : 400).json({ error: error.message });
+    }
+    next(error);
+  }
 });
 
 app.post('/api/providers/etherscan/pending-nonces', requireAdmin, async (req, res, next) => {
