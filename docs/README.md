@@ -6,6 +6,8 @@ Live pending transaction monitor for one or more Ethereum addresses.
 
 - Monitor up to 50 Ethereum addresses from one dashboard.
 - Scan Alchemy's pending-block snapshot immediately after connection and on demand, including incoming transactions that existed before the page opened. A lighter outgoing-nonce reconciliation then runs every minute.
+- Optionally cross-check every monitored wallet's pending nonce with Etherscan once per minute. Requests are sent in groups of three to respect the free API rate limit.
+- Show an `Etherscan detects additional pending transactions` warning and a direct link to the affected wallet's Etherscan pending page when Etherscan sees a higher pending nonce than Alchemy.
 - Show a visible warning when Alchemy reports a pending nonce gap but does not expose the missing transaction hashes in its mempool.
 - Browser and optional email alerts for long-pending transactions, blocked nonce queues, dropped/replaced transactions, and low Gas Station balance.
 - Every alert rule has its own enable switch, Browser/Email channels, delay where applicable, repeat interval where applicable, and urgent quiet-hours override.
@@ -45,13 +47,16 @@ After publishing, open the GitHub Pages URL and click **Connection settings**:
 `wss://eth-mainnet.g.alchemy.com/v2/YOUR_KEY`
 
 2. Add 1–50 Ethereum addresses, one per line.
-3. Click **Save and connect**.
-4. Open **Notification settings**, choose the alert types and delivery channels, and configure the timing.
-5. Optionally enter an alert email and click **Send test**. Confirm the first FormSubmit email before expecting automatic alerts.
-6. Click **Enable browser notifications** and allow notifications in the browser.
+3. Optionally enter an Etherscan API key to enable the second-source pending nonce check.
+4. Click **Save and connect**.
+5. Open **Notification settings**, choose the alert types and delivery channels, and configure the timing.
+6. Optionally enter an alert email and click **Send test**. Confirm the first FormSubmit email before expecting automatic alerts.
+7. Click **Enable browser notifications** and allow notifications in the browser.
 
 Use **Wallet balances → Settings** to enable wallet balances and select their refresh interval. Use the separate **Gas Station → Settings** dialog to configure its address, minimum ETH balance, and independent refresh interval. Use **Refresh now** at any time without changing either schedule.
 
 Monitoring and alerts run only while the page remains open. Email delivery uses the third-party FormSubmit service. The gas boost indicator is a recommendation based on the current network price, not a guarantee that a transaction is stuck.
 
 Pending synchronization is best-effort. Ethereum JSON-RPC can reveal a difference between the confirmed and pending account nonce, but it cannot always return every transaction hash from another provider's mempool. The dashboard reports such missing transactions instead of silently showing zero.
+
+The Etherscan key is stored only in the current browser. Etherscan's official API can confirm a higher pending nonce but does not provide the address pending list with full transaction hashes, so Alchemy remains the primary live transaction source.

@@ -1,5 +1,6 @@
 const DEFAULT_ADDRESS = '0xced92fa7f0797cbc851b48140ae218a0b0d41ce0';
 const ENDPOINT_KEY = 'eth-pending-monitor-endpoint';
+const ETHERSCAN_KEY = 'eth-pending-monitor-etherscan-key';
 const ADDRESSES_KEY = 'eth-pending-monitor-addresses';
 const LABELS_KEY = 'eth-pending-monitor-address-labels';
 const EMAIL_KEY = 'eth-pending-monitor-email';
@@ -23,6 +24,7 @@ const BALANCE_TOKENS = [
 const state = {
   ws: null,
   endpoint: localStorage.getItem(ENDPOINT_KEY) || '',
+  etherscanKey: localStorage.getItem(ETHERSCAN_KEY) || '',
   addresses: loadAddresses(),
   addressLabels: loadAddressLabels(),
   email: localStorage.getItem(EMAIL_KEY) || '',
@@ -47,6 +49,8 @@ const state = {
   pendingSyncError: '',
   pendingSnapshotError: '',
   pendingDiagnostics: {},
+  etherscanDiagnostics: {},
+  etherscanSyncError: '',
   currentGasPrice: null,
   copiedHash: null,
   reconnectTimer: null,
@@ -70,6 +74,7 @@ const el = {
   pendingSyncTitle: document.querySelector('#pendingSyncTitle'),
   pendingSyncMessage: document.querySelector('#pendingSyncMessage'),
   pendingSyncNoticeButton: document.querySelector('#pendingSyncNoticeButton'),
+  pendingEtherscanLink: document.querySelector('#pendingEtherscanLink'),
   pendingSyncStatus: document.querySelector('#pendingSyncStatus'),
   pendingSyncButton: document.querySelector('#pendingSyncButton'),
   txBody: document.querySelector('#txBody'),
@@ -88,6 +93,7 @@ const el = {
   dialog: document.querySelector('#settingsDialog'),
   form: document.querySelector('#settingsForm'),
   endpoint: document.querySelector('#endpointInput'),
+  etherscanKey: document.querySelector('#etherscanKeyInput'),
   addresses: document.querySelector('#addressesInput'),
   email: document.querySelector('#emailInput'),
   testEmailButton: document.querySelector('#testEmailButton'),
@@ -413,6 +419,65 @@ async function fetchPendingNonceDiagnostics() {
   return {answers, fields, diagnostics:pendingNonceDiagnosticsFromAnswers(answers, fields)};
 }
 
+function delay(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+async function fetchEtherscanPendingDiagnostics(alchemyDiagnostics) {
+  const diagnostics = {};
+  const failures = [];
+  const batchSize = 3;
+
+  for (let start = 0; start < state.addresses.length; start += batchSize) {
+    const addresses = state.addresses.slice(start, start + batchSize);
+    const results = await Promise.all(addresses.map(async address => {
+      const params = new URLSearchParams({
+        chainid: '1',
+        module: 'proxy',
+        action: 'eth_getTransactionCount',
+        address,
+        tag: 'pending',
+        apikey: state.etherscanKey,
+      });
+      try {
+        const response = await fetch(`https://api.etherscan.io/v2/api?${params}`);
+        const body = await response.json();
+        if (!response.ok || body.error || !/^0x[0-9a-f]+$/i.test(body.result || '')) {
+          throw new Error(body.error?.message || body.result || body.message || 'Etherscan request failed');
+        }
+        const pendingNonce = hexToNumber(body.result);
+        const alchemy = alchemyDiagnostics[address] || {};
+        const latestNonce = Number.isInteger(alchemy.latestNonce) ? alchemy.latestNonce : null;
+        const alchemyPendingNonce = Number.isInteger(alchemy.pendingNonce) ? alchemy.pendingNonce : null;
+        const expected = latestNonce === null ? 0 : Math.max(0, pendingNonce - latestNonce);
+        const tracked = latestNonce === null
+          ? 0
+          : new Set(state.transactions
+            .filter(tx => tx.status === 'pending' && tx.from === address && tx.nonce >= latestNonce && tx.nonce < pendingNonce)
+            .map(tx => tx.nonce)).size;
+        return {
+          address,
+          pendingNonce,
+          expected,
+          tracked,
+          missing: Math.max(0, expected - tracked),
+          extraVsAlchemy: alchemyPendingNonce === null ? 0 : Math.max(0, pendingNonce - alchemyPendingNonce),
+        };
+      } catch (error) {
+        failures.push(`${walletLabel(address)}: ${error?.message || 'request failed'}`);
+        return null;
+      }
+    }));
+    results.filter(Boolean).forEach(item => { diagnostics[item.address] = item; });
+    if (start + batchSize < state.addresses.length) await delay(1100);
+  }
+
+  return {
+    diagnostics,
+    error: failures.length ? `${failures.length} Etherscan check${failures.length === 1 ? '' : 's'} failed` : '',
+  };
+}
+
 async function loadPendingBlockSnapshot() {
   const block = await rpc(toHttpEndpoint(state.endpoint), 'eth_getBlockByNumber', ['pending', true]);
   const transactions = Array.isArray(block?.transactions) ? block.transactions : [];
@@ -443,6 +508,19 @@ async function syncPendingState(scanSnapshot = false) {
       result = {...result, diagnostics:pendingNonceDiagnosticsFromAnswers(result.answers, result.fields)};
     }
     state.pendingDiagnostics = result.diagnostics;
+    if (state.etherscanKey) {
+      try {
+        const etherscanResult = await fetchEtherscanPendingDiagnostics(result.diagnostics);
+        state.etherscanDiagnostics = etherscanResult.diagnostics;
+        state.etherscanSyncError = etherscanResult.error;
+      } catch (error) {
+        state.etherscanDiagnostics = {};
+        state.etherscanSyncError = error?.message || 'Etherscan cross-check failed';
+      }
+    } else {
+      state.etherscanDiagnostics = {};
+      state.etherscanSyncError = '';
+    }
     state.pendingSyncUpdatedAt = Date.now();
   } catch (error) {
     state.pendingSyncError = error?.message || 'Pending synchronization failed';
@@ -1230,21 +1308,26 @@ function updateSortHeaders() {
 
 function renderPendingSync() {
   const diagnostics = Object.values(state.pendingDiagnostics);
+  const etherscanDiagnostics = Object.values(state.etherscanDiagnostics);
   const expected = diagnostics.reduce((total, item) => total + Number(item.expected || 0), 0);
   const tracked = diagnostics.reduce((total, item) => total + Number(item.tracked || 0), 0);
   const missing = diagnostics.reduce((total, item) => total + Number(item.missing || 0), 0);
+  const etherscanExtra = etherscanDiagnostics.reduce((total, item) => total + Number(item.extraVsAlchemy || 0), 0);
 
   el.pendingSyncButton.disabled = state.pendingSyncRunning || !state.endpoint;
   el.pendingSyncNoticeButton.disabled = state.pendingSyncRunning || !state.endpoint;
   el.pendingSyncButton.textContent = state.pendingSyncRunning ? 'Syncing…' : 'Sync pending';
   el.pendingSyncNoticeButton.textContent = state.pendingSyncRunning ? 'Scanning…' : 'Scan again';
+  el.pendingEtherscanLink.hidden = true;
+  el.pendingEtherscanLink.removeAttribute('href');
 
   if (state.pendingSyncRunning) {
     el.pendingSyncStatus.textContent = 'Checking existing pending transactions…';
   } else if (state.pendingSyncError) {
     el.pendingSyncStatus.textContent = 'Pending sync failed.';
   } else if (state.pendingSyncUpdatedAt) {
-    el.pendingSyncStatus.textContent = `Pending sync checked ${age(state.pendingSyncUpdatedAt)} ago.${state.pendingSnapshotError ? ' Full snapshot unavailable.' : ''}`;
+    const source = state.etherscanKey ? ' Alchemy + Etherscan checked.' : ' Alchemy checked; Etherscan is not configured.';
+    el.pendingSyncStatus.textContent = `Pending sync checked ${age(state.pendingSyncUpdatedAt)} ago.${source}${state.pendingSnapshotError ? ' Full snapshot unavailable.' : ''}`;
   } else {
     el.pendingSyncStatus.textContent = 'Pending sync not run yet.';
   }
@@ -1254,6 +1337,21 @@ function renderPendingSync() {
     el.pendingSyncNotice.hidden = false;
     el.pendingSyncTitle.textContent = 'Pending synchronization unavailable';
     el.pendingSyncMessage.textContent = `${state.pendingSyncError}. Live WebSocket monitoring continues.`;
+    return;
+  }
+  if (etherscanExtra > 0) {
+    const affectedItems = etherscanDiagnostics.filter(item => item.extraVsAlchemy > 0);
+    const affected = affectedItems
+      .map(item => `${walletLabel(item.address)}: +${item.extraVsAlchemy}`)
+      .join(' · ');
+    const firstAddress = affectedItems[0]?.address;
+    el.pendingSyncNotice.hidden = false;
+    el.pendingSyncTitle.textContent = `Etherscan detects ${etherscanExtra} additional pending transaction${etherscanExtra === 1 ? '' : 's'}`;
+    el.pendingSyncMessage.textContent = `Etherscan's pending nonce is higher than Alchemy's — ${affected}. The official Etherscan API confirms the difference but does not return the missing TX hashes.${state.etherscanSyncError ? ` ${state.etherscanSyncError}.` : ''}`;
+    if (firstAddress) {
+      el.pendingEtherscanLink.href = `https://etherscan.io/txsPending?a=${firstAddress}&m=hf`;
+      el.pendingEtherscanLink.hidden = false;
+    }
     return;
   }
   if (missing > 0) {
@@ -1271,6 +1369,12 @@ function renderPendingSync() {
     el.pendingSyncNotice.hidden = false;
     el.pendingSyncTitle.textContent = 'Full pending snapshot unavailable';
     el.pendingSyncMessage.textContent = `${state.pendingSnapshotError}. Live WebSocket monitoring and outgoing nonce checks continue, but transactions already pending before this page opened may be incomplete.`;
+    return;
+  }
+  if (state.etherscanSyncError) {
+    el.pendingSyncNotice.hidden = false;
+    el.pendingSyncTitle.textContent = 'Etherscan cross-check unavailable';
+    el.pendingSyncMessage.textContent = `${state.etherscanSyncError}. Alchemy monitoring continues normally. Check the Etherscan API key or try again later.`;
     return;
   }
   el.pendingSyncNotice.hidden = true;
@@ -1442,6 +1546,7 @@ function statusLabel(status) {
 
 function openSettings() {
   el.endpoint.value = state.endpoint;
+  el.etherscanKey.value = state.etherscanKey;
   el.addresses.value = state.addresses.map(address => state.addressLabels[address] ? `${state.addressLabels[address]} | ${address}` : address).join('\n');
   el.error.textContent = '';
   el.dialog.showModal();
@@ -1528,6 +1633,7 @@ el.form.addEventListener('submit', event => {
   if (event.submitter?.value !== 'default') return;
   event.preventDefault();
   const endpoint = el.endpoint.value.trim();
+  const etherscanKey = el.etherscanKey.value.trim();
   const parsed = parseAddressLines(el.addresses.value);
   const addresses = parsed.addresses;
   if (!/^wss:\/\/eth-mainnet\.g\.alchemy\.com\/v2\/[A-Za-z0-9_-]+$/.test(endpoint)) {
@@ -1538,14 +1644,23 @@ el.form.addEventListener('submit', event => {
     el.error.textContent = 'Enter 1–50 valid Ethereum addresses, one per line.';
     return;
   }
+  if (etherscanKey && !/^\S{8,128}$/.test(etherscanKey)) {
+    el.error.textContent = 'Enter a valid Etherscan API key or leave the field empty.';
+    return;
+  }
   state.endpoint = endpoint;
+  state.etherscanKey = etherscanKey;
   state.addresses = addresses;
   state.addressLabels = parsed.labels;
   state.pendingDiagnostics = {};
   state.pendingSyncUpdatedAt = 0;
   state.pendingSyncError = '';
   state.pendingSnapshotError = '';
+  state.etherscanDiagnostics = {};
+  state.etherscanSyncError = '';
   localStorage.setItem(ENDPOINT_KEY, endpoint);
+  if (etherscanKey) localStorage.setItem(ETHERSCAN_KEY, etherscanKey);
+  else localStorage.removeItem(ETHERSCAN_KEY);
   localStorage.setItem(ADDRESSES_KEY, JSON.stringify(addresses));
   localStorage.setItem(LABELS_KEY, JSON.stringify(parsed.labels));
   el.dialog.close();

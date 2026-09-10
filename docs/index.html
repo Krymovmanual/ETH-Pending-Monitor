@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Live monitor for pending Ethereum transactions">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://eth-mainnet.g.alchemy.com wss://eth-mainnet.g.alchemy.com https://formsubmit.co; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://eth-mainnet.g.alchemy.com wss://eth-mainnet.g.alchemy.com https://api.etherscan.io https://formsubmit.co; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
   <title>ETH Pending Monitor</title>
   <link rel="stylesheet" href="styles.css?v=20260910-pending-sync">
 </head>
@@ -41,7 +41,10 @@
         <strong id="pendingSyncTitle">Untracked pending transactions detected</strong>
         <p id="pendingSyncMessage"></p>
       </div>
-      <button class="secondary" id="pendingSyncNoticeButton" type="button">Scan again</button>
+      <div class="pending-sync-actions">
+        <a class="secondary button-link" id="pendingEtherscanLink" href="#" target="_blank" rel="noreferrer" hidden>Open pending on Etherscan</a>
+        <button class="secondary" id="pendingSyncNoticeButton" type="button">Scan again</button>
+      </div>
     </section>
 
     <section class="balances-layout" aria-label="Wallet and gas balances">
@@ -302,7 +305,7 @@
     <form method="dialog" id="settingsForm">
       <div class="dialog-head">
         <div>
-          <span class="eyebrow">ALCHEMY</span>
+          <span class="eyebrow">ALCHEMY + ETHERSCAN</span>
           <h2>Connection</h2>
         </div>
         <button class="icon-button" value="cancel" aria-label="Close" type="submit">×</button>
@@ -310,6 +313,10 @@
       <label for="endpointInput">WebSocket URL</label>
       <input id="endpointInput" type="password" spellcheck="false" autocomplete="off" placeholder="wss://eth-mainnet.g.alchemy.com/v2/…">
       <p class="hint">The URL is stored only in this browser and sent directly to Alchemy.</p>
+
+      <label for="etherscanKeyInput">Etherscan API key <span class="optional">Optional</span></label>
+      <input id="etherscanKeyInput" type="password" spellcheck="false" autocomplete="off" placeholder="Enter your Etherscan API key">
+      <p class="hint">Used once per minute to cross-check pending nonces. The key is stored only in this browser and sent directly to Etherscan.</p>
 
       <label for="addressesInput">Ethereum addresses</label>
       <textarea id="addressesInput" spellcheck="false" placeholder="Fireblocks ETH | 0x1234…"></textarea>
@@ -323,6 +330,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=20260910-pending-sync"></script>
+  <script src="app.js?v=20260910-etherscan-sync"></script>
 </body>
 </html>
