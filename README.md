@@ -4,7 +4,7 @@ Ethereum pending-transaction dashboard with an optional 24/7 Railway backend.
 
 - `docs/` contains the GitHub Pages dashboard.
 - `server/` contains the Node.js monitoring service.
-- PostgreSQL stores server settings, transaction state, notification history, and Web Push subscriptions.
+- PostgreSQL stores server settings, transaction state, notification history, Web Push subscriptions, and compact one-minute Gas Analytics summaries.
 
 ## Railway deployment
 
@@ -25,5 +25,7 @@ Ethereum pending-transaction dashboard with an optional 24/7 Railway backend.
 Email alerts use Resend when `RESEND_API_KEY` and `EMAIL_FROM` are configured. Without Resend, the service uses the already activated FormSubmit recipient. Web Push requires `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT`.
 
 The browser talks to Railway for Etherscan diagnostics and CryptoCompare news, so those provider keys are never exposed in GitHub Pages or browser storage. Both integrations require the Railway backend.
+
+Gas Analytics uses an independent Alchemy connection on Railway to sample every Ethereum block. It stores one aggregated row per minute, keeps 30 days, and removes older rows automatically. A Gas Analytics failure does not stop pending-transaction monitoring.
 
 See [docs/README.md](docs/README.md) for the dashboard feature list and GitHub Pages instructions.

@@ -67,6 +67,27 @@ async function initializeDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS gas_minute_samples (
+      minute TIMESTAMPTZ PRIMARY KEY,
+      sample_count SMALLINT NOT NULL,
+      base_min REAL NOT NULL,
+      base_avg REAL NOT NULL,
+      base_median REAL NOT NULL,
+      base_max REAL NOT NULL,
+      low_min REAL NOT NULL,
+      low_avg REAL NOT NULL,
+      low_median REAL NOT NULL,
+      low_max REAL NOT NULL,
+      standard_min REAL NOT NULL,
+      standard_avg REAL NOT NULL,
+      standard_median REAL NOT NULL,
+      standard_max REAL NOT NULL,
+      fast_min REAL NOT NULL,
+      fast_avg REAL NOT NULL,
+      fast_median REAL NOT NULL,
+      fast_max REAL NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_gas_minute_samples_recent ON gas_minute_samples (minute DESC);
   `);
   await pool.query(
     `INSERT INTO app_settings (id, settings) VALUES (1, $1::jsonb) ON CONFLICT (id) DO NOTHING`,
@@ -180,6 +201,72 @@ async function deletePushSubscription(endpoint) {
   await pool.query('DELETE FROM push_subscriptions WHERE endpoint = $1', [endpoint]);
 }
 
+async function saveGasMinute(sample) {
+  const values = [
+    sample.minute, sample.sampleCount,
+    sample.base.min, sample.base.avg, sample.base.median, sample.base.max,
+    sample.low.min, sample.low.avg, sample.low.median, sample.low.max,
+    sample.standard.min, sample.standard.avg, sample.standard.median, sample.standard.max,
+    sample.fast.min, sample.fast.avg, sample.fast.median, sample.fast.max,
+  ];
+  await pool.query(
+    `INSERT INTO gas_minute_samples (
+       minute, sample_count,
+       base_min, base_avg, base_median, base_max,
+       low_min, low_avg, low_median, low_max,
+       standard_min, standard_avg, standard_median, standard_max,
+       fast_min, fast_avg, fast_median, fast_max
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+     ON CONFLICT (minute) DO UPDATE SET
+       sample_count=EXCLUDED.sample_count,
+       base_min=EXCLUDED.base_min, base_avg=EXCLUDED.base_avg, base_median=EXCLUDED.base_median, base_max=EXCLUDED.base_max,
+       low_min=EXCLUDED.low_min, low_avg=EXCLUDED.low_avg, low_median=EXCLUDED.low_median, low_max=EXCLUDED.low_max,
+       standard_min=EXCLUDED.standard_min, standard_avg=EXCLUDED.standard_avg, standard_median=EXCLUDED.standard_median, standard_max=EXCLUDED.standard_max,
+       fast_min=EXCLUDED.fast_min, fast_avg=EXCLUDED.fast_avg, fast_median=EXCLUDED.fast_median, fast_max=EXCLUDED.fast_max`,
+    values,
+  );
+}
+
+async function cleanupGasAnalytics(retentionDays = 30) {
+  await pool.query(`DELETE FROM gas_minute_samples WHERE minute < NOW() - ($1::text || ' days')::interval`, [retentionDays]);
+}
+
+async function gasAnalyticsSummary(timezone = 'UTC') {
+  const [hourlyResult, heatmapResult, baselineResult] = await Promise.all([
+    pool.query(`
+      SELECT date_trunc('hour', minute) AS hour,
+        SUM(sample_count)::integer AS sample_count,
+        AVG(base_avg)::float AS base,
+        AVG(low_avg)::float AS low,
+        AVG(standard_avg)::float AS standard,
+        AVG(fast_avg)::float AS fast,
+        MIN(standard_min)::float AS minimum,
+        MAX(standard_max)::float AS maximum
+      FROM gas_minute_samples
+      WHERE minute >= NOW() - INTERVAL '24 hours'
+      GROUP BY 1 ORDER BY 1 DESC`),
+    pool.query(`
+      SELECT EXTRACT(ISODOW FROM minute AT TIME ZONE $1)::integer AS weekday,
+        EXTRACT(HOUR FROM minute AT TIME ZONE $1)::integer AS hour,
+        AVG(standard_avg)::float AS value,
+        COUNT(*)::integer AS minutes
+      FROM gas_minute_samples
+      WHERE minute >= NOW() - INTERVAL '30 days'
+      GROUP BY 1, 2 ORDER BY 1, 2`, [timezone]),
+    pool.query(`
+      SELECT COUNT(*)::integer AS minutes,
+        percentile_cont(0.35) WITHIN GROUP (ORDER BY standard_avg)::float AS p35,
+        percentile_cont(0.70) WITHIN GROUP (ORDER BY standard_avg)::float AS p70
+      FROM gas_minute_samples
+      WHERE minute >= NOW() - INTERVAL '30 days'`),
+  ]);
+  return {
+    hourly: hourlyResult.rows,
+    heatmap: heatmapResult.rows,
+    baseline: baselineResult.rows[0] || { minutes: 0, p35: null, p70: null },
+  };
+}
+
 module.exports = {
   pool,
   defaultSettings,
@@ -197,4 +284,7 @@ module.exports = {
   savePushSubscription,
   allPushSubscriptions,
   deletePushSubscription,
+  saveGasMinute,
+  cleanupGasAnalytics,
+  gasAnalyticsSummary,
 };

@@ -5,9 +5,11 @@ const db = require('./db');
 const { EthereumMonitor } = require('./monitor');
 const { sendEmail, sendPush, hasPushConfiguration } = require('./notifier');
 const { fetchEtherscanPendingNonces, fetchCryptoCompareNews } = require('./providers');
+const { GasAnalyticsCollector, RETENTION_DAYS } = require('./gas-analytics');
 
 const app = express();
 const monitor = new EthereumMonitor();
+const gasAnalytics = new GasAnalyticsCollector();
 
 app.disable('x-powered-by');
 app.use(cors({
@@ -60,7 +62,7 @@ function sanitizeSettings(body) {
     addresses,
     labels,
     email,
-    timezone: String(body.timezone || 'UTC').slice(0, 80),
+    timezone: safeTimezone(body.timezone),
     notificationSettings: {
       rules: {
         pending: rule('pending', { enabled: true, browser: true, email: true, afterMinutes: 15, repeatMinutes: 30 }),
@@ -91,8 +93,17 @@ function validTime(value) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || ''));
 }
 
+function safeTimezone(value) {
+  const timezone = String(value || 'UTC').slice(0, 80);
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format();
+    return timezone;
+  } catch { return 'UTC'; }
+}
+
 app.get('/health', (_req, res) => {
   const missing = validateEnvironment();
+  const analyticsStatus = gasAnalytics.status();
   res.json({
     status: 'ok',
     configured: missing.length === 0,
@@ -102,6 +113,7 @@ app.get('/health', (_req, res) => {
       etherscan: Boolean(config.etherscanApiKey),
       cryptoCompare: Boolean(config.cryptoCompareApiKey),
     },
+    gasAnalytics: { connected: analyticsStatus.connected, lastBlockAt: analyticsStatus.lastBlockAt },
   });
 });
 
@@ -131,6 +143,28 @@ app.put('/api/settings', requireAdmin, async (req, res, next) => {
 
 app.get('/api/transactions', requireAdmin, async (req, res, next) => {
   try { res.json({ items: await db.recentTransactions(req.query.limit) }); } catch (error) { next(error); }
+});
+
+app.get('/api/gas-analytics', requireAdmin, async (_req, res, next) => {
+  try {
+    const settings = await db.getSettings();
+    const summary = await db.gasAnalyticsSummary(safeTimezone(settings.timezone));
+    const current = gasAnalytics.status().current;
+    const minutes = Number(summary.baseline.minutes) || 0;
+    let recommendation = { level: 'collecting', label: 'Building baseline', confidence: 'Low' };
+    if (current && minutes >= 60) {
+      if (current.standard <= Number(summary.baseline.p35)) recommendation = { level: 'low', label: 'Send now', confidence: minutes >= 1440 ? 'High' : 'Medium' };
+      else if (current.standard <= Number(summary.baseline.p70)) recommendation = { level: 'normal', label: 'Normal', confidence: minutes >= 1440 ? 'High' : 'Medium' };
+      else recommendation = { level: 'high', label: 'Better wait', confidence: minutes >= 1440 ? 'High' : 'Medium' };
+    }
+    res.json({
+      status: gasAnalytics.status(),
+      current,
+      recommendation,
+      retentionDays: RETENTION_DAYS,
+      ...summary,
+    });
+  } catch (error) { next(error); }
 });
 
 app.post('/api/providers/etherscan/pending-nonces', requireAdmin, async (req, res, next) => {
@@ -202,6 +236,7 @@ app.use((error, _req, res, _next) => {
 
 async function boot() {
   await db.initializeDatabase();
+  gasAnalytics.start();
   await monitor.start();
   app.listen(config.port, '0.0.0.0', () => {
     const missing = validateEnvironment();
@@ -213,6 +248,7 @@ async function boot() {
 async function shutdown(signal) {
   console.log(`${signal} received, shutting down`);
   monitor.stop();
+  await gasAnalytics.stop();
   await db.pool.end();
   process.exit(0);
 }

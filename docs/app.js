@@ -68,6 +68,10 @@ const state = {
   newsTimer: null,
   newsFilter: 'all',
   newsSource: Array.isArray(storedNews.items) && storedNews.items.length ? 'saved Railway feed' : '',
+  gasAnalytics: null,
+  gasAnalyticsLoading: false,
+  gasAnalyticsError: '',
+  gasAnalyticsTimer: null,
   currentGasPrice: null,
   copiedHash: null,
   reconnectTimer: null,
@@ -98,6 +102,23 @@ const el = {
   newsGrid: document.querySelector('#newsGrid'),
   newsFilter: document.querySelector('#newsFilter'),
   refreshNewsButton: document.querySelector('#refreshNewsButton'),
+  newsStatusSide: document.querySelector('#newsStatusSide'),
+  newsGridLeft: document.querySelector('#newsGridLeft'),
+  newsGridRight: document.querySelector('#newsGridRight'),
+  newsFilterSide: document.querySelector('#newsFilterSide'),
+  refreshNewsSideButton: document.querySelector('#refreshNewsSideButton'),
+  gasAnalyticsStatus: document.querySelector('#gasAnalyticsStatus'),
+  refreshGasAnalyticsButton: document.querySelector('#refreshGasAnalyticsButton'),
+  gasAnalyticsBase: document.querySelector('#gasAnalyticsBase'),
+  gasAnalyticsLow: document.querySelector('#gasAnalyticsLow'),
+  gasAnalyticsStandard: document.querySelector('#gasAnalyticsStandard'),
+  gasAnalyticsFast: document.querySelector('#gasAnalyticsFast'),
+  gasRecommendation: document.querySelector('#gasRecommendation'),
+  gasRecommendationLabel: document.querySelector('#gasRecommendationLabel'),
+  gasRecommendationDetail: document.querySelector('#gasRecommendationDetail'),
+  gasAnalyticsChange: document.querySelector('#gasAnalyticsChange'),
+  gasHourlyBody: document.querySelector('#gasHourlyBody'),
+  gasHeatmap: document.querySelector('#gasHeatmap'),
   txBody: document.querySelector('#txBody'),
   emptyState: document.querySelector('#emptyState'),
   emptyMessage: document.querySelector('#emptyMessage'),
@@ -1315,12 +1336,18 @@ function newsMatchesFilter(item, filter) {
 function renderNews() {
   el.refreshNewsButton.disabled = state.newsLoading;
   el.refreshNewsButton.textContent = state.newsLoading ? 'Refreshing…' : 'Refresh news';
-  if (state.newsLoading && !state.newsItems.length) el.newsStatus.textContent = 'Loading market updates…';
-  else if (state.newsLoading) el.newsStatus.textContent = 'Updating news…';
-  else if (state.newsError && state.newsItems.length) el.newsStatus.textContent = 'Showing saved news · update temporarily unavailable';
-  else if (state.newsError) el.newsStatus.textContent = 'News temporarily unavailable';
-  else if (state.newsUpdatedAt) el.newsStatus.textContent = `Updated ${age(state.newsUpdatedAt)} ago · every 15 minutes · ${state.newsSource || 'public feed'}`;
-  else el.newsStatus.textContent = 'News not loaded yet';
+  el.refreshNewsSideButton.disabled = state.newsLoading;
+  el.refreshNewsSideButton.textContent = state.newsLoading ? 'Refreshing…' : 'Refresh';
+  let statusText = 'News not loaded yet';
+  if (state.newsLoading && !state.newsItems.length) statusText = 'Loading market updates…';
+  else if (state.newsLoading) statusText = 'Updating news…';
+  else if (state.newsError && state.newsItems.length) statusText = 'Showing saved news · update unavailable';
+  else if (state.newsError) statusText = 'News temporarily unavailable';
+  else if (state.newsUpdatedAt) statusText = `Updated ${age(state.newsUpdatedAt)} ago · every 15 minutes · ${state.newsSource || 'public feed'}`;
+  el.newsStatus.textContent = statusText;
+  el.newsStatusSide.textContent = statusText;
+  el.newsFilter.value = state.newsFilter;
+  el.newsFilterSide.value = state.newsFilter;
 
   const visible = state.newsItems
     .filter(item => newsMatchesFilter(item, state.newsFilter))
@@ -1331,17 +1358,22 @@ function renderNews() {
       ? 'The Railway news feed is unavailable. Check the server connection and try again.'
       : 'No recent stories match this filter.';
     el.newsGrid.innerHTML = `<div class="news-empty">${escapeHtml(message)}</div>`;
+    el.newsGridLeft.innerHTML = `<div class="news-side-empty">${escapeHtml(message)}</div>`;
+    el.newsGridRight.innerHTML = '';
     return;
   }
-  el.newsGrid.innerHTML = visible.map(item => {
+  const cardMarkup = (item, compact = false) => {
     const tags = item.categories.slice(0, 2).map(category => `<span class="news-tag">${escapeHtml(category)}</span>`).join('');
-    return `<article class="news-card">
+    return `<article class="news-card${compact ? ' compact' : ''}">
       <div class="news-meta"><span class="news-source">${escapeHtml(item.source)}</span><time datetime="${new Date(item.publishedAt).toISOString()}">${age(item.publishedAt)} ago</time></div>
       <h3><a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a></h3>
       <p class="news-summary">${escapeHtml(item.summary || 'Open the article to read the full story.')}</p>
       <div class="news-footer"><div class="news-tags">${tags}</div><a class="news-read" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">Read article ↗</a></div>
     </article>`;
-  }).join('');
+  };
+  el.newsGrid.innerHTML = visible.map(item => cardMarkup(item)).join('');
+  el.newsGridLeft.innerHTML = visible.slice(0, 3).map(item => cardMarkup(item, true)).join('');
+  el.newsGridRight.innerHTML = visible.slice(3, 6).map(item => cardMarkup(item, true)).join('');
 }
 
 async function updateNews({ force = false } = {}) {
@@ -1375,6 +1407,122 @@ function scheduleNewsRefresh() {
   state.newsTimer = setInterval(updateNews, NEWS_REFRESH_MS);
   if (!state.newsUpdatedAt || Date.now() - state.newsUpdatedAt >= NEWS_REFRESH_MS) updateNews();
   else renderNews();
+}
+
+function gasNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? compactNumber(number, number < 1 ? 3 : 2) : '—';
+}
+
+function gasLevel(value, baseline) {
+  const gas = Number(value);
+  const p35 = Number(baseline?.p35);
+  const p70 = Number(baseline?.p70);
+  if (!Number.isFinite(gas) || !Number.isFinite(p35) || !Number.isFinite(p70)) return 'collecting';
+  return gas <= p35 ? 'low' : gas <= p70 ? 'normal' : 'high';
+}
+
+function renderGasHourly(hourly, baseline) {
+  if (!hourly.length) {
+    el.gasHourlyBody.innerHTML = '<tr><td colspan="5" class="gas-history-empty">Collecting the first hourly samples…</td></tr>';
+    return;
+  }
+  el.gasHourlyBody.innerHTML = hourly.slice(0, 24).map(row => {
+    const level = gasLevel(row.standard, baseline);
+    const label = ({low:'Low', normal:'Normal', high:'High', collecting:'New'})[level];
+    const hour = new Intl.DateTimeFormat(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}).format(new Date(row.hour));
+    return `<tr>
+      <td><time datetime="${new Date(row.hour).toISOString()}">${escapeHtml(hour)}</time></td>
+      <td>${gasNumber(row.minimum)}</td>
+      <td><strong>${gasNumber(row.standard)}</strong></td>
+      <td>${gasNumber(row.maximum)}</td>
+      <td><span class="gas-level ${level}">${label}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderGasHeatmap(items) {
+  if (!items.length) {
+    el.gasHeatmap.innerHTML = '<div class="gas-history-empty">The heatmap will fill as gas history is collected.</div>';
+    return;
+  }
+  const values = items.map(item => Number(item.value)).filter(Number.isFinite);
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  const range = Math.max(0.0001, maximum - minimum);
+  const lookup = new Map(items.map(item => [`${item.weekday}-${item.hour}`, item]));
+  const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  let markup = '<div class="gas-heatmap-grid"><span class="heatmap-corner"></span>';
+  for (let hour = 0; hour < 24; hour += 1) markup += `<span class="heatmap-hour">${hour % 3 === 0 ? String(hour).padStart(2, '0') : ''}</span>`;
+  weekdays.forEach((day, dayIndex) => {
+    markup += `<strong class="heatmap-day">${day}</strong>`;
+    for (let hour = 0; hour < 24; hour += 1) {
+      const item = lookup.get(`${dayIndex + 1}-${hour}`);
+      if (!item) {
+        markup += '<span class="heatmap-cell missing" title="No data yet"></span>';
+        continue;
+      }
+      const value = Number(item.value);
+      const ratio = (value - minimum) / range;
+      const alpha = (0.16 + ratio * 0.76).toFixed(2);
+      markup += `<span class="heatmap-cell" style="background:rgba(98,126,234,${alpha})" title="${day} ${String(hour).padStart(2, '0')}:00 · ${gasNumber(value)} Gwei · ${Number(item.minutes)} min"></span>`;
+    }
+  });
+  el.gasHeatmap.innerHTML = `${markup}</div><div class="heatmap-scale"><span>${gasNumber(minimum)} Gwei</span><span>${gasNumber(maximum)} Gwei</span></div>`;
+}
+
+function renderGasAnalytics() {
+  el.refreshGasAnalyticsButton.disabled = state.gasAnalyticsLoading;
+  el.refreshGasAnalyticsButton.textContent = state.gasAnalyticsLoading ? 'Refreshing…' : 'Refresh';
+  const data = state.gasAnalytics;
+  const current = data?.current;
+  if (state.gasAnalyticsLoading && !data) el.gasAnalyticsStatus.textContent = 'Loading live gas data…';
+  else if (state.gasAnalyticsError && data) el.gasAnalyticsStatus.textContent = `Showing saved analytics · ${state.gasAnalyticsError}`;
+  else if (state.gasAnalyticsError) el.gasAnalyticsStatus.textContent = state.gasAnalyticsError;
+  else if (current?.sampledAt) el.gasAnalyticsStatus.textContent = `Block ${current.blockNumber?.toLocaleString() || '—'} · updated ${age(new Date(current.sampledAt).getTime())} ago · 30-day retention`;
+  else el.gasAnalyticsStatus.textContent = data?.status?.error || 'Waiting for the next Ethereum block…';
+
+  el.gasAnalyticsBase.textContent = gasNumber(current?.baseFee);
+  el.gasAnalyticsLow.textContent = gasNumber(current?.low);
+  el.gasAnalyticsStandard.textContent = gasNumber(current?.standard);
+  el.gasAnalyticsFast.textContent = gasNumber(current?.fast);
+  const recommendation = data?.recommendation || {level:'collecting', label:'Building baseline', confidence:'Low'};
+  el.gasRecommendation.className = `gas-recommendation ${recommendation.level}`;
+  el.gasRecommendationLabel.textContent = recommendation.label;
+  const minutes = Number(data?.baseline?.minutes) || 0;
+  el.gasRecommendationDetail.textContent = recommendation.level === 'collecting'
+    ? `${minutes} of 60 baseline minutes collected.`
+    : `${recommendation.confidence} confidence · compared with ${minutes.toLocaleString()} stored minutes.`;
+  const change = Number(current?.changePercent);
+  el.gasAnalyticsChange.textContent = Number.isFinite(change) ? `${change >= 0 ? '+' : ''}${change.toFixed(1)}% / block` : '—';
+  el.gasAnalyticsChange.classList.toggle('spike', Boolean(current?.spike));
+  renderGasHourly(Array.isArray(data?.hourly) ? data.hourly : [], data?.baseline);
+  renderGasHeatmap(Array.isArray(data?.heatmap) ? data.heatmap : []);
+}
+
+async function updateGasAnalytics() {
+  if (state.gasAnalyticsLoading) return;
+  state.gasAnalyticsLoading = true;
+  state.gasAnalyticsError = '';
+  renderGasAnalytics();
+  try {
+    if (!backendConfigured()) throw new Error('Connect Railway to load Gas Analytics.');
+    const response = await fetch(`${normalizedBackendUrl()}/api/gas-analytics`, { headers: backendHeaders(), cache: 'no-store' });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || 'Gas Analytics request failed');
+    state.gasAnalytics = body;
+  } catch (error) {
+    state.gasAnalyticsError = error?.message || 'Gas Analytics temporarily unavailable.';
+  } finally {
+    state.gasAnalyticsLoading = false;
+    renderGasAnalytics();
+  }
+}
+
+function scheduleGasAnalyticsRefresh() {
+  clearInterval(state.gasAnalyticsTimer);
+  state.gasAnalyticsTimer = setInterval(updateGasAnalytics, 15_000);
+  updateGasAnalytics();
 }
 
 async function copyHash(hash) {
@@ -1844,7 +1992,13 @@ el.newsFilter.addEventListener('change', () => {
   state.newsFilter = el.newsFilter.value;
   renderNews();
 });
+el.newsFilterSide.addEventListener('change', () => {
+  state.newsFilter = el.newsFilterSide.value;
+  renderNews();
+});
 el.refreshNewsButton.addEventListener('click', () => updateNews({ force: true }));
+el.refreshNewsSideButton.addEventListener('click', () => updateNews({ force: true }));
+el.refreshGasAnalyticsButton.addEventListener('click', updateGasAnalytics);
 el.pendingSyncButton.addEventListener('click', () => syncPendingState(true));
 el.pendingSyncNoticeButton.addEventListener('click', () => syncPendingState(true));
 el.testEmailButton.addEventListener('click', sendTestEmail);
@@ -1890,6 +2044,7 @@ el.form.addEventListener('submit', async event => {
   reconnect();
   scheduleBalanceRefresh(true);
   updateNews();
+  updateGasAnalytics();
 });
 
 el.notificationForm.addEventListener('submit', async event => {
@@ -2053,6 +2208,7 @@ hydrateStoredTokens();
 scheduleBalanceRefresh();
 scheduleNotificationChecks();
 scheduleNewsRefresh();
+scheduleGasAnalyticsRefresh();
 setInterval(render, 1000);
 setInterval(renderNews, 60000);
 setInterval(checkStatuses, 12000);

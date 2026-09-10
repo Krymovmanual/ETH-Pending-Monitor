@@ -27,7 +27,11 @@ Live pending transaction monitor for one or more Ethereum addresses.
 - Configure wallet balance refresh separately: 5, 15 or 30 minutes; 1 or 6 hours; or manual only.
 - Configure a dedicated Gas Station address, minimum ETH threshold, independent refresh interval, and low-balance browser/email alerts.
 - Show the Gas Station ETH balance change since the previous refresh.
+- Show live Gas Analytics on every Ethereum block: base fee, low/standard/fast totals, per-block change, spike detection, and a history-based Send now / Normal / Better wait recommendation.
+- Store only one min/average/median/max Gas Analytics summary per minute in PostgreSQL, retain 30 days, and automatically remove older samples.
+- Display a rolling 24-hour gas table and weekday/hour heatmap. Recommendations start after 60 stored minutes and gain confidence as history grows.
 - Display an English crypto news feed with Ethereum, Bitcoin, market, and regulation filters. Railway caches CryptoCompare responses for 15 minutes, and the last successful result is also cached in the browser.
+- Move the six latest news cards into compact left/right rails on screens at least 1,800 px wide; keep the existing central responsive feed on laptops and phones.
 - Keep the Etherscan and CryptoCompare API keys exclusively in Railway environment variables.
 - Local browser storage for the Alchemy URL, addresses, alert email, and transaction history.
 - Optional Railway backend for continuous monitoring, PostgreSQL transaction state, server-side email alerts, and Web Push while the dashboard is closed.

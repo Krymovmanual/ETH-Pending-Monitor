@@ -6,9 +6,32 @@
   <meta name="description" content="Live monitor for pending Ethereum transactions">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: wss:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
   <title>ETH Pending Monitor</title>
-  <link rel="stylesheet" href="styles.css?v=20260910-pending-sync">
+  <link rel="stylesheet" href="styles.css?v=20260910-gas-analytics">
 </head>
 <body>
+  <aside class="news-side news-side-left" aria-label="Latest crypto news, first column">
+    <div class="news-side-head">
+      <div><span class="eyebrow">MARKET FEED</span><h2>Crypto News</h2></div>
+      <select id="newsFilterSide" aria-label="Filter crypto news in side panels">
+        <option value="all">All news</option>
+        <option value="ethereum">Ethereum</option>
+        <option value="bitcoin">Bitcoin</option>
+        <option value="market">Market</option>
+        <option value="regulation">Regulation</option>
+      </select>
+    </div>
+    <div class="news-side-grid" id="newsGridLeft"></div>
+  </aside>
+
+  <aside class="news-side news-side-right" aria-label="Latest crypto news, second column">
+    <div class="news-side-head">
+      <div><span class="eyebrow">LIVE UPDATES</span><p id="newsStatusSide">Loading market updates…</p></div>
+      <button class="secondary" id="refreshNewsSideButton" type="button">Refresh</button>
+    </div>
+    <div class="news-side-grid" id="newsGridRight"></div>
+    <a class="news-side-source" href="https://www.cryptocompare.com/" target="_blank" rel="noreferrer">Powered by CryptoCompare ↗</a>
+  </aside>
+
   <main class="shell">
     <header class="topbar">
       <div>
@@ -72,6 +95,44 @@
         </div>
         <div id="gasBalanceBody" class="gas-balance-body"></div>
       </article>
+    </section>
+
+    <section class="panel gas-analytics-panel" aria-labelledby="gasAnalyticsTitle">
+      <div class="panel-head gas-analytics-head">
+        <div>
+          <h2 id="gasAnalyticsTitle">Gas Analytics</h2>
+          <p id="gasAnalyticsStatus">Connecting to Railway analytics…</p>
+        </div>
+        <button class="secondary" id="refreshGasAnalyticsButton" type="button">Refresh</button>
+      </div>
+      <div class="gas-analytics-body">
+        <div class="gas-live-grid" aria-label="Current Ethereum gas">
+          <article><span>Base fee</span><strong id="gasAnalyticsBase">—</strong><small>Gwei</small></article>
+          <article><span>Low</span><strong id="gasAnalyticsLow">—</strong><small>Gwei</small></article>
+          <article class="gas-live-primary"><span>Standard</span><strong id="gasAnalyticsStandard">—</strong><small>Gwei</small></article>
+          <article><span>Fast</span><strong id="gasAnalyticsFast">—</strong><small>Gwei</small></article>
+        </div>
+        <div class="gas-recommendation collecting" id="gasRecommendation">
+          <span class="gas-traffic-light" aria-hidden="true"></span>
+          <div><strong id="gasRecommendationLabel">Building baseline</strong><small id="gasRecommendationDetail">Collecting the first hour of gas history.</small></div>
+          <span class="gas-change-pill" id="gasAnalyticsChange">—</span>
+        </div>
+        <div class="gas-history-layout">
+          <section class="gas-history-card" aria-labelledby="gas24Title">
+            <div class="gas-subhead"><div><h3 id="gas24Title">Last 24 hours</h3><p>Hourly gas range and average</p></div></div>
+            <div class="gas-hourly-wrap">
+              <table class="gas-hourly-table">
+                <thead><tr><th>Hour</th><th>Low</th><th>Average</th><th>High</th><th>Level</th></tr></thead>
+                <tbody id="gasHourlyBody"><tr><td colspan="5">Waiting for history…</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="gas-history-card" aria-labelledby="gasHeatmapTitle">
+            <div class="gas-subhead"><div><h3 id="gasHeatmapTitle">Best time to send</h3><p>Average standard fee by weekday and hour</p></div><div class="heatmap-legend"><span>Low</span><i></i><i></i><i></i><i></i><span>High</span></div></div>
+            <div class="gas-heatmap-wrap" id="gasHeatmap"><div class="gas-history-empty">Collecting gas history…</div></div>
+          </section>
+        </div>
+      </div>
     </section>
 
     <section class="panel news-panel" aria-labelledby="newsTitle">
@@ -358,6 +419,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=20260910-server-push-test"></script>
+  <script src="app.js?v=20260910-gas-analytics"></script>
 </body>
 </html>
