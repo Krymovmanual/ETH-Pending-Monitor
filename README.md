@@ -1,6 +1,6 @@
-# ETH Pending Monitor
+# Treasury Operations Center
 
-Ethereum pending-transaction dashboard with an optional 24/7 Railway backend.
+Digital asset operations dashboard for wallets, transactions, gas, and market monitoring, with an optional 24/7 Railway backend. The repository and deployment URLs retain the `ETH-Pending-Monitor` name.
 
 - `docs/` contains the GitHub Pages dashboard.
 - `server/` contains the Node.js monitoring service.

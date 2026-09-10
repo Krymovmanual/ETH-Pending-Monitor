@@ -1,6 +1,6 @@
-# ETH Pending Monitor
+# Treasury Operations Center
 
-Live pending transaction monitor for one or more Ethereum addresses.
+Digital asset operations dashboard. The current network module monitors live pending transactions for one or more Ethereum addresses.
 
 ## Features
 
@@ -31,7 +31,7 @@ Live pending transaction monitor for one or more Ethereum addresses.
 - Store only one min/average/median/max Gas Analytics summary per minute in PostgreSQL, retain 30 days, and automatically remove older samples.
 - Display a rolling 24-hour gas table and weekday/hour heatmap. Recommendations start after 60 stored minutes and gain confidence as history grows.
 - Display an English crypto news feed with Ethereum, Bitcoin, market, and regulation filters. Railway caches CryptoCompare responses for 15 minutes, and the last successful result is also cached in the browser.
-- Move the six latest news cards into compact left/right rails on screens at least 1,800 px wide; keep the existing central responsive feed on laptops and phones.
+- Move the eight latest news cards into denser left/right rails on screens at least 1,800 px wide, with summaries, tags, article links, and independent scrolling; keep the central responsive feed on laptops and phones.
 - Keep the Etherscan and CryptoCompare API keys exclusively in Railway environment variables.
 - Local browser storage for the Alchemy URL, addresses, alert email, and transaction history.
 - Optional Railway backend for continuous monitoring, PostgreSQL transaction state, server-side email alerts, and Web Push while the dashboard is closed.

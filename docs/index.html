@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Live monitor for pending Ethereum transactions">
+  <meta name="description" content="Digital asset operations dashboard for wallets, transactions, gas and market monitoring">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: wss:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
-  <title>ETH Pending Monitor</title>
-  <link rel="stylesheet" href="styles.css?v=20260910-gas-analytics">
+  <title>Treasury Operations Center</title>
+  <link rel="stylesheet" href="styles.css?v=20260910-treasury-ui">
 </head>
 <body>
   <aside class="news-side news-side-left" aria-label="Latest crypto news, first column">
@@ -35,8 +35,9 @@
   <main class="shell">
     <header class="topbar">
       <div>
-        <div class="eyebrow">ETHEREUM MAINNET</div>
-        <h1>Pending Monitor</h1>
+        <div class="eyebrow">DIGITAL ASSET OPERATIONS</div>
+        <h1>Treasury Operations Center</h1>
+        <p class="product-scope">Wallets · Exchanges · Transfers · Networks · Market</p>
       </div>
       <div class="connection" id="connectionBadge"><span class="dot"></span><span id="connectionText">Not connected</span></div>
     </header>
@@ -419,6 +420,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=20260910-gas-analytics"></script>
+  <script src="app.js?v=20260910-treasury-ui"></script>
 </body>
 </html>

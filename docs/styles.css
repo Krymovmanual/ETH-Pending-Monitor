@@ -28,6 +28,7 @@ button { cursor: pointer; }
 .topbar, .address-card, .panel-head, .dialog-head, .dialog-actions { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .eyebrow { color: var(--blue); font-size: .75rem; font-weight: 800; letter-spacing: .16em; }
 h1 { margin: 5px 0 0; font-size: clamp(2rem, 5vw, 3.5rem); letter-spacing: -.055em; line-height: .95; }
+.product-scope { margin: 12px 0 0; color: var(--muted); font-size: .82rem; letter-spacing: .035em; }
 h2 { margin: 0; font-size: 1.2rem; letter-spacing: -.02em; }
 .connection { display: flex; align-items: center; gap: 9px; padding: 9px 13px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: rgba(13,17,24,.78); font-size: .875rem; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: #566071; }
@@ -282,12 +283,12 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
   .news-side-head p { max-width: 150px; margin: 5px 0 0; color: var(--muted); font-size: .66rem; line-height: 1.35; }
   .news-side-head select { width: 105px; min-height: 34px; padding: 0 8px; font-size: .7rem; }
   .news-side-head button { min-height: 34px; padding: 0 10px; font-size: .7rem; }
-  .news-side-grid { min-height: 0; flex: 1; padding: 10px 0; display: grid; grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 9px; overflow: hidden; }
-  .news-side .news-card { min-height: 0; height: 100%; padding: 12px; overflow: hidden; }
+  .news-side-grid { min-height: 0; flex: 1; padding: 10px 4px 10px 0; display: flex; flex-direction: column; gap: 9px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  .news-side .news-card { min-height: 168px; height: auto; flex: 0 0 auto; padding: 12px; overflow: hidden; }
   .news-side .news-card h3 { margin: 10px 0 6px; font-size: .79rem; line-height: 1.35; }
-  .news-side .news-summary { display: none; }
+  .news-side .news-summary { display: -webkit-box; font-size: .67rem; line-height: 1.42; -webkit-line-clamp: 3; }
   .news-side .news-footer { padding-top: 8px; }
-  .news-side .news-read { display: none; }
+  .news-side .news-read { display: inline; font-size: .62rem; }
   .news-side .news-tag { padding: 3px 6px; font-size: .56rem; }
   .news-side-empty { padding: 40px 8px; color: var(--muted); text-align: center; font-size: .72rem; }
   .news-side-source { color: #91a6ff; font-size: .66rem; text-decoration: none; text-align: center; }

@@ -1,7 +1,7 @@
 self.addEventListener('push', event => {
   let payload = {};
-  try { payload = event.data?.json() || {}; } catch { payload = { body: event.data?.text() || 'ETH Pending Monitor alert' }; }
-  event.waitUntil(self.registration.showNotification(payload.title || 'ETH Pending Monitor', {
+  try { payload = event.data?.json() || {}; } catch { payload = { body: event.data?.text() || 'Treasury Operations Center alert' }; }
+  event.waitUntil(self.registration.showNotification(payload.title || 'Treasury Operations Center', {
     body: payload.body || '',
     tag: payload.tag || 'eth-pending-monitor',
     requireInteraction: Boolean(payload.urgent),

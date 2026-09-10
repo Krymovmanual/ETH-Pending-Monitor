@@ -1003,7 +1003,7 @@ function alertTitle(kind, tx = null, context = {}) {
     stuck_summary: `Transactions pending for ${notificationRule('pending').afterMinutes}+ minutes`,
     dropped: 'Transaction dropped',
     replaced: 'Transaction replaced',
-    test: 'ETH Pending Monitor test alert',
+    test: 'Treasury Operations Center test alert',
   })[kind] || 'ETH transaction alert';
 }
 
@@ -1089,7 +1089,7 @@ async function enableNotifications() {
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.error || 'Server push test failed');
       } else {
-        new Notification('ETH Pending Monitor', { body: 'Browser notifications are enabled.' });
+        new Notification('Treasury Operations Center', { body: 'Browser notifications are enabled.' });
       }
     } catch (error) {
       updateNotificationStatus(permission, false);
@@ -1309,7 +1309,7 @@ function normalizeNewsItem(item) {
     .split(/[|,]/)
     .map(category => cleanNewsText(category, 30))
     .filter(Boolean)
-    .slice(0, 6);
+    .slice(0, 8);
   return {
     id: String(item.id || url),
     title,
@@ -1371,9 +1371,9 @@ function renderNews() {
       <div class="news-footer"><div class="news-tags">${tags}</div><a class="news-read" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">Read article ↗</a></div>
     </article>`;
   };
-  el.newsGrid.innerHTML = visible.map(item => cardMarkup(item)).join('');
-  el.newsGridLeft.innerHTML = visible.slice(0, 3).map(item => cardMarkup(item, true)).join('');
-  el.newsGridRight.innerHTML = visible.slice(3, 6).map(item => cardMarkup(item, true)).join('');
+  el.newsGrid.innerHTML = visible.slice(0, 6).map(item => cardMarkup(item)).join('');
+  el.newsGridLeft.innerHTML = visible.slice(0, 4).map(item => cardMarkup(item, true)).join('');
+  el.newsGridRight.innerHTML = visible.slice(4, 8).map(item => cardMarkup(item, true)).join('');
 }
 
 async function updateNews({ force = false } = {}) {
