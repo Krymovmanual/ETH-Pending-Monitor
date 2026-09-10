@@ -17,6 +17,7 @@ const SUMMARY_ALERTS_KEY = 'eth-pending-monitor-summary-alerts';
 const NEWS_CACHE_KEY = 'eth-pending-monitor-news-cache';
 const BACKEND_URL_KEY = 'eth-pending-monitor-backend-url';
 const BACKEND_TOKEN_KEY = 'eth-pending-monitor-backend-token';
+const PUSH_REGISTERED_KEY = 'eth-pending-monitor-server-push-registered';
 const NEWS_REFRESH_MS = 15 * 60 * 1000;
 const BALANCE_TOKENS = [
   { symbol: 'USDT ERC-20', contract: '0xdac17f958d2ee523a2206206994597c13d831ec7', decimals: 6 },
@@ -950,6 +951,7 @@ function alertCanRepeat(lastSent, kind = '') {
 
 function activeAlertChannels(kind) {
   const rule = notificationRule(kind);
+  if (backendConfigured()) return { browser: false, email: false };
   return {
     browser: Boolean(rule.browser && 'Notification' in window && Notification.permission === 'granted'),
     email: Boolean(rule.email && validEmail(state.email)),
@@ -1085,7 +1087,15 @@ async function enableNotifications() {
     try {
       const serverPush = await subscribeServerPush();
       updateNotificationStatus(permission, serverPush);
-      new Notification('ETH Pending Monitor', { body: serverPush ? '24/7 server push notifications are enabled.' : 'Browser notifications are enabled.' });
+      if (serverPush) {
+        const response = await fetch(`${normalizedBackendUrl()}/api/test-push`, {
+          method: 'POST', headers: backendHeaders(), body: JSON.stringify({ url: location.href }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || 'Server push test failed');
+      } else {
+        new Notification('ETH Pending Monitor', { body: 'Browser notifications are enabled.' });
+      }
     } catch (error) {
       updateNotificationStatus(permission, false);
       el.notificationStatus.textContent = error.message || 'Browser notifications work while this page is open; server push setup failed.';
@@ -1093,16 +1103,19 @@ async function enableNotifications() {
   } else updateNotificationStatus(permission);
 }
 
-function updateNotificationStatus(permission = ('Notification' in window ? Notification.permission : 'unsupported'), serverPush = false) {
+function updateNotificationStatus(permission = ('Notification' in window ? Notification.permission : 'unsupported'), serverPush = localStorage.getItem(PUSH_REGISTERED_KEY) === 'true') {
+  const registered = Boolean(serverPush && backendConfigured());
   const messages = {
-    granted: serverPush ? '24/7 browser push notifications are enabled.' : 'Browser notifications are enabled. Keep this page open to receive them.',
+    granted: registered ? '24/7 browser push notifications are enabled.' : 'Browser notifications are enabled. Connect this browser to Railway for 24/7 alerts.',
     denied: 'Notifications are blocked. Allow them in your browser site settings.',
     default: 'Click the button to allow browser notifications.',
     unsupported: 'This browser does not support notifications.',
   };
   el.notificationStatus.textContent = messages[permission] || messages.default;
-  el.notificationButton.textContent = permission === 'granted' ? 'Browser notifications enabled' : 'Enable browser notifications';
-  el.notificationButton.disabled = permission === 'granted';
+  el.notificationButton.textContent = permission === 'granted'
+    ? (registered ? '24/7 browser notifications enabled' : 'Connect browser to 24/7 alerts')
+    : 'Enable browser notifications';
+  el.notificationButton.disabled = permission === 'granted' && registered;
 }
 
 async function rpc(endpoint, method, params) {
@@ -1776,6 +1789,7 @@ async function subscribeServerPush() {
     method: 'POST', headers: backendHeaders(), body: JSON.stringify(subscription),
   });
   if (!response.ok) throw new Error('Could not register server push notifications');
+  localStorage.setItem(PUSH_REGISTERED_KEY, 'true');
   return true;
 }
 

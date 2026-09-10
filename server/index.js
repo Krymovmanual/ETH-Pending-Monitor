@@ -3,7 +3,7 @@ const cors = require('cors');
 const { config, tokenMatches, validateEnvironment, normalizeOrigin } = require('./config');
 const db = require('./db');
 const { EthereumMonitor } = require('./monitor');
-const { sendEmail, hasPushConfiguration } = require('./notifier');
+const { sendEmail, sendPush, hasPushConfiguration } = require('./notifier');
 
 const app = express();
 const monitor = new EthereumMonitor();
@@ -129,6 +129,25 @@ app.post('/api/push/subscribe', requireAdmin, async (req, res, next) => {
     if (!req.body?.endpoint || !req.body?.keys?.p256dh || !req.body?.keys?.auth) return res.status(400).json({ error: 'Invalid push subscription' });
     await db.savePushSubscription(req.body);
     res.json({ success: true });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/test-push', requireAdmin, async (req, res, next) => {
+  try {
+    if (!hasPushConfiguration()) return res.status(503).json({ error: 'Web Push is not configured on the server' });
+    const requestedUrl = String(req.body?.url || '');
+    const url = config.frontendOrigins.some(origin => requestedUrl.startsWith(`${origin}/`))
+      ? requestedUrl
+      : config.frontendOrigins[0] || undefined;
+    const delivered = await sendPush(
+      'ETH Pending Monitor server test',
+      '24/7 browser push notifications are active.',
+      url,
+      `server-test-${Date.now()}`,
+      false,
+    );
+    if (!delivered) return res.status(409).json({ error: 'No active browser subscription was found' });
+    res.json({ success: true, delivered });
   } catch (error) { next(error); }
 });
 

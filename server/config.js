@@ -6,20 +6,20 @@ function normalizeOrigin(value) {
 
 const config = {
   port: Number(process.env.PORT) || 3000,
-  databaseUrl: process.env.DATABASE_URL || '',
-  alchemyWssUrl: process.env.ALCHEMY_WSS_URL || '',
-  etherscanApiKey: process.env.ETHERSCAN_API_KEY || '',
-  cryptoCompareApiKey: process.env.CRYPTOCOMPARE_API_KEY || '',
-  adminToken: process.env.ADMIN_TOKEN || '',
+  databaseUrl: String(process.env.DATABASE_URL || '').trim(),
+  alchemyWssUrl: String(process.env.ALCHEMY_WSS_URL || '').trim(),
+  etherscanApiKey: String(process.env.ETHERSCAN_API_KEY || '').trim(),
+  cryptoCompareApiKey: String(process.env.CRYPTOCOMPARE_API_KEY || '').trim(),
+  adminToken: String(process.env.ADMIN_TOKEN || '').trim(),
   frontendOrigins: String(process.env.FRONTEND_ORIGIN || '')
     .split(',')
     .map(normalizeOrigin)
     .filter(Boolean),
-  resendApiKey: process.env.RESEND_API_KEY || '',
-  emailFrom: process.env.EMAIL_FROM || 'ETH Pending Monitor <onboarding@resend.dev>',
-  vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
-  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || '',
-  vapidSubject: process.env.VAPID_SUBJECT || 'mailto:admin@example.com',
+  resendApiKey: String(process.env.RESEND_API_KEY || '').trim(),
+  emailFrom: String(process.env.EMAIL_FROM || 'ETH Pending Monitor <onboarding@resend.dev>').trim(),
+  vapidPublicKey: String(process.env.VAPID_PUBLIC_KEY || '').trim(),
+  vapidPrivateKey: String(process.env.VAPID_PRIVATE_KEY || '').trim(),
+  vapidSubject: String(process.env.VAPID_SUBJECT || 'mailto:admin@example.com').trim(),
 };
 
 config.alchemyHttpUrl = config.alchemyWssUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
