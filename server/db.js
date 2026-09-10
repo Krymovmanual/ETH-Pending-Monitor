@@ -232,7 +232,9 @@ async function cleanupGasAnalytics(retentionDays = 30) {
 }
 
 async function gasAnalyticsSummary(timezone = 'UTC') {
-  const [hourlyResult, heatmapResult, baselineResult] = await Promise.all([
+  let results;
+  try {
+    results = await Promise.all([
     pool.query(`
       SELECT date_trunc('hour', minute) AS hour,
         SUM(sample_count)::integer AS sample_count,
@@ -259,7 +261,12 @@ async function gasAnalyticsSummary(timezone = 'UTC') {
         percentile_cont(0.70) WITHIN GROUP (ORDER BY standard_avg)::float AS p70
       FROM gas_minute_samples
       WHERE minute >= NOW() - INTERVAL '30 days'`),
-  ]);
+    ]);
+  } catch (error) {
+    if (error?.code === '22023' && timezone !== 'UTC') return gasAnalyticsSummary('UTC');
+    throw error;
+  }
+  const [hourlyResult, heatmapResult, baselineResult] = results;
   return {
     hourly: hourlyResult.rows,
     heatmap: heatmapResult.rows,

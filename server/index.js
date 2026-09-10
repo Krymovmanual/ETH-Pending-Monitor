@@ -94,7 +94,14 @@ function validTime(value) {
 }
 
 function safeTimezone(value) {
-  const timezone = String(value || 'UTC').slice(0, 80);
+  const aliases = {
+    'Europe/Kiev': 'Europe/Kyiv',
+    'Asia/Calcutta': 'Asia/Kolkata',
+    'Asia/Katmandu': 'Asia/Kathmandu',
+    'America/Godthab': 'America/Nuuk',
+  };
+  const supplied = String(value || 'UTC').slice(0, 80);
+  const timezone = aliases[supplied] || supplied;
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format();
     return timezone;
