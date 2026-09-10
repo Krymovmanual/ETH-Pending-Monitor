@@ -6,7 +6,7 @@
   <meta name="description" content="Live monitor for pending Ethereum transactions">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://eth-mainnet.g.alchemy.com wss://eth-mainnet.g.alchemy.com https://formsubmit.co; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
   <title>ETH Pending Monitor</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20260910-pending-sync">
 </head>
 <body>
   <main class="shell">
@@ -34,6 +34,14 @@
       <article><span>Confirmed</span><strong id="confirmedCount">0</strong></article>
       <article><span>Dropped / replaced</span><strong id="problemCount">0</strong></article>
       <article><span>Last event</span><strong class="small" id="lastEvent">—</strong></article>
+    </section>
+
+    <section class="pending-sync-notice" id="pendingSyncNotice" hidden>
+      <div>
+        <strong id="pendingSyncTitle">Untracked pending transactions detected</strong>
+        <p id="pendingSyncMessage"></p>
+      </div>
+      <button class="secondary" id="pendingSyncNoticeButton" type="button">Scan again</button>
     </section>
 
     <section class="balances-layout" aria-label="Wallet and gas balances">
@@ -67,7 +75,7 @@
       <div class="panel-head">
         <div>
           <h2>Transactions</h2>
-          <p>Live updates while this page is open. Gas check compares the transaction fee with the current network gas price.</p>
+          <p>Live updates while this page is open. Gas check compares the transaction fee with the current network gas price. <span id="pendingSyncStatus">Pending sync not run yet.</span></p>
         </div>
         <div class="controls">
           <input id="transactionSearch" class="search-input" type="search" placeholder="Search hash, nonce, wallet or token" aria-label="Search transactions">
@@ -78,6 +86,7 @@
             <option value="confirmed">Confirmed</option>
             <option value="problem">Dropped / replaced</option>
           </select>
+          <button class="secondary" id="pendingSyncButton" type="button">Sync pending</button>
           <button class="secondary danger" id="clearButton" type="button">Clear history</button>
         </div>
       </div>
@@ -314,6 +323,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=20260909-verified-alerts"></script>
+  <script src="app.js?v=20260910-pending-sync"></script>
 </body>
 </html>

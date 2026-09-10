@@ -5,6 +5,8 @@ Live pending transaction monitor for one or more Ethereum addresses.
 ## Features
 
 - Monitor up to 50 Ethereum addresses from one dashboard.
+- Scan Alchemy's pending-block snapshot immediately after connection and on demand, including incoming transactions that existed before the page opened. A lighter outgoing-nonce reconciliation then runs every minute.
+- Show a visible warning when Alchemy reports a pending nonce gap but does not expose the missing transaction hashes in its mempool.
 - Browser and optional email alerts for long-pending transactions, blocked nonce queues, dropped/replaced transactions, and low Gas Station balance.
 - Every alert rule has its own enable switch, Browser/Email channels, delay where applicable, repeat interval where applicable, and urgent quiet-hours override.
 - Long-pending transactions are grouped into one wallet summary instead of sending a separate message for every transaction.
@@ -51,3 +53,5 @@ After publishing, open the GitHub Pages URL and click **Connection settings**:
 Use **Wallet balances → Settings** to enable wallet balances and select their refresh interval. Use the separate **Gas Station → Settings** dialog to configure its address, minimum ETH balance, and independent refresh interval. Use **Refresh now** at any time without changing either schedule.
 
 Monitoring and alerts run only while the page remains open. Email delivery uses the third-party FormSubmit service. The gas boost indicator is a recommendation based on the current network price, not a guarantee that a transaction is stuck.
+
+Pending synchronization is best-effort. Ethereum JSON-RPC can reveal a difference between the confirmed and pending account nonce, but it cannot always return every transaction hash from another provider's mempool. The dashboard reports such missing transactions instead of silently showing zero.

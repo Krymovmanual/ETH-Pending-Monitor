@@ -40,7 +40,13 @@ const state = {
   balanceTimer: null,
   gasTimer: null,
   alertTimer: null,
+  pendingSyncTimer: null,
   alertEvaluationRunning: false,
+  pendingSyncRunning: false,
+  pendingSyncUpdatedAt: 0,
+  pendingSyncError: '',
+  pendingSnapshotError: '',
+  pendingDiagnostics: {},
   currentGasPrice: null,
   copiedHash: null,
   reconnectTimer: null,
@@ -60,6 +66,12 @@ const el = {
   confirmedCount: document.querySelector('#confirmedCount'),
   problemCount: document.querySelector('#problemCount'),
   lastEvent: document.querySelector('#lastEvent'),
+  pendingSyncNotice: document.querySelector('#pendingSyncNotice'),
+  pendingSyncTitle: document.querySelector('#pendingSyncTitle'),
+  pendingSyncMessage: document.querySelector('#pendingSyncMessage'),
+  pendingSyncNoticeButton: document.querySelector('#pendingSyncNoticeButton'),
+  pendingSyncStatus: document.querySelector('#pendingSyncStatus'),
+  pendingSyncButton: document.querySelector('#pendingSyncButton'),
   txBody: document.querySelector('#txBody'),
   emptyState: document.querySelector('#emptyState'),
   emptyMessage: document.querySelector('#emptyMessage'),
@@ -254,6 +266,7 @@ function setConnection(status, text) {
 
 function reconnect() {
   clearTimeout(state.reconnectTimer);
+  clearInterval(state.pendingSyncTimer);
   if (state.ws) {
     state.manualClose = true;
     state.ws.close();
@@ -265,6 +278,7 @@ function reconnect() {
 function connect() {
   clearTimeout(state.reconnectTimer);
   if (!state.endpoint) {
+    clearInterval(state.pendingSyncTimer);
     setConnection('', 'Not connected');
     if (!el.dialog.open) openSettings();
     return;
@@ -286,6 +300,7 @@ function connect() {
       }],
     }));
     updateGasPrice();
+    schedulePendingSync(true);
   });
 
   state.ws.addEventListener('message', event => {
@@ -307,7 +322,7 @@ function connect() {
   state.ws.addEventListener('error', () => setConnection('error', 'Connection error'));
 }
 
-function addTransaction(tx) {
+function addTransaction(tx, discoveredBy = 'live') {
   const hash = tx.hash.toLowerCase();
   if (state.transactions.some(item => item.hash === hash)) return;
 
@@ -341,6 +356,7 @@ function addTransaction(tx) {
     tokenName: tokenTransfer ? 'ERC-20 Token' : '',
     tokenDecimals: null,
     method: tokenTransfer?.method || transactionMethod(tx.input || tx.data || '0x', tx.value),
+    discoveredBy,
     firstSeen: Date.now(),
     status: 'pending',
     alerts: {},
@@ -349,6 +365,97 @@ function addTransaction(tx) {
   saveTransactions();
   render();
   if (record.tokenContract) hydrateTokenMetadata(record);
+  return record;
+}
+
+function transactionMatchesMonitoredAddress(tx) {
+  const from = (tx.from || '').toLowerCase();
+  const to = (tx.to || '').toLowerCase();
+  const tokenTransfer = parseTokenTransfer(tx.input || tx.data || '0x');
+  return state.addresses.some(address =>
+    [from, to, tokenTransfer?.from, tokenTransfer?.recipient].includes(address),
+  );
+}
+
+function pendingNonceDiagnosticsFromAnswers(answers, fields) {
+  const diagnostics = {};
+  for (const address of state.addresses) diagnostics[address] = {address, latestNonce:null, pendingNonce:null, expected:0, tracked:0, missing:0};
+  for (const field of fields) {
+    const answer = answers.get(field.id);
+    if (!answer || answer.error || answer.result === undefined || answer.result === null) continue;
+    diagnostics[field.address][field.type] = hexToNumber(answer.result);
+  }
+  for (const diagnostic of Object.values(diagnostics)) {
+    const {address, latestNonce, pendingNonce} = diagnostic;
+    if (!Number.isInteger(latestNonce) || !Number.isInteger(pendingNonce)) continue;
+    diagnostic.expected = Math.max(0, pendingNonce - latestNonce);
+    diagnostic.tracked = new Set(state.transactions
+      .filter(tx => tx.status === 'pending' && tx.from === address && tx.nonce >= latestNonce && tx.nonce < pendingNonce)
+      .map(tx => tx.nonce)).size;
+    diagnostic.missing = Math.max(0, diagnostic.expected - diagnostic.tracked);
+  }
+  return diagnostics;
+}
+
+async function fetchPendingNonceDiagnostics() {
+  let id = 200000;
+  const requests = [];
+  const fields = [];
+  for (const address of state.addresses) {
+    requests.push({id, method:'eth_getTransactionCount', params:[address, 'latest']});
+    fields.push({id, address, type:'latestNonce'});
+    id += 1;
+    requests.push({id, method:'eth_getTransactionCount', params:[address, 'pending']});
+    fields.push({id, address, type:'pendingNonce'});
+    id += 1;
+  }
+  const answers = await rpcBatch(requests);
+  return {answers, fields, diagnostics:pendingNonceDiagnosticsFromAnswers(answers, fields)};
+}
+
+async function loadPendingBlockSnapshot() {
+  const block = await rpc(toHttpEndpoint(state.endpoint), 'eth_getBlockByNumber', ['pending', true]);
+  const transactions = Array.isArray(block?.transactions) ? block.transactions : [];
+  let added = 0;
+  for (const tx of transactions) {
+    if (!tx?.hash || tx.blockNumber || !transactionMatchesMonitoredAddress(tx)) continue;
+    if (state.transactions.some(item => item.hash === tx.hash.toLowerCase())) continue;
+    if (addTransaction(tx, 'pending snapshot')) added += 1;
+  }
+  return added;
+}
+
+async function syncPendingState(scanSnapshot = false) {
+  if (!state.endpoint || state.pendingSyncRunning) return;
+  state.pendingSyncRunning = true;
+  state.pendingSyncError = '';
+  renderPendingSync();
+  try {
+    let result = await fetchPendingNonceDiagnostics();
+    const missingBeforeSnapshot = Object.values(result.diagnostics).reduce((total, item) => total + item.missing, 0);
+    if (scanSnapshot || missingBeforeSnapshot > 0) {
+      try {
+        await loadPendingBlockSnapshot();
+        state.pendingSnapshotError = '';
+      } catch (error) {
+        state.pendingSnapshotError = error?.message || 'Pending block snapshot failed';
+      }
+      result = {...result, diagnostics:pendingNonceDiagnosticsFromAnswers(result.answers, result.fields)};
+    }
+    state.pendingDiagnostics = result.diagnostics;
+    state.pendingSyncUpdatedAt = Date.now();
+  } catch (error) {
+    state.pendingSyncError = error?.message || 'Pending synchronization failed';
+  } finally {
+    state.pendingSyncRunning = false;
+    render();
+  }
+}
+
+function schedulePendingSync(runImmediately = false) {
+  clearInterval(state.pendingSyncTimer);
+  state.pendingSyncTimer = setInterval(syncPendingState, 60000);
+  if (runImmediately) syncPendingState(true);
 }
 
 function parseTokenTransfer(input) {
@@ -899,7 +1006,7 @@ async function rpcBatch(requests) {
       body: JSON.stringify(chunk.map(item => ({jsonrpc:'2.0', ...item}))),
     });
     const body = await response.json();
-    if (!response.ok || !Array.isArray(body)) throw new Error('Balance request failed');
+    if (!response.ok || !Array.isArray(body)) throw new Error('RPC batch request failed');
     for (const answer of body) answers.set(answer.id, answer);
   }
   return answers;
@@ -1121,6 +1228,54 @@ function updateSortHeaders() {
   });
 }
 
+function renderPendingSync() {
+  const diagnostics = Object.values(state.pendingDiagnostics);
+  const expected = diagnostics.reduce((total, item) => total + Number(item.expected || 0), 0);
+  const tracked = diagnostics.reduce((total, item) => total + Number(item.tracked || 0), 0);
+  const missing = diagnostics.reduce((total, item) => total + Number(item.missing || 0), 0);
+
+  el.pendingSyncButton.disabled = state.pendingSyncRunning || !state.endpoint;
+  el.pendingSyncNoticeButton.disabled = state.pendingSyncRunning || !state.endpoint;
+  el.pendingSyncButton.textContent = state.pendingSyncRunning ? 'Syncing…' : 'Sync pending';
+  el.pendingSyncNoticeButton.textContent = state.pendingSyncRunning ? 'Scanning…' : 'Scan again';
+
+  if (state.pendingSyncRunning) {
+    el.pendingSyncStatus.textContent = 'Checking existing pending transactions…';
+  } else if (state.pendingSyncError) {
+    el.pendingSyncStatus.textContent = 'Pending sync failed.';
+  } else if (state.pendingSyncUpdatedAt) {
+    el.pendingSyncStatus.textContent = `Pending sync checked ${age(state.pendingSyncUpdatedAt)} ago.${state.pendingSnapshotError ? ' Full snapshot unavailable.' : ''}`;
+  } else {
+    el.pendingSyncStatus.textContent = 'Pending sync not run yet.';
+  }
+  el.pendingSyncStatus.className = 'sync-status';
+
+  if (state.pendingSyncError) {
+    el.pendingSyncNotice.hidden = false;
+    el.pendingSyncTitle.textContent = 'Pending synchronization unavailable';
+    el.pendingSyncMessage.textContent = `${state.pendingSyncError}. Live WebSocket monitoring continues.`;
+    return;
+  }
+  if (missing > 0) {
+    const affected = diagnostics
+      .filter(item => item.missing > 0)
+      .map(item => `${walletLabel(item.address)}: ${item.missing}`)
+      .join(' · ');
+    el.pendingSyncNotice.hidden = false;
+    el.pendingSyncTitle.textContent = `${missing} pending transaction${missing === 1 ? '' : 's'} detected without full details`;
+    const snapshotNote = state.pendingSnapshotError ? ` Full snapshot error: ${state.pendingSnapshotError}.` : '';
+    el.pendingSyncMessage.textContent = `Alchemy nonce state indicates ${expected} pending nonce${expected === 1 ? '' : 's'}; ${tracked} ${tracked === 1 ? 'is' : 'are'} loaded in the table. Missing by wallet — ${affected}. The node did not expose their TX hashes.${snapshotNote}`;
+    return;
+  }
+  if (state.pendingSnapshotError) {
+    el.pendingSyncNotice.hidden = false;
+    el.pendingSyncTitle.textContent = 'Full pending snapshot unavailable';
+    el.pendingSyncMessage.textContent = `${state.pendingSnapshotError}. Live WebSocket monitoring and outgoing nonce checks continue, but transactions already pending before this page opened may be incomplete.`;
+    return;
+  }
+  el.pendingSyncNotice.hidden = true;
+}
+
 function render() {
   const pending = state.transactions.filter(tx => tx.status === 'pending').length;
   const confirmed = state.transactions.filter(tx => ['confirmed','failed'].includes(tx.status)).length;
@@ -1179,6 +1334,7 @@ function render() {
   el.pageSize.value = String(state.pageSize);
   updateSortHeaders();
   renderBalances();
+  renderPendingSync();
 }
 
 function transactionMethodLabel(tx) {
@@ -1219,6 +1375,7 @@ function openTransactionDetails(hash) {
       ${detailRow('Gas limit', tx.gasLimit ? compactNumber(tx.gasLimit, 0) : '—')}
       ${detailRow('Current network gas', state.currentGasPrice ? `${compactNumber(state.currentGasPrice, 4)} Gwei` : 'Unavailable')}
       ${detailRow('Replacement hash', tx.replacedBy || '—', 'mono wrap-value')}
+      ${detailRow('Discovered by', tx.discoveredBy || 'live')}
       ${detailRow('First seen', new Date(tx.firstSeen).toLocaleString('en-GB'))}
     </dl>
     <div class="transaction-detail-actions">
@@ -1363,6 +1520,8 @@ function openGasSettings() {
 
 el.settingsButton.addEventListener('click', openSettings);
 el.notificationSettingsButton.addEventListener('click', openNotificationSettings);
+el.pendingSyncButton.addEventListener('click', () => syncPendingState(true));
+el.pendingSyncNoticeButton.addEventListener('click', () => syncPendingState(true));
 el.testEmailButton.addEventListener('click', sendTestEmail);
 el.notificationButton.addEventListener('click', enableNotifications);
 el.form.addEventListener('submit', event => {
@@ -1382,6 +1541,10 @@ el.form.addEventListener('submit', event => {
   state.endpoint = endpoint;
   state.addresses = addresses;
   state.addressLabels = parsed.labels;
+  state.pendingDiagnostics = {};
+  state.pendingSyncUpdatedAt = 0;
+  state.pendingSyncError = '';
+  state.pendingSnapshotError = '';
   localStorage.setItem(ENDPOINT_KEY, endpoint);
   localStorage.setItem(ADDRESSES_KEY, JSON.stringify(addresses));
   localStorage.setItem(LABELS_KEY, JSON.stringify(parsed.labels));

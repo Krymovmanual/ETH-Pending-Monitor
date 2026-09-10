@@ -48,6 +48,11 @@ h2 { margin: 0; font-size: 1.2rem; letter-spacing: -.02em; }
 .stats span { color: var(--muted); font-size: .82rem; }
 .stats strong { font-size: 2rem; letter-spacing: -.04em; }
 .stats strong.small { font-size: 1rem; letter-spacing: 0; }
+.pending-sync-notice { margin: 0 0 14px; padding: 15px 17px; border: 1px solid rgba(245,189,88,.32); border-radius: 13px; background: linear-gradient(135deg, rgba(245,189,88,.09), rgba(17,23,34,.78)); display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.pending-sync-notice[hidden] { display: none; }
+.pending-sync-notice strong { color: var(--amber); font-size: .88rem; }
+.pending-sync-notice p { margin: 5px 0 0; color: #aeb8c8; font-size: .78rem; line-height: 1.45; }
+.pending-sync-notice button { flex: 0 0 auto; min-height: 34px; font-size: .76rem; }
 .balances-layout { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(290px, .8fr); gap: 14px; margin-bottom: 14px; }
 .balance-panel { min-width: 0; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); overflow: hidden; }
 .balance-head { min-height: 72px; padding: 15px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 14px; }
@@ -80,6 +85,7 @@ h2 { margin: 0; font-size: 1.2rem; letter-spacing: -.02em; }
 .panel { border: 1px solid var(--border); border-radius: 16px; background: var(--surface); overflow: hidden; }
 .panel-head { padding: 20px 22px; border-bottom: 1px solid var(--border); }
 .panel-head p { color: var(--muted); font-size: .83rem; margin: 6px 0 0; }
+.sync-status { color: #aab5c6; }
 .controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .search-input { width: min(330px, 34vw); min-height: 40px; padding: 0 13px; }
 .search-input:focus { outline: 2px solid rgba(98,126,234,.35); border-color: var(--blue); }
@@ -194,6 +200,8 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
   .shell { width: min(100% - 24px, 720px); padding-top: 24px; }
   .topbar, .address-card, .panel-head { align-items: flex-start; }
   .address-card, .panel-head { flex-direction: column; }
+  .pending-sync-notice { align-items: flex-start; flex-direction: column; }
+  .pending-sync-notice button { width: 100%; }
   .stats { grid-template-columns: repeat(2, 1fr); }
   .address-card button { width: 100%; }
   .address-actions { width: 100%; }
