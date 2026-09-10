@@ -6,7 +6,7 @@ Live pending transaction monitor for one or more Ethereum addresses.
 
 - Monitor up to 50 Ethereum addresses from one dashboard.
 - Scan Alchemy's pending-block snapshot immediately after connection and on demand, including incoming transactions that existed before the page opened. A lighter outgoing-nonce reconciliation then runs every minute.
-- Optionally cross-check every monitored wallet's pending nonce with Etherscan once per minute. Requests are sent in groups of three to respect the free API rate limit.
+- Cross-check every monitored wallet's pending nonce with Etherscan through Railway once per minute. Server requests are sent in groups of three to respect the free API rate limit.
 - Show an `Etherscan detects additional pending transactions` warning and a direct link to the affected wallet's Etherscan pending page when Etherscan sees a higher pending nonce than Alchemy.
 - Show a visible warning when Alchemy reports a pending nonce gap but does not expose the missing transaction hashes in its mempool.
 - Browser and optional email alerts for long-pending transactions, blocked nonce queues, dropped/replaced transactions, and low Gas Station balance.
@@ -27,8 +27,8 @@ Live pending transaction monitor for one or more Ethereum addresses.
 - Configure wallet balance refresh separately: 5, 15 or 30 minutes; 1 or 6 hours; or manual only.
 - Configure a dedicated Gas Station address, minimum ETH threshold, independent refresh interval, and low-balance browser/email alerts.
 - Show the Gas Station ETH balance change since the previous refresh.
-- Display a client-only English crypto news feed with Ethereum, Bitcoin, market, and regulation filters. News refreshes every 15 minutes and the last successful response is cached in the browser.
-- Support an optional browser-local CryptoCompare API key for authenticated news requests, with an automatic public-feed fallback when no key is configured.
+- Display an English crypto news feed with Ethereum, Bitcoin, market, and regulation filters. Railway caches CryptoCompare responses for 15 minutes, and the last successful result is also cached in the browser.
+- Keep the Etherscan and CryptoCompare API keys exclusively in Railway environment variables.
 - Local browser storage for the Alchemy URL, addresses, alert email, and transaction history.
 - Optional Railway backend for continuous monitoring, PostgreSQL transaction state, server-side email alerts, and Web Push while the dashboard is closed.
 
@@ -50,12 +50,11 @@ After publishing, open the GitHub Pages URL and click **Connection settings**:
 `wss://eth-mainnet.g.alchemy.com/v2/YOUR_KEY`
 
 2. Add 1–50 Ethereum addresses, one per line.
-3. Optionally enter an Etherscan API key to enable the second-source pending nonce check.
-4. Optionally enter a CryptoCompare API key with the `Poll Live and Historical Data` permission for authenticated news requests.
-5. Click **Save and connect**.
-6. Open **Notification settings**, choose the alert types and delivery channels, and configure the timing.
-7. Optionally enter an alert email and click **Send test**. Confirm the first FormSubmit email before expecting automatic alerts.
-8. Click **Enable browser notifications** and allow notifications in the browser.
+3. Enter the Railway backend URL and its `ADMIN_TOKEN`.
+4. Click **Save and connect**.
+5. Open **Notification settings**, choose the alert types and delivery channels, and configure the timing.
+6. Optionally enter an alert email and click **Send test**. Confirm the first FormSubmit email before expecting automatic alerts.
+7. Click **Enable browser notifications** and allow notifications in the browser.
 
 Use **Wallet balances → Settings** to enable wallet balances and select their refresh interval. Use the separate **Gas Station → Settings** dialog to configure its address, minimum ETH balance, and independent refresh interval. Use **Refresh now** at any time without changing either schedule.
 
@@ -63,6 +62,6 @@ Without a Railway backend, monitoring and alerts run only while the page remains
 
 Pending synchronization is best-effort. Ethereum JSON-RPC can reveal a difference between the confirmed and pending account nonce, but it cannot always return every transaction hash from another provider's mempool. The dashboard reports such missing transactions instead of silently showing zero.
 
-The Etherscan key is stored only in the current browser. Etherscan's official API can confirm a higher pending nonce but does not provide the address pending list with full transaction hashes, so Alchemy remains the primary live transaction source.
+The Etherscan key is stored only on Railway. Etherscan's official API can confirm a higher pending nonce but does not provide the address pending list with full transaction hashes, so Alchemy remains the primary live transaction source.
 
-Crypto news is loaded directly from CryptoCompare without a project backend. The dashboard excludes sponsored stories, links to the original publisher, attributes CryptoCompare, and keeps the latest successful news response in local browser storage. If the public feed is temporarily unavailable, transaction monitoring continues unaffected.
+Crypto news is loaded through the Railway backend. The dashboard excludes sponsored stories, links to the original publisher, attributes CryptoCompare, and keeps the latest successful news response in local browser storage. If the feed is temporarily unavailable, transaction monitoring continues unaffected.

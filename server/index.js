@@ -4,6 +4,7 @@ const { config, tokenMatches, validateEnvironment, normalizeOrigin } = require('
 const db = require('./db');
 const { EthereumMonitor } = require('./monitor');
 const { sendEmail, sendPush, hasPushConfiguration } = require('./notifier');
+const { fetchEtherscanPendingNonces, fetchCryptoCompareNews } = require('./providers');
 
 const app = express();
 const monitor = new EthereumMonitor();
@@ -92,7 +93,16 @@ function validTime(value) {
 
 app.get('/health', (_req, res) => {
   const missing = validateEnvironment();
-  res.json({ status: 'ok', configured: missing.length === 0, missing, pushConfigured: hasPushConfiguration() });
+  res.json({
+    status: 'ok',
+    configured: missing.length === 0,
+    missing,
+    pushConfigured: hasPushConfiguration(),
+    providers: {
+      etherscan: Boolean(config.etherscanApiKey),
+      cryptoCompare: Boolean(config.cryptoCompareApiKey),
+    },
+  });
 });
 
 app.get('/', (_req, res) => {
@@ -121,6 +131,27 @@ app.put('/api/settings', requireAdmin, async (req, res, next) => {
 
 app.get('/api/transactions', requireAdmin, async (req, res, next) => {
   try { res.json({ items: await db.recentTransactions(req.query.limit) }); } catch (error) { next(error); }
+});
+
+app.post('/api/providers/etherscan/pending-nonces', requireAdmin, async (req, res, next) => {
+  try {
+    const addresses = [...new Set((Array.isArray(req.body?.addresses) ? req.body.addresses : [])
+      .map(value => String(value).trim().toLowerCase()))];
+    if (!addresses.length || addresses.length > 50 || addresses.some(value => !validAddress(value))) {
+      return res.status(400).json({ error: 'Enter 1–50 valid Ethereum addresses' });
+    }
+    res.json(await fetchEtherscanPendingNonces(addresses));
+  } catch (error) {
+    if (/not configured/.test(error.message)) return res.status(503).json({ error: error.message });
+    next(error);
+  }
+});
+
+app.get('/api/providers/cryptocompare/news', requireAdmin, async (req, res, next) => {
+  try {
+    const force = req.query.refresh === '1';
+    res.json(await fetchCryptoCompareNews({ force }));
+  } catch (error) { next(error); }
 });
 
 app.post('/api/push/subscribe', requireAdmin, async (req, res, next) => {

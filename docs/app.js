@@ -1,7 +1,5 @@
 const DEFAULT_ADDRESS = '0xced92fa7f0797cbc851b48140ae218a0b0d41ce0';
 const ENDPOINT_KEY = 'eth-pending-monitor-endpoint';
-const ETHERSCAN_KEY = 'eth-pending-monitor-etherscan-key';
-const CRYPTOCOMPARE_KEY = 'eth-pending-monitor-cryptocompare-key';
 const ADDRESSES_KEY = 'eth-pending-monitor-addresses';
 const LABELS_KEY = 'eth-pending-monitor-address-labels';
 const EMAIL_KEY = 'eth-pending-monitor-email';
@@ -19,6 +17,10 @@ const BACKEND_URL_KEY = 'eth-pending-monitor-backend-url';
 const BACKEND_TOKEN_KEY = 'eth-pending-monitor-backend-token';
 const PUSH_REGISTERED_KEY = 'eth-pending-monitor-server-push-registered';
 const NEWS_REFRESH_MS = 15 * 60 * 1000;
+
+// Remove provider secrets saved by older browser-only versions.
+localStorage.removeItem('eth-pending-monitor-etherscan-key');
+localStorage.removeItem('eth-pending-monitor-cryptocompare-key');
 const BALANCE_TOKENS = [
   { symbol: 'USDT ERC-20', contract: '0xdac17f958d2ee523a2206206994597c13d831ec7', decimals: 6 },
   { symbol: 'USDC', contract: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', decimals: 6 },
@@ -31,8 +33,6 @@ const storedNews = loadStoredObject(NEWS_CACHE_KEY);
 const state = {
   ws: null,
   endpoint: localStorage.getItem(ENDPOINT_KEY) || '',
-  etherscanKey: localStorage.getItem(ETHERSCAN_KEY) || '',
-  cryptoCompareKey: localStorage.getItem(CRYPTOCOMPARE_KEY) || '',
   backendUrl: localStorage.getItem(BACKEND_URL_KEY) || '',
   backendToken: localStorage.getItem(BACKEND_TOKEN_KEY) || '',
   addresses: loadAddresses(),
@@ -67,6 +67,7 @@ const state = {
   newsError: '',
   newsTimer: null,
   newsFilter: 'all',
+  newsSource: Array.isArray(storedNews.items) && storedNews.items.length ? 'saved Railway feed' : '',
   currentGasPrice: null,
   copiedHash: null,
   reconnectTimer: null,
@@ -113,8 +114,6 @@ const el = {
   dialog: document.querySelector('#settingsDialog'),
   form: document.querySelector('#settingsForm'),
   endpoint: document.querySelector('#endpointInput'),
-  etherscanKey: document.querySelector('#etherscanKeyInput'),
-  cryptoCompareKey: document.querySelector('#cryptoCompareKeyInput'),
   backendUrl: document.querySelector('#backendUrlInput'),
   backendToken: document.querySelector('#backendTokenInput'),
   backendStatus: document.querySelector('#backendStatus'),
@@ -443,62 +442,37 @@ async function fetchPendingNonceDiagnostics() {
   return {answers, fields, diagnostics:pendingNonceDiagnosticsFromAnswers(answers, fields)};
 }
 
-function delay(milliseconds) {
-  return new Promise(resolve => setTimeout(resolve, milliseconds));
-}
-
 async function fetchEtherscanPendingDiagnostics(alchemyDiagnostics) {
+  if (!backendConfigured()) throw new Error('Connect the Railway backend to enable Etherscan cross-checks');
   const diagnostics = {};
-  const failures = [];
-  const batchSize = 3;
-
-  for (let start = 0; start < state.addresses.length; start += batchSize) {
-    const addresses = state.addresses.slice(start, start + batchSize);
-    const results = await Promise.all(addresses.map(async address => {
-      const params = new URLSearchParams({
-        chainid: '1',
-        module: 'proxy',
-        action: 'eth_getTransactionCount',
-        address,
-        tag: 'pending',
-        apikey: state.etherscanKey,
-      });
-      try {
-        const response = await fetch(`https://api.etherscan.io/v2/api?${params}`);
-        const body = await response.json();
-        if (!response.ok || body.error || !/^0x[0-9a-f]+$/i.test(body.result || '')) {
-          throw new Error(body.error?.message || body.result || body.message || 'Etherscan request failed');
-        }
-        const pendingNonce = hexToNumber(body.result);
-        const alchemy = alchemyDiagnostics[address] || {};
-        const latestNonce = Number.isInteger(alchemy.latestNonce) ? alchemy.latestNonce : null;
-        const alchemyPendingNonce = Number.isInteger(alchemy.pendingNonce) ? alchemy.pendingNonce : null;
-        const expected = latestNonce === null ? 0 : Math.max(0, pendingNonce - latestNonce);
-        const tracked = latestNonce === null
-          ? 0
-          : new Set(state.transactions
-            .filter(tx => tx.status === 'pending' && tx.from === address && tx.nonce >= latestNonce && tx.nonce < pendingNonce)
-            .map(tx => tx.nonce)).size;
-        return {
-          address,
-          pendingNonce,
-          expected,
-          tracked,
-          missing: Math.max(0, expected - tracked),
-          extraVsAlchemy: alchemyPendingNonce === null ? 0 : Math.max(0, pendingNonce - alchemyPendingNonce),
-        };
-      } catch (error) {
-        failures.push(`${walletLabel(address)}: ${error?.message || 'request failed'}`);
-        return null;
-      }
-    }));
-    results.filter(Boolean).forEach(item => { diagnostics[item.address] = item; });
-    if (start + batchSize < state.addresses.length) await delay(1100);
+  const response = await fetch(`${normalizedBackendUrl()}/api/providers/etherscan/pending-nonces`, {
+    method: 'POST', headers: backendHeaders(), body: JSON.stringify({ addresses: state.addresses }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || `Etherscan proxy returned ${response.status}`);
+  for (const item of body.items || []) {
+    const address = String(item.address || '').toLowerCase();
+    const pendingNonce = Number(item.pendingNonce);
+    if (!validAddress(address) || !Number.isInteger(pendingNonce)) continue;
+    const alchemy = alchemyDiagnostics[address] || {};
+    const latestNonce = Number.isInteger(alchemy.latestNonce) ? alchemy.latestNonce : null;
+    const alchemyPendingNonce = Number.isInteger(alchemy.pendingNonce) ? alchemy.pendingNonce : null;
+    const expected = latestNonce === null ? 0 : Math.max(0, pendingNonce - latestNonce);
+    const tracked = latestNonce === null
+      ? 0
+      : new Set(state.transactions
+        .filter(tx => tx.status === 'pending' && tx.from === address && tx.nonce >= latestNonce && tx.nonce < pendingNonce)
+        .map(tx => tx.nonce)).size;
+    diagnostics[address] = {
+      address, pendingNonce, expected, tracked,
+      missing: Math.max(0, expected - tracked),
+      extraVsAlchemy: alchemyPendingNonce === null ? 0 : Math.max(0, pendingNonce - alchemyPendingNonce),
+    };
   }
 
   return {
     diagnostics,
-    error: failures.length ? `${failures.length} Etherscan check${failures.length === 1 ? '' : 's'} failed` : '',
+    error: body.errors?.length ? `${body.errors.length} Etherscan check${body.errors.length === 1 ? '' : 's'} failed` : '',
   };
 }
 
@@ -532,7 +506,7 @@ async function syncPendingState(scanSnapshot = false) {
       result = {...result, diagnostics:pendingNonceDiagnosticsFromAnswers(result.answers, result.fields)};
     }
     state.pendingDiagnostics = result.diagnostics;
-    if (state.etherscanKey) {
+    if (backendConfigured()) {
       try {
         const etherscanResult = await fetchEtherscanPendingDiagnostics(result.diagnostics);
         state.etherscanDiagnostics = etherscanResult.diagnostics;
@@ -1345,7 +1319,7 @@ function renderNews() {
   else if (state.newsLoading) el.newsStatus.textContent = 'Updating news…';
   else if (state.newsError && state.newsItems.length) el.newsStatus.textContent = 'Showing saved news · update temporarily unavailable';
   else if (state.newsError) el.newsStatus.textContent = 'News temporarily unavailable';
-  else if (state.newsUpdatedAt) el.newsStatus.textContent = `Updated ${age(state.newsUpdatedAt)} ago · every 15 minutes · ${state.cryptoCompareKey ? 'authenticated feed' : 'public feed'}`;
+  else if (state.newsUpdatedAt) el.newsStatus.textContent = `Updated ${age(state.newsUpdatedAt)} ago · every 15 minutes · ${state.newsSource || 'public feed'}`;
   else el.newsStatus.textContent = 'News not loaded yet';
 
   const visible = state.newsItems
@@ -1354,7 +1328,7 @@ function renderNews() {
     .slice(0, 6);
   if (!visible.length) {
     const message = state.newsError && !state.newsItems.length
-      ? 'The public news feed is unavailable. Use Refresh news to try again.'
+      ? 'The Railway news feed is unavailable. Check the server connection and try again.'
       : 'No recent stories match this filter.';
     el.newsGrid.innerHTML = `<div class="news-empty">${escapeHtml(message)}</div>`;
     return;
@@ -1370,21 +1344,23 @@ function renderNews() {
   }).join('');
 }
 
-async function updateNews() {
+async function updateNews({ force = false } = {}) {
   if (state.newsLoading) return;
   state.newsLoading = true;
   state.newsError = '';
   renderNews();
   try {
-    const params = new URLSearchParams({lang:'EN', excludeCategories:'Sponsored', extraParams:'ETHPendingMonitor'});
-    if (state.cryptoCompareKey) params.set('api_key', state.cryptoCompareKey);
-    const response = await fetch(`https://min-api.cryptocompare.com/data/v2/news/?${params}`);
+    if (!backendConfigured()) throw new Error('Connect Railway to load crypto news');
+    const url = `${normalizedBackendUrl()}/api/providers/cryptocompare/news${force ? '?refresh=1' : ''}`;
+    const response = await fetch(url, { headers: backendHeaders() });
     const body = await response.json();
-    if (!response.ok || !Array.isArray(body?.Data)) throw new Error(body?.Message || 'News request failed');
-    const items = body.Data.map(normalizeNewsItem).filter(Boolean).slice(0, 40);
+    const providerItems = body?.items;
+    if (!response.ok || !Array.isArray(providerItems)) throw new Error(body?.error || 'News request failed');
+    const items = providerItems.map(normalizeNewsItem).filter(Boolean).slice(0, 40);
     if (!items.length) throw new Error('No news returned');
     state.newsItems = items;
-    state.newsUpdatedAt = Date.now();
+    state.newsUpdatedAt = Number(body.updatedAt) || Date.now();
+    state.newsSource = 'Railway feed';
     localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify({updatedAt:state.newsUpdatedAt, items}));
   } catch (error) {
     state.newsError = error?.message || 'News update failed';
@@ -1491,7 +1467,7 @@ function renderPendingSync() {
   } else if (state.pendingSyncError) {
     el.pendingSyncStatus.textContent = 'Pending sync failed.';
   } else if (state.pendingSyncUpdatedAt) {
-    const source = state.etherscanKey ? ' Alchemy + Etherscan checked.' : ' Alchemy checked; Etherscan is not configured.';
+    const source = backendConfigured() ? ' Alchemy + server-side Etherscan checked.' : ' Alchemy checked; connect Railway to enable Etherscan.';
     el.pendingSyncStatus.textContent = `Pending sync checked ${age(state.pendingSyncUpdatedAt)} ago.${source}${state.pendingSnapshotError ? ' Full snapshot unavailable.' : ''}`;
   } else {
     el.pendingSyncStatus.textContent = 'Pending sync not run yet.';
@@ -1539,7 +1515,7 @@ function renderPendingSync() {
   if (state.etherscanSyncError) {
     el.pendingSyncNotice.hidden = false;
     el.pendingSyncTitle.textContent = 'Etherscan cross-check unavailable';
-    el.pendingSyncMessage.textContent = `${state.etherscanSyncError}. Alchemy monitoring continues normally. Check the Etherscan API key or try again later.`;
+    el.pendingSyncMessage.textContent = `${state.etherscanSyncError}. Alchemy monitoring continues normally. Check ETHERSCAN_API_KEY in Railway or try again later.`;
     return;
   }
   el.pendingSyncNotice.hidden = true;
@@ -1711,8 +1687,6 @@ function statusLabel(status) {
 
 function openSettings() {
   el.endpoint.value = state.endpoint;
-  el.etherscanKey.value = state.etherscanKey;
-  el.cryptoCompareKey.value = state.cryptoCompareKey;
   el.backendUrl.value = state.backendUrl;
   el.backendToken.value = state.backendToken;
   updateBackendStatus();
@@ -1732,8 +1706,8 @@ function backendConfigured() {
 function updateBackendStatus(message, isError = false) {
   if (!el.backendStatus) return;
   el.backendStatus.textContent = message || (backendConfigured()
-    ? '24/7 server configured. Saving settings will synchronize this monitor with Railway.'
-    : 'When connected, settings are synchronized to Railway. The 24/7 monitor uses provider keys from Railway; browser mode remains available as a fallback.');
+    ? '24/7 server configured. Etherscan and CryptoCompare requests are protected by Railway.'
+    : 'Connect Railway to enable server-side Etherscan checks and authenticated CryptoCompare news.');
   el.backendStatus.classList.toggle('error', isError);
 }
 
@@ -1870,7 +1844,7 @@ el.newsFilter.addEventListener('change', () => {
   state.newsFilter = el.newsFilter.value;
   renderNews();
 });
-el.refreshNewsButton.addEventListener('click', updateNews);
+el.refreshNewsButton.addEventListener('click', () => updateNews({ force: true }));
 el.pendingSyncButton.addEventListener('click', () => syncPendingState(true));
 el.pendingSyncNoticeButton.addEventListener('click', () => syncPendingState(true));
 el.testEmailButton.addEventListener('click', sendTestEmail);
@@ -1879,8 +1853,6 @@ el.form.addEventListener('submit', async event => {
   if (event.submitter?.value !== 'default') return;
   event.preventDefault();
   const endpoint = el.endpoint.value.trim();
-  const etherscanKey = el.etherscanKey.value.trim();
-  const cryptoCompareKey = el.cryptoCompareKey.value.trim();
   const backendUrl = normalizedBackendUrl(el.backendUrl.value);
   const backendToken = el.backendToken.value.trim();
   const parsed = parseAddressLines(el.addresses.value);
@@ -1893,22 +1865,11 @@ el.form.addEventListener('submit', async event => {
     el.error.textContent = 'Enter 1–50 valid Ethereum addresses, one per line.';
     return;
   }
-  if (etherscanKey && !/^\S{8,128}$/.test(etherscanKey)) {
-    el.error.textContent = 'Enter a valid Etherscan API key or leave the field empty.';
-    return;
-  }
-  if (cryptoCompareKey && !/^\S{8,256}$/.test(cryptoCompareKey)) {
-    el.error.textContent = 'Enter a valid CryptoCompare API key or leave the field empty.';
-    return;
-  }
   if ((backendUrl || backendToken) && (!/^https:\/\/[A-Za-z0-9.-]+(?::\d+)?(?:\/.*)?$/.test(backendUrl) || backendToken.length < 24)) {
     el.error.textContent = 'Enter both the HTTPS Railway URL and its ADMIN_TOKEN (at least 24 characters), or leave both empty.';
     return;
   }
   state.endpoint = endpoint;
-  state.etherscanKey = etherscanKey;
-  const newsKeyChanged = state.cryptoCompareKey !== cryptoCompareKey;
-  state.cryptoCompareKey = cryptoCompareKey;
   state.backendUrl = backendUrl;
   state.backendToken = backendToken;
   state.addresses = addresses;
@@ -1920,10 +1881,6 @@ el.form.addEventListener('submit', async event => {
   state.etherscanDiagnostics = {};
   state.etherscanSyncError = '';
   localStorage.setItem(ENDPOINT_KEY, endpoint);
-  if (etherscanKey) localStorage.setItem(ETHERSCAN_KEY, etherscanKey);
-  else localStorage.removeItem(ETHERSCAN_KEY);
-  if (cryptoCompareKey) localStorage.setItem(CRYPTOCOMPARE_KEY, cryptoCompareKey);
-  else localStorage.removeItem(CRYPTOCOMPARE_KEY);
   if (backendUrl) localStorage.setItem(BACKEND_URL_KEY, backendUrl); else localStorage.removeItem(BACKEND_URL_KEY);
   if (backendToken) localStorage.setItem(BACKEND_TOKEN_KEY, backendToken); else localStorage.removeItem(BACKEND_TOKEN_KEY);
   localStorage.setItem(ADDRESSES_KEY, JSON.stringify(addresses));
@@ -1932,7 +1889,7 @@ el.form.addEventListener('submit', async event => {
   el.dialog.close();
   reconnect();
   scheduleBalanceRefresh(true);
-  if (newsKeyChanged) updateNews();
+  updateNews();
 });
 
 el.notificationForm.addEventListener('submit', async event => {

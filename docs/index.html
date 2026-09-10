@@ -325,7 +325,7 @@
     <form method="dialog" id="settingsForm">
       <div class="dialog-head">
         <div>
-          <span class="eyebrow">ALCHEMY + ETHERSCAN</span>
+          <span class="eyebrow">ALCHEMY + RAILWAY</span>
           <h2>Connection</h2>
         </div>
         <button class="icon-button" value="cancel" aria-label="Close" type="submit">×</button>
@@ -337,20 +337,14 @@
         <input id="backendUrlInput" type="url" spellcheck="false" autocomplete="url" placeholder="https://your-service.up.railway.app">
         <label for="backendTokenInput">Server access token</label>
         <input id="backendTokenInput" type="password" spellcheck="false" autocomplete="off" placeholder="The ADMIN_TOKEN value from Railway">
-        <p class="hint" id="backendStatus">When connected, settings are synchronized to Railway. The 24/7 monitor uses provider keys from Railway; the browser fields below remain available as a fallback.</p>
+        <p class="hint" id="backendStatus">When connected, settings and provider requests are handled by Railway. Etherscan and CryptoCompare keys stay on the server.</p>
       </div>
 
       <label for="endpointInput">WebSocket URL</label>
       <input id="endpointInput" type="password" spellcheck="false" autocomplete="off" placeholder="wss://eth-mainnet.g.alchemy.com/v2/…">
       <p class="hint">The URL is stored only in this browser and sent directly to Alchemy.</p>
 
-      <label for="etherscanKeyInput">Etherscan API key <span class="optional">Optional</span></label>
-      <input id="etherscanKeyInput" type="password" spellcheck="false" autocomplete="off" placeholder="Enter your Etherscan API key">
-      <p class="hint">Used once per minute to cross-check pending nonces. The key is stored only in this browser and sent directly to Etherscan.</p>
-
-      <label for="cryptoCompareKeyInput">CryptoCompare API key <span class="optional">Optional</span></label>
-      <input id="cryptoCompareKeyInput" type="password" spellcheck="false" autocomplete="off" placeholder="Enter your CryptoCompare API key">
-      <p class="hint">Provides authenticated crypto news requests. The key is stored only in this browser and sent directly to CryptoCompare.</p>
+      <p class="hint">Etherscan nonce checks and CryptoCompare news are proxied through Railway. Their API keys are never sent to or stored by this browser.</p>
 
       <label for="addressesInput">Ethereum addresses</label>
       <textarea id="addressesInput" spellcheck="false" placeholder="Fireblocks ETH | 0x1234…"></textarea>
