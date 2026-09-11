@@ -6,7 +6,7 @@
   <meta name="description" content="Digital asset operations dashboard for wallets, transactions, gas and market monitoring">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: wss:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
   <title>Treasury Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260911-bitget-v4">
+  <link rel="stylesheet" href="styles.css?v=20260911-exchanges-v5">
 </head>
 <body>
   <aside class="news-side news-side-left" aria-label="Latest crypto news, first column">
@@ -37,7 +37,11 @@
       <div>
         <div class="eyebrow">DIGITAL ASSET OPERATIONS</div>
         <h1>Treasury Operations Center</h1>
-        <p class="product-scope">Wallets · Exchanges · Transfers · Networks · Market</p>
+        <nav class="product-nav" aria-label="Treasury sections">
+          <a class="active" href="index.html">Wallets</a>
+          <a href="exchanges.html">Exchanges</a>
+          <span>Transfers</span><span>Networks</span><span>Market</span>
+        </nav>
       </div>
       <div class="connection" id="connectionBadge"><span class="dot"></span><span id="connectionText">Not connected</span></div>
     </header>
@@ -104,7 +108,7 @@
           <div class="exchange-title-line"><span class="exchange-mark" aria-hidden="true">B</span><h2 id="exchangeAccountsTitle">Exchange Accounts</h2></div>
           <p id="exchangeAccountStatus">Connecting to Bitget…</p>
         </div>
-        <button class="secondary" id="refreshExchangeButton" type="button">Refresh</button>
+        <div class="exchange-overview-actions"><button class="secondary" id="refreshExchangeButton" type="button">Refresh</button><a class="primary button-link" href="exchanges.html">Open Exchanges</a></div>
       </div>
       <div class="exchange-body" id="exchangeAccountBody">
         <div class="exchange-empty">Waiting for Bitget Unified Account data…</div>
@@ -433,6 +437,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=20260911-bitget-v4"></script>
+  <script src="app.js?v=20260911-exchanges-v5"></script>
 </body>
 </html>

@@ -32,6 +32,7 @@ Digital asset operations dashboard. The current network module monitors live pen
 - Display a rolling 24-hour gas table and weekday/hour heatmap. Recommendations start after 60 stored minutes and gain confidence as history grows.
 - Display Bitget Unified Account equity, Unified and Funding assets, and open USDT-M, USDC-M, and Coin-M futures positions through a read-only Railway integration.
 - Show position direction, size, leverage, entry price, mark price, estimated liquidation price, unrealized PnL, and ROI; refresh the exchange view every 30 seconds.
+- Open exchange data on a dedicated page with an account tree, account multi-selection, Consolidated/By account views, aggregated assets, and net long/short exposure. Automatic updates do not interrupt active table navigation or reset the page scroll.
 - Display an English crypto news feed with Ethereum, Bitcoin, market, and regulation filters. Railway caches CryptoCompare responses for 15 minutes, and the last successful result is also cached in the browser.
 - Move the eight latest news cards into denser left/right rails on screens at least 1,800 px wide, with summaries, tags, article links, and independent scrolling; keep the central responsive feed on laptops and phones.
 - Keep the Etherscan and CryptoCompare API keys exclusively in Railway environment variables.

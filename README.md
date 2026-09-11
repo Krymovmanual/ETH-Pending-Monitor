@@ -33,4 +33,6 @@ Gas Analytics uses an independent Alchemy connection on Railway to sample every 
 
 The Exchange Accounts panel reads Bitget Unified and Funding balances plus open USDT-M, USDC-M, and Coin-M futures positions. Create a dedicated Bitget key with read permissions only; do not enable trading, transfers, or withdrawals. Results are cached on Railway for 20 seconds and refreshed by the dashboard every 30 seconds.
 
+`docs/exchanges.html` is the dedicated multi-exchange workspace. Railway exposes a normalized account model at `/api/exchanges/accounts`, so future Binance, Bybit, OKX, and other connectors can use the same interface. The page supports an exchange/account tree, multi-selection, consolidated or per-account assets, and consolidated exposure or detailed open positions. Automatic refresh is deferred while the user is actively scrolling or interacting with the tables.
+
 See [docs/README.md](docs/README.md) for the dashboard feature list and GitHub Pages instructions.

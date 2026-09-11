@@ -6,7 +6,7 @@ const { EthereumMonitor } = require('./monitor');
 const { sendEmail, sendPush, hasPushConfiguration } = require('./notifier');
 const { fetchEtherscanPendingNonces, fetchCryptoCompareNews } = require('./providers');
 const { GasAnalyticsCollector, RETENTION_DAYS } = require('./gas-analytics');
-const { configured: bitgetConfigured, fetchBitgetAccount } = require('./bitget');
+const { configured: bitgetConfigured, fetchBitgetAccount, fetchBitgetAccounts } = require('./bitget');
 
 const app = express();
 const monitor = new EthereumMonitor();
@@ -204,6 +204,16 @@ app.get('/api/providers/bitget/account', requireAdmin, async (req, res, next) =>
     if (/not configured/.test(error.message)) return res.status(503).json({ error: error.message });
     console.error(error);
     res.status(502).json({ error: String(error?.message || 'Bitget account request failed').slice(0, 220) });
+  }
+});
+
+app.get('/api/exchanges/accounts', requireAdmin, async (req, res) => {
+  try {
+    res.json(await fetchBitgetAccounts({ force: req.query.refresh === '1' }));
+  } catch (error) {
+    if (/not configured/.test(error.message)) return res.status(503).json({ error: error.message });
+    console.error(error);
+    res.status(502).json({ error: String(error?.message || 'Exchange account request failed').slice(0, 220) });
   }
 });
 

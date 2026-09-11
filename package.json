@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node server/index.js",
-    "check": "node --check server/index.js && node --check server/monitor.js && node --check server/gas-analytics.js && node --check server/bitget.js && node --check server/db.js && node --check server/notifier.js && node --check server/providers.js && node --check server/config.js && node --check docs/app.js && node --check docs/sw.js"
+    "check": "node --check server/index.js && node --check server/monitor.js && node --check server/gas-analytics.js && node --check server/bitget.js && node --check server/db.js && node --check server/notifier.js && node --check server/providers.js && node --check server/config.js && node --check docs/app.js && node --check docs/exchanges.js && node --check docs/sw.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

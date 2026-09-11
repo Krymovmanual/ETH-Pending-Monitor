@@ -63,17 +63,28 @@ function normalizeAsset(item, account) {
 }
 
 function normalizePosition(item) {
+  const symbol = String(item?.symbol || '').slice(0, 40);
+  const size = numberOrNull(item?.total ?? item?.positionBalance);
+  const markPrice = numberOrNull(item?.markPrice);
   return {
+    id: `bitget:${String(item?.category || 'futures').toLowerCase()}:${symbol}:${String(item?.posSide || 'long').toLowerCase()}`,
+    exchangeId: 'bitget',
+    accountId: 'bitget:unified',
     category: String(item?.category || '').slice(0, 30),
-    symbol: String(item?.symbol || '').slice(0, 40),
+    symbol,
+    baseAsset: symbol.replace(/(?:USDT|USDC|USD|PERP)$/i, '') || symbol,
     side: String(item?.posSide || '').toLowerCase() === 'short' ? 'short' : 'long',
     marginMode: String(item?.marginMode || '').slice(0, 20),
     marginCoin: String(item?.marginCoin || '').slice(0, 20),
-    size: numberOrNull(item?.total ?? item?.positionBalance),
+    size,
     available: numberOrNull(item?.available),
     leverage: numberOrNull(item?.leverage),
     entryPrice: numberOrNull(item?.avgPrice),
-    markPrice: numberOrNull(item?.markPrice),
+    markPrice,
+    notional: numberOrNull(item?.positionValue ?? item?.notional) ?? (
+      size !== null && markPrice !== null ? Math.abs(size * markPrice) : null
+    ),
+    margin: numberOrNull(item?.marginSize ?? item?.positionMargin ?? item?.margin),
     liquidationPrice: numberOrNull(item?.liquidationPrice),
     unrealisedPnl: numberOrNull(item?.unrealisedPnl),
     profitRate: numberOrNull(item?.profitRate),
@@ -137,4 +148,64 @@ async function fetchBitgetAccount({ force = false } = {}) {
   return { ...cache.value, cached: false };
 }
 
-module.exports = { configured, fetchBitgetAccount, normalizeAsset, normalizePosition, signedHeaders };
+function toExchangeAccounts(data) {
+  const assets = Array.isArray(data?.assets) ? data.assets : [];
+  const positions = Array.isArray(data?.positions) ? data.positions : [];
+  const unifiedAssets = assets.filter(item => item.account === 'Unified').map(item => ({
+    ...item,
+    id: `bitget:unified:${item.coin}`,
+    exchangeId: 'bitget',
+    accountId: 'bitget:unified',
+  }));
+  const fundingAssets = assets.filter(item => item.account === 'Funding').map(item => ({
+    ...item,
+    id: `bitget:funding:${item.coin}`,
+    exchangeId: 'bitget',
+    accountId: 'bitget:funding',
+  }));
+  const accounts = [{
+    id: 'bitget:unified',
+    exchangeId: 'bitget',
+    exchangeName: 'Bitget',
+    name: 'Unified',
+    type: 'unified',
+    status: 'connected',
+    updatedAt: data.updatedAt,
+    summary: {
+      equityUsd: data.summary?.accountEquity ?? null,
+      availableUsd: null,
+      lockedUsd: null,
+      unrealisedPnl: data.summary?.unrealisedPnl ?? null,
+      positionValue: data.summary?.positionValue ?? null,
+    },
+    assets: unifiedAssets,
+    positions,
+  }];
+  if (fundingAssets.length) {
+    accounts.push({
+      id: 'bitget:funding',
+      exchangeId: 'bitget',
+      exchangeName: 'Bitget',
+      name: 'Funding',
+      type: 'funding',
+      status: 'connected',
+      updatedAt: data.updatedAt,
+      summary: { equityUsd: null, availableUsd: null, lockedUsd: null, unrealisedPnl: null, positionValue: null },
+      assets: fundingAssets,
+      positions: [],
+    });
+  }
+  return {
+    version: 1,
+    updatedAt: data.updatedAt,
+    exchanges: [{ id: 'bitget', name: 'Bitget', status: 'connected', accountIds: accounts.map(account => account.id) }],
+    accounts,
+    warnings: data.warnings || [],
+  };
+}
+
+async function fetchBitgetAccounts(options = {}) {
+  return toExchangeAccounts(await fetchBitgetAccount(options));
+}
+
+module.exports = { configured, fetchBitgetAccount, fetchBitgetAccounts, toExchangeAccounts, normalizeAsset, normalizePosition, signedHeaders };
