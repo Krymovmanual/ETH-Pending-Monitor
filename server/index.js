@@ -6,6 +6,7 @@ const { EthereumMonitor } = require('./monitor');
 const { sendEmail, sendPush, hasPushConfiguration } = require('./notifier');
 const { fetchEtherscanPendingNonces, fetchCryptoCompareNews } = require('./providers');
 const { GasAnalyticsCollector, RETENTION_DAYS } = require('./gas-analytics');
+const { configured: bitgetConfigured, fetchBitgetAccount } = require('./bitget');
 
 const app = express();
 const monitor = new EthereumMonitor();
@@ -119,6 +120,7 @@ app.get('/health', (_req, res) => {
     providers: {
       etherscan: Boolean(config.etherscanApiKey),
       cryptoCompare: Boolean(config.cryptoCompareApiKey),
+      bitget: bitgetConfigured(),
     },
     gasAnalytics: { connected: analyticsStatus.connected, lastBlockAt: analyticsStatus.lastBlockAt },
   });
@@ -193,6 +195,16 @@ app.get('/api/providers/cryptocompare/news', requireAdmin, async (req, res, next
     const force = req.query.refresh === '1';
     res.json(await fetchCryptoCompareNews({ force }));
   } catch (error) { next(error); }
+});
+
+app.get('/api/providers/bitget/account', requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await fetchBitgetAccount({ force: req.query.refresh === '1' }));
+  } catch (error) {
+    if (/not configured/.test(error.message)) return res.status(503).json({ error: error.message });
+    console.error(error);
+    res.status(502).json({ error: String(error?.message || 'Bitget account request failed').slice(0, 220) });
+  }
 });
 
 app.post('/api/push/subscribe', requireAdmin, async (req, res, next) => {

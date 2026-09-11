@@ -88,6 +88,36 @@ h2 { margin: 0; font-size: 1.2rem; letter-spacing: -.02em; }
 .gas-status { margin-top: 16px; padding: 10px 11px; border-radius: 9px; color: var(--green); background: rgba(67,214,156,.1); font-size: .78rem; font-weight: 700; }
 .gas-status.low { color: var(--red); background: rgba(255,107,117,.1); }
 .gas-refresh { width: 100%; margin-top: 12px; }
+.exchange-panel { margin-bottom: 14px; }
+.exchange-title-line { display: flex; align-items: center; gap: 10px; }
+.exchange-mark { width: 28px; height: 28px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: #090d14; background: linear-gradient(135deg, #35e7b0, #54a6ff); font-size: .78rem; font-weight: 900; }
+.exchange-body { padding: 14px; }
+.exchange-empty { min-height: 130px; padding: 52px 20px; color: var(--muted); text-align: center; font-size: .82rem; }
+.exchange-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.exchange-summary article { min-width: 0; min-height: 112px; padding: 15px 16px; border: 1px solid #1d2736; border-radius: 12px; background: linear-gradient(145deg, #111824, #0c1119); display: flex; flex-direction: column; }
+.exchange-summary span, .exchange-summary small { color: var(--muted); font-size: .75rem; }
+.exchange-summary strong { margin: 9px 0 5px; font-size: 1.42rem; letter-spacing: -.035em; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exchange-summary small { margin-top: auto; }
+.exchange-warning { margin-top: 10px; padding: 10px 12px; border: 1px solid rgba(245,189,88,.3); border-radius: 10px; background: rgba(245,189,88,.07); color: var(--amber); font-size: .76rem; }
+.exchange-sections { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.4fr); gap: 10px; margin-top: 10px; }
+.exchange-section { min-width: 0; border: 1px solid #1d2736; border-radius: 12px; background: #0b1017; overflow: hidden; }
+.exchange-subhead { min-height: 65px; padding: 12px 14px; border-bottom: 1px solid #1d2736; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.exchange-subhead h3 { margin: 0; font-size: .88rem; }
+.exchange-subhead p, .exchange-subhead > span { margin: 4px 0 0; color: var(--muted); font-size: .72rem; }
+.exchange-table-wrap { max-height: 320px; overflow: auto; }
+.exchange-table { width: 100%; border-collapse: collapse; font-size: .75rem; }
+.exchange-table th { position: sticky; top: 0; z-index: 1; padding: 10px 11px; color: #78869a; background: #0d131c; text-align: left; text-transform: uppercase; letter-spacing: .045em; font-size: .68rem; white-space: nowrap; }
+.exchange-table td { padding: 11px; border-top: 1px solid #18212e; color: #dbe4f1; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.exchange-table td small { display: block; margin-top: 3px; color: var(--muted); font-size: .68rem; }
+.exchange-table .numeric { text-align: right; }
+.exchange-account-badge, .position-side { padding: 4px 7px; border-radius: 999px; color: #aab7c9; background: #151d29; font-size: .68rem; }
+.position-side { font-weight: 750; text-transform: capitalize; }
+.position-side.long { color: var(--green); background: rgba(67,214,156,.1); }
+.position-side.short { color: var(--red); background: rgba(255,107,117,.1); }
+.exchange-pnl.positive { color: var(--green); }
+.exchange-pnl.negative { color: var(--red); }
+.exchange-pnl.neutral { color: #dbe4f1; }
+.exchange-table-empty { height: 86px; color: var(--muted) !important; text-align: center; }
 .panel { border: 1px solid var(--border); border-radius: 16px; background: var(--surface); overflow: hidden; }
 .news-side { display: none; }
 .news-panel { margin-bottom: 14px; }
@@ -296,6 +326,7 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
 
 @media (max-width: 1100px) {
   .gas-history-layout { grid-template-columns: 1fr; }
+  .exchange-sections { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 800px) {
@@ -310,6 +341,7 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
   .address-card button { width: 100%; }
   .address-actions { width: 100%; }
   .balances-layout { grid-template-columns: 1fr; }
+  .exchange-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .token-balances { grid-template-columns: repeat(3, minmax(82px, 1fr)); }
   .news-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .gas-live-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -330,6 +362,7 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
   .balance-actions { width: 100%; }
   .balance-actions button { flex: 1; }
   .token-balances { grid-template-columns: repeat(2, minmax(90px, 1fr)); }
+  .exchange-summary { grid-template-columns: 1fr; }
   .news-grid { grid-template-columns: 1fr; }
   .gas-analytics-body { padding: 12px; }
   .gas-live-grid { grid-template-columns: 1fr 1fr; }

@@ -17,6 +17,7 @@ const BACKEND_URL_KEY = 'eth-pending-monitor-backend-url';
 const BACKEND_TOKEN_KEY = 'eth-pending-monitor-backend-token';
 const PUSH_REGISTERED_KEY = 'eth-pending-monitor-server-push-registered';
 const NEWS_REFRESH_MS = 15 * 60 * 1000;
+const EXCHANGE_REFRESH_MS = 30 * 1000;
 
 // Remove provider secrets saved by older browser-only versions.
 localStorage.removeItem('eth-pending-monitor-etherscan-key');
@@ -72,6 +73,10 @@ const state = {
   gasAnalyticsLoading: false,
   gasAnalyticsError: '',
   gasAnalyticsTimer: null,
+  exchangeData: null,
+  exchangeLoading: false,
+  exchangeError: '',
+  exchangeTimer: null,
   currentGasPrice: null,
   copiedHash: null,
   reconnectTimer: null,
@@ -119,6 +124,9 @@ const el = {
   gasAnalyticsChange: document.querySelector('#gasAnalyticsChange'),
   gasHourlyBody: document.querySelector('#gasHourlyBody'),
   gasHeatmap: document.querySelector('#gasHeatmap'),
+  exchangeAccountStatus: document.querySelector('#exchangeAccountStatus'),
+  exchangeAccountBody: document.querySelector('#exchangeAccountBody'),
+  refreshExchangeButton: document.querySelector('#refreshExchangeButton'),
   txBody: document.querySelector('#txBody'),
   emptyState: document.querySelector('#emptyState'),
   emptyMessage: document.querySelector('#emptyMessage'),
@@ -1727,6 +1735,7 @@ function render() {
   el.pageSize.value = String(state.pageSize);
   updateSortHeaders();
   renderBalances();
+  renderExchangeAccount();
   renderPendingSync();
 }
 
@@ -1827,6 +1836,127 @@ function renderBalances() {
     <div class="gas-minimum">Minimum required: ${compactNumber(settings.gasThreshold, 6)} ETH</div>
     <div class="gas-status ${low ? 'low' : ''}">${low ? 'Low balance · Refill required' : 'Balance is sufficient'}</div>
     <button class="secondary gas-refresh" type="button" data-refresh-gas ${state.gasLoading ? 'disabled' : ''}>${state.gasLoading ? 'Refreshing…' : 'Refresh now'}</button>`;
+}
+
+function exchangeNumber(value, maximumFractionDigits = 8) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits }).format(Number(value));
+}
+
+function exchangeMoney(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(Number(value));
+}
+
+function exchangeSignedMoney(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
+  const number = Number(value);
+  return `${number > 0 ? '+' : ''}${exchangeMoney(number)}`;
+}
+
+function renderExchangeAccount() {
+  el.refreshExchangeButton.disabled = state.exchangeLoading || !backendConfigured();
+  el.refreshExchangeButton.textContent = state.exchangeLoading ? 'Refreshing…' : 'Refresh';
+
+  if (!backendConfigured()) {
+    el.exchangeAccountStatus.textContent = 'Connect Railway to load exchange accounts';
+    el.exchangeAccountBody.innerHTML = '<div class="exchange-empty">Bitget data is requested securely through Railway.</div>';
+    return;
+  }
+  if (state.exchangeError && !state.exchangeData) {
+    el.exchangeAccountStatus.textContent = state.exchangeError;
+    el.exchangeAccountBody.innerHTML = '<div class="exchange-empty">Add the three read-only Bitget API values in Railway, then redeploy and refresh.</div>';
+    return;
+  }
+  if (!state.exchangeData) {
+    el.exchangeAccountStatus.textContent = state.exchangeLoading ? 'Loading Bitget Unified Account…' : 'Waiting for Bitget data';
+    el.exchangeAccountBody.innerHTML = '<div class="exchange-empty">Waiting for Bitget Unified Account data…</div>';
+    return;
+  }
+
+  const data = state.exchangeData;
+  const summary = data.summary || {};
+  const positions = Array.isArray(data.positions) ? data.positions : [];
+  const assets = (Array.isArray(data.assets) ? data.assets : [])
+    .slice()
+    .sort((left, right) => Number(right.usdValue ?? right.equity ?? 0) - Number(left.usdValue ?? left.equity ?? 0));
+  const pnlClass = Number(summary.unrealisedPnl) > 0 ? 'positive' : Number(summary.unrealisedPnl) < 0 ? 'negative' : 'neutral';
+  el.exchangeAccountStatus.textContent = state.exchangeError
+    || `Bitget · ${data.accountType || 'Unified Account'} · updated ${age(data.updatedAt)} ago · every 30 seconds`;
+
+  const assetRows = assets.length ? assets.map(item => `<tr>
+    <td><strong>${escapeHtml(item.coin)}</strong></td>
+    <td><span class="exchange-account-badge">${escapeHtml(item.account)}</span></td>
+    <td class="numeric">${exchangeNumber(item.equity)}</td>
+    <td class="numeric">${exchangeNumber(item.available)}</td>
+    <td class="numeric">${exchangeNumber(item.locked)}</td>
+    <td class="numeric">${item.usdValue === null ? '—' : exchangeMoney(item.usdValue)}</td>
+  </tr>`).join('') : '<tr><td colspan="6" class="exchange-table-empty">No non-zero assets returned.</td></tr>';
+
+  const positionRows = positions.length ? positions.map(item => {
+    const side = item.side === 'short' ? 'short' : 'long';
+    const positionPnlClass = Number(item.unrealisedPnl) > 0 ? 'positive' : Number(item.unrealisedPnl) < 0 ? 'negative' : 'neutral';
+    return `<tr>
+      <td><strong>${escapeHtml(item.symbol)}</strong><small>${escapeHtml(String(item.category || '').replace('-FUTURES', ''))}</small></td>
+      <td><span class="position-side ${side}">${side}</span></td>
+      <td class="numeric">${exchangeNumber(item.size)}</td>
+      <td class="numeric">${exchangeNumber(item.leverage, 2)}×</td>
+      <td class="numeric">${exchangeNumber(item.entryPrice)}</td>
+      <td class="numeric">${exchangeNumber(item.markPrice)}</td>
+      <td class="numeric">${Number(item.liquidationPrice) > 0 ? exchangeNumber(item.liquidationPrice) : '—'}</td>
+      <td class="numeric exchange-pnl ${positionPnlClass}">${exchangeSignedMoney(item.unrealisedPnl)}<small>${item.profitRate === null ? '—' : `${exchangeNumber(Number(item.profitRate) * 100, 2)}%`}</small></td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="8" class="exchange-table-empty">No open futures positions.</td></tr>';
+
+  const warnings = Array.isArray(data.warnings) && data.warnings.length
+    ? '<div class="exchange-warning">Some Bitget sections are unavailable. Check read permissions and try again.</div>' : '';
+  el.exchangeAccountBody.innerHTML = `
+    <div class="exchange-summary">
+      <article><span>Account equity</span><strong>${exchangeMoney(summary.accountEquity)}</strong><small>Unified total</small></article>
+      <article><span>USDT equity</span><strong>${exchangeNumber(summary.usdtEquity, 2)}</strong><small>USDT equivalent</small></article>
+      <article><span>Unrealized PnL</span><strong class="exchange-pnl ${pnlClass}">${exchangeSignedMoney(summary.unrealisedPnl)}</strong><small>Open positions</small></article>
+      <article><span>Open positions</span><strong>${positions.length}</strong><small>${summary.positionValue === null ? 'No position value' : `${exchangeMoney(summary.positionValue)} value`}</small></article>
+    </div>
+    ${warnings}
+    <div class="exchange-sections">
+      <section class="exchange-section" aria-labelledby="bitgetAssetsTitle">
+        <div class="exchange-subhead"><div><h3 id="bitgetAssetsTitle">Assets</h3><p>Unified and Funding accounts</p></div><span>${assets.length} assets</span></div>
+        <div class="exchange-table-wrap"><table class="exchange-table"><thead><tr><th>Asset</th><th>Account</th><th class="numeric">Equity</th><th class="numeric">Available</th><th class="numeric">Locked</th><th class="numeric">USD value</th></tr></thead><tbody>${assetRows}</tbody></table></div>
+      </section>
+      <section class="exchange-section" aria-labelledby="bitgetPositionsTitle">
+        <div class="exchange-subhead"><div><h3 id="bitgetPositionsTitle">Open positions</h3><p>USDT, USDC and Coin futures</p></div><span>${positions.length} positions</span></div>
+        <div class="exchange-table-wrap"><table class="exchange-table positions-table"><thead><tr><th>Market</th><th>Side</th><th class="numeric">Size</th><th class="numeric">Lev.</th><th class="numeric">Entry</th><th class="numeric">Mark</th><th class="numeric">Liquidation</th><th class="numeric">PnL / ROI</th></tr></thead><tbody>${positionRows}</tbody></table></div>
+      </section>
+    </div>`;
+}
+
+async function updateExchangeAccount({ force = false } = {}) {
+  if (state.exchangeLoading) return;
+  if (!backendConfigured()) { renderExchangeAccount(); return; }
+  state.exchangeLoading = true;
+  state.exchangeError = '';
+  renderExchangeAccount();
+  try {
+    const url = `${normalizedBackendUrl()}/api/providers/bitget/account${force ? '?refresh=1' : ''}`;
+    const response = await fetch(url, { headers: backendHeaders(), cache: 'no-store' });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || `Bitget returned ${response.status}`);
+    state.exchangeData = body;
+  } catch (error) {
+    state.exchangeError = error?.message || 'Bitget account update failed';
+  } finally {
+    state.exchangeLoading = false;
+    renderExchangeAccount();
+  }
+}
+
+function scheduleExchangeRefresh(force = false) {
+  clearInterval(state.exchangeTimer);
+  if (backendConfigured()) {
+    state.exchangeTimer = setInterval(updateExchangeAccount, EXCHANGE_REFRESH_MS);
+    if (force || !state.exchangeData || Date.now() - Number(state.exchangeData.updatedAt || 0) >= EXCHANGE_REFRESH_MS) updateExchangeAccount();
+  }
+  renderExchangeAccount();
 }
 
 function statusLabel(status) {
@@ -1999,6 +2129,7 @@ el.newsFilterSide.addEventListener('change', () => {
 el.refreshNewsButton.addEventListener('click', () => updateNews({ force: true }));
 el.refreshNewsSideButton.addEventListener('click', () => updateNews({ force: true }));
 el.refreshGasAnalyticsButton.addEventListener('click', updateGasAnalytics);
+el.refreshExchangeButton.addEventListener('click', () => updateExchangeAccount({ force: true }));
 el.pendingSyncButton.addEventListener('click', () => syncPendingState(true));
 el.pendingSyncNoticeButton.addEventListener('click', () => syncPendingState(true));
 el.testEmailButton.addEventListener('click', sendTestEmail);
@@ -2045,6 +2176,7 @@ el.form.addEventListener('submit', async event => {
   scheduleBalanceRefresh(true);
   updateNews();
   updateGasAnalytics();
+  scheduleExchangeRefresh(true);
 });
 
 el.notificationForm.addEventListener('submit', async event => {
@@ -2209,6 +2341,7 @@ scheduleBalanceRefresh();
 scheduleNotificationChecks();
 scheduleNewsRefresh();
 scheduleGasAnalyticsRefresh();
+scheduleExchangeRefresh();
 setInterval(render, 1000);
 setInterval(renderNews, 60000);
 setInterval(checkStatuses, 12000);

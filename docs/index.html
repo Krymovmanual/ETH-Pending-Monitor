@@ -6,7 +6,7 @@
   <meta name="description" content="Digital asset operations dashboard for wallets, transactions, gas and market monitoring">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: wss:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
   <title>Treasury Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260910-treasury-ui">
+  <link rel="stylesheet" href="styles.css?v=20260911-bitget-v4">
 </head>
 <body>
   <aside class="news-side news-side-left" aria-label="Latest crypto news, first column">
@@ -96,6 +96,19 @@
         </div>
         <div id="gasBalanceBody" class="gas-balance-body"></div>
       </article>
+    </section>
+
+    <section class="panel exchange-panel" aria-labelledby="exchangeAccountsTitle">
+      <div class="panel-head exchange-head">
+        <div>
+          <div class="exchange-title-line"><span class="exchange-mark" aria-hidden="true">B</span><h2 id="exchangeAccountsTitle">Exchange Accounts</h2></div>
+          <p id="exchangeAccountStatus">Connecting to Bitget…</p>
+        </div>
+        <button class="secondary" id="refreshExchangeButton" type="button">Refresh</button>
+      </div>
+      <div class="exchange-body" id="exchangeAccountBody">
+        <div class="exchange-empty">Waiting for Bitget Unified Account data…</div>
+      </div>
     </section>
 
     <section class="panel gas-analytics-panel" aria-labelledby="gasAnalyticsTitle">
@@ -420,6 +433,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=20260910-treasury-ui"></script>
+  <script src="app.js?v=20260911-bitget-v4"></script>
 </body>
 </html>

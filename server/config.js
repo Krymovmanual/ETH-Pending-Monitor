@@ -10,6 +10,9 @@ const config = {
   alchemyWssUrl: String(process.env.ALCHEMY_WSS_URL || '').trim(),
   etherscanApiKey: String(process.env.ETHERSCAN_API_KEY || '').trim(),
   cryptoCompareApiKey: String(process.env.CRYPTOCOMPARE_API_KEY || '').trim(),
+  bitgetApiKey: String(process.env.BITGET_API_KEY || '').trim(),
+  bitgetApiSecret: String(process.env.BITGET_API_SECRET || '').trim(),
+  bitgetApiPassphrase: String(process.env.BITGET_API_PASSPHRASE || '').trim(),
   adminToken: String(process.env.ADMIN_TOKEN || '').trim(),
   frontendOrigins: String(process.env.FRONTEND_ORIGIN || '')
     .split(',')
