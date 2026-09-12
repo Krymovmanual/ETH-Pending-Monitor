@@ -19,7 +19,7 @@ app.use(cors({
     if (!origin || !config.frontendOrigins.length || config.frontendOrigins.includes(normalizeOrigin(origin))) return callback(null, true);
     return callback(new Error('Origin is not allowed'));
   },
-  methods: ['GET', 'POST', 'PUT', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json({ limit: '128kb' }));
@@ -110,20 +110,80 @@ function safeTimezone(value) {
   } catch { return 'UTC'; }
 }
 
+function ethereumNetworkSummary(current, analyticsStatus, monitorStatus) {
+  const lastBlockAt = current?.sampledAt || analyticsStatus.lastBlockAt;
+  const blockAgeSeconds = lastBlockAt ? Math.max(0, Math.round((Date.now() - new Date(lastBlockAt).getTime()) / 1000)) : null;
+  const streamsConnected = Boolean(analyticsStatus.connected && monitorStatus.connected);
+  const level = streamsConnected && blockAgeSeconds !== null && blockAgeSeconds <= 45
+    ? 'healthy'
+    : (analyticsStatus.connected || monitorStatus.connected) && (blockAgeSeconds === null || blockAgeSeconds <= 120)
+      ? 'degraded'
+      : 'unavailable';
+  const warnings = [];
+  if (!analyticsStatus.connected) warnings.push('Block analytics stream is disconnected');
+  if (!monitorStatus.connected) warnings.push('Transaction monitoring stream is disconnected');
+  if (blockAgeSeconds !== null && blockAgeSeconds > 45) warnings.push(`No new block sample for ${blockAgeSeconds} seconds`);
+  if (monitorStatus.error) warnings.push(monitorStatus.error);
+  if (analyticsStatus.error) warnings.push(analyticsStatus.error);
+  return {
+    network: 'Ethereum',
+    chainId: 1,
+    level,
+    latestBlock: current?.blockNumber ?? monitorStatus.lastConfirmedBlock,
+    lastBlockAt,
+    blockAgeSeconds,
+    blockIntervalSeconds: analyticsStatus.blockIntervalSeconds,
+    rpcLatencyMs: analyticsStatus.rpcLatencyMs,
+    transactionStreamConnected: monitorStatus.connected,
+    analyticsStreamConnected: analyticsStatus.connected,
+    monitoredAddresses: monitorStatus.monitoredAddresses,
+    lastTransactionAt: monitorStatus.lastPendingAt,
+    gasStation: monitorStatus.gasStation,
+    warnings: [...new Set(warnings)].slice(0, 5),
+  };
+}
+
+function ethereumFeePlanner(current) {
+  if (!current) return [];
+  const tiers = [
+    { key: 'economy', label: 'Economy', fee: current.low, confirmation: '2–5 blocks' },
+    { key: 'standard', label: 'Standard', fee: current.standard, confirmation: '1–2 blocks' },
+    { key: 'priority', label: 'Priority', fee: current.fast, confirmation: 'Next block target' },
+  ];
+  return tiers.map(tier => {
+    const feeGwei = Number(tier.fee);
+    return {
+      ...tier,
+      feeGwei: Number.isFinite(feeGwei) ? feeGwei : null,
+      nativeTransferEth: Number.isFinite(feeGwei) ? Number((feeGwei * 21_000 / 1e9).toFixed(8)) : null,
+      erc20TransferEth: Number.isFinite(feeGwei) ? Number((feeGwei * 65_000 / 1e9).toFixed(8)) : null,
+    };
+  });
+}
+
 app.get('/health', (_req, res) => {
   const missing = validateEnvironment();
   const analyticsStatus = gasAnalytics.status();
+  const transactionStatus = monitor.status();
   res.json({
     status: 'ok',
     configured: missing.length === 0,
     missing,
     pushConfigured: hasPushConfiguration(),
     providers: {
+      alchemy: Boolean(config.alchemyWssUrl),
       etherscan: Boolean(config.etherscanApiKey),
       cryptoCompare: Boolean(config.cryptoCompareApiKey),
       bitget: bitgetConfigured(),
     },
     gasAnalytics: { connected: analyticsStatus.connected, lastBlockAt: analyticsStatus.lastBlockAt },
+    transactionMonitor: {
+      connected: transactionStatus.connected,
+      monitoredAddresses: transactionStatus.monitoredAddresses,
+      lastConfirmedBlock: transactionStatus.lastConfirmedBlock,
+      lastConfirmedBlockAt: transactionStatus.lastConfirmedBlockAt,
+      error: transactionStatus.error,
+    },
   });
 });
 
@@ -155,11 +215,17 @@ app.get('/api/transactions', requireAdmin, async (req, res, next) => {
   try { res.json({ items: await db.recentTransactions(req.query.limit) }); } catch (error) { next(error); }
 });
 
+app.delete('/api/transactions', requireAdmin, async (_req, res, next) => {
+  try { res.json({ success: true, deleted: await db.clearTransactions() }); } catch (error) { next(error); }
+});
+
 app.get('/api/gas-analytics', requireAdmin, async (_req, res, next) => {
   try {
     const settings = await db.getSettings();
     const summary = await db.gasAnalyticsSummary(safeTimezone(settings.timezone));
     const current = gasAnalytics.status().current;
+    const analyticsStatus = gasAnalytics.status();
+    const monitorStatus = monitor.status();
     const minutes = Number(summary.baseline.minutes) || 0;
     let recommendation = { level: 'collecting', label: 'Building baseline', confidence: 'Low' };
     if (current && minutes >= 60) {
@@ -170,6 +236,8 @@ app.get('/api/gas-analytics', requireAdmin, async (_req, res, next) => {
     res.json({
       status: gasAnalytics.status(),
       current,
+      network: ethereumNetworkSummary(current, analyticsStatus, monitorStatus),
+      feePlanner: ethereumFeePlanner(current),
       recommendation,
       retentionDays: RETENTION_DAYS,
       ...summary,

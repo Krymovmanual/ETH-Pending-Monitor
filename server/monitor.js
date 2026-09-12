@@ -14,7 +14,15 @@ class EthereumMonitor {
     this.reconnectTimer = null;
     this.statusTimer = null;
     this.snapshotTimer = null;
+    this.blockTimer = null;
     this.gasTimer = null;
+    this.blockScanning = false;
+    this.lastConfirmedBlock = null;
+    this.lastConfirmedBlockAt = 0;
+    this.lastPendingAt = 0;
+    this.connected = false;
+    this.lastError = '';
+    this.gasStation = null;
     this.lastGasCheck = 0;
     this.currentGasGwei = 0;
     this.subscriptionIds = new Set();
@@ -26,15 +34,16 @@ class EthereumMonitor {
     this.connect();
     this.statusTimer = setInterval(() => this.checkPending().catch(this.logError), 30_000);
     this.snapshotTimer = setInterval(() => this.scanPendingBlock().catch(this.logError), 60_000);
+    this.blockTimer = setInterval(() => this.scanConfirmedBlocks().catch(this.logError), 12_000);
     this.gasTimer = setInterval(() => this.checkGasStation().catch(this.logError), 60_000);
-    await Promise.allSettled([this.scanPendingBlock(), this.checkPending(), this.checkGasStation()]);
+    await Promise.allSettled([this.scanPendingBlock(), this.scanConfirmedBlocks(), this.checkPending(), this.checkGasStation()]);
   }
 
   async reconfigure(settings) {
     this.settings = settings || await db.getSettings();
     this.disconnect();
     this.connect();
-    await Promise.allSettled([this.scanPendingBlock(), this.checkPending(), this.checkGasStation(true)]);
+    await Promise.allSettled([this.scanPendingBlock(), this.scanConfirmedBlocks(), this.checkPending(), this.checkGasStation(true)]);
   }
 
   stop() {
@@ -42,6 +51,7 @@ class EthereumMonitor {
     this.disconnect();
     clearInterval(this.statusTimer);
     clearInterval(this.snapshotTimer);
+    clearInterval(this.blockTimer);
     clearInterval(this.gasTimer);
   }
 
@@ -52,6 +62,7 @@ class EthereumMonitor {
       this.ws.close();
       this.ws = null;
     }
+    this.connected = false;
     this.subscriptionIds.clear();
   }
 
@@ -59,6 +70,8 @@ class EthereumMonitor {
     if (!this.running || !config.alchemyWssUrl || !this.settings?.addresses?.length) return;
     this.ws = new WebSocket(config.alchemyWssUrl);
     this.ws.on('open', () => {
+      this.connected = true;
+      this.lastError = '';
       const addresses = this.settings.addresses.map(value => value.toLowerCase());
       this.ws.send(JSON.stringify({
         jsonrpc: '2.0', id: 1, method: 'eth_subscribe',
@@ -71,9 +84,13 @@ class EthereumMonitor {
       console.log(`Monitoring ${addresses.length} Ethereum address(es)`);
     });
     this.ws.on('message', data => this.handleMessage(data).catch(this.logError));
-    this.ws.on('error', error => console.error('Alchemy WebSocket error:', error.message));
+    this.ws.on('error', error => {
+      this.lastError = error.message || 'Alchemy WebSocket error';
+      console.error('Alchemy WebSocket error:', this.lastError);
+    });
     this.ws.on('close', () => {
       this.ws = null;
+      this.connected = false;
       if (this.running) this.reconnectTimer = setTimeout(() => this.connect(), 5_000);
     });
   }
@@ -82,7 +99,10 @@ class EthereumMonitor {
     const message = JSON.parse(data.toString());
     if (message.id && message.result) this.subscriptionIds.add(message.result);
     const tx = message.params?.result;
-    if (tx?.hash) await this.observeTransaction(tx);
+    if (tx?.hash) {
+      this.lastPendingAt = Date.now();
+      await this.observeTransaction(tx);
+    }
   }
 
   normalizeTransaction(tx) {
@@ -103,7 +123,18 @@ class EthereumMonitor {
 
   isMonitored(tx) {
     const addresses = new Set((this.settings?.addresses || []).map(value => value.toLowerCase()));
-    return addresses.has(String(tx.from || '').toLowerCase()) || addresses.has(String(tx.to || '').toLowerCase());
+    return this.transactionAddresses(tx).some(address => addresses.has(address));
+  }
+
+  transactionAddresses(tx) {
+    const addresses = [String(tx.from || '').toLowerCase(), String(tx.to || '').toLowerCase()];
+    const data = String(tx.input || tx.data || '').replace(/^0x/, '').toLowerCase();
+    if (data.startsWith(ERC20_TRANSFER.replace(/^0x/, '')) && data.length >= 136) {
+      addresses.push(`0x${data.slice(32, 72)}`);
+    } else if (data.startsWith(ERC20_TRANSFER_FROM.replace(/^0x/, '')) && data.length >= 200) {
+      addresses.push(`0x${data.slice(32, 72)}`, `0x${data.slice(96, 136)}`);
+    }
+    return addresses.filter(address => /^0x[a-f0-9]{40}$/.test(address));
   }
 
   async observeTransaction(raw) {
@@ -133,6 +164,43 @@ class EthereumMonitor {
     const transactions = await this.rpc('eth_getBlockByNumber', ['pending', true]);
     for (const tx of transactions?.transactions || []) {
       if (this.isMonitored(tx)) await this.observeTransaction(tx);
+    }
+  }
+
+  async scanConfirmedBlocks() {
+    if (this.blockScanning || !this.settings?.addresses?.length) return;
+    this.blockScanning = true;
+    try {
+      const current = Number.parseInt(await this.rpc('eth_blockNumber', []), 16);
+      if (!Number.isInteger(current)) throw new Error('Invalid latest block number');
+      if (!Number.isInteger(this.lastConfirmedBlock)) {
+        const checkpoint = await db.getMonitorState('ethereum_confirmed_block');
+        const saved = Number(checkpoint?.blockNumber);
+        this.lastConfirmedBlock = Number.isInteger(saved) && saved <= current ? saved : Math.max(0, current - 20);
+      }
+      const target = Math.min(current, this.lastConfirmedBlock + 25);
+      for (let blockNumber = this.lastConfirmedBlock + 1; blockNumber <= target; blockNumber += 1) {
+        const block = await this.rpc('eth_getBlockByNumber', [`0x${blockNumber.toString(16)}`, true]);
+        const firstSeen = block?.timestamp ? new Date(Number.parseInt(block.timestamp, 16) * 1000).toISOString() : null;
+        for (const raw of block?.transactions || []) {
+          if (!this.isMonitored(raw)) continue;
+          const tx = this.normalizeTransaction(raw);
+          const receipt = await this.rpc('eth_getTransactionReceipt', [tx.hash]);
+          const status = receipt?.status === '0x0' ? 'failed' : 'confirmed';
+          const replacements = await db.findSameNonce(tx.from, tx.nonce, tx.hash);
+          await db.upsertConfirmedTransaction(tx, status, firstSeen);
+          for (const old of replacements) await db.markStatus(old.hash, 'replaced', tx.hash);
+        }
+        this.lastConfirmedBlock = blockNumber;
+        this.lastConfirmedBlockAt = firstSeen ? new Date(firstSeen).getTime() : Date.now();
+        await db.saveMonitorState('ethereum_confirmed_block', { blockNumber });
+      }
+      this.lastError = '';
+    } catch (error) {
+      this.lastError = error?.message || 'Confirmed block scan failed';
+      throw error;
+    } finally {
+      this.blockScanning = false;
     }
   }
 
@@ -251,6 +319,14 @@ class EthereumMonitor {
     this.lastGasCheck = Date.now();
     const raw = await this.rpc('eth_getBalance', [balance.gasAddress, 'latest']);
     const current = Number(BigInt(raw)) / 1e18;
+    this.gasStation = {
+      name: balance.gasName || 'Gas Station',
+      address: balance.gasAddress,
+      balance: current,
+      threshold: Number(balance.gasThreshold || 0),
+      sufficient: current >= Number(balance.gasThreshold || 0),
+      checkedAt: new Date().toISOString(),
+    };
     if (current >= Number(balance.gasThreshold || 0)) return;
     const rule = this.rule('gasLow');
     await deliverAlert({
@@ -263,6 +339,19 @@ class EthereumMonitor {
 
   rule(name) {
     return this.settings?.notificationSettings?.rules?.[name] || { enabled: false };
+  }
+
+  status() {
+    return {
+      connected: this.connected,
+      monitoredAddresses: this.settings?.addresses?.length || 0,
+      lastPendingAt: this.lastPendingAt ? new Date(this.lastPendingAt).toISOString() : null,
+      lastConfirmedBlock: this.lastConfirmedBlock,
+      lastConfirmedBlockAt: this.lastConfirmedBlockAt ? new Date(this.lastConfirmedBlockAt).toISOString() : null,
+      blockScanning: this.blockScanning,
+      gasStation: this.gasStation,
+      error: this.lastError || null,
+    };
   }
 
   logError(error) {

@@ -18,6 +18,7 @@ const BACKEND_TOKEN_KEY = 'eth-pending-monitor-backend-token';
 const PUSH_REGISTERED_KEY = 'eth-pending-monitor-server-push-registered';
 const NEWS_REFRESH_MS = 15 * 60 * 1000;
 const EXCHANGE_REFRESH_MS = 30 * 1000;
+const TRANSACTION_REFRESH_MS = 15 * 1000;
 const REQUESTED_VIEW = new URLSearchParams(window.location.search).get('view');
 const CURRENT_VIEW = ['wallets', 'networks', 'market'].includes(REQUESTED_VIEW) ? REQUESTED_VIEW : 'overview';
 
@@ -65,6 +66,10 @@ const state = {
   gasTimer: null,
   alertTimer: null,
   pendingSyncTimer: null,
+  transactionSyncTimer: null,
+  transactionSyncRunning: false,
+  transactionSyncUpdatedAt: 0,
+  transactionSyncError: '',
   alertEvaluationRunning: false,
   pendingSyncRunning: false,
   pendingSyncUpdatedAt: 0,
@@ -135,6 +140,17 @@ const el = {
   gasAnalyticsChange: document.querySelector('#gasAnalyticsChange'),
   gasHourlyBody: document.querySelector('#gasHourlyBody'),
   gasHeatmap: document.querySelector('#gasHeatmap'),
+  networkHealthBadge: document.querySelector('#networkHealthBadge'),
+  networkHealthStatus: document.querySelector('#networkHealthStatus'),
+  networkHealthDetail: document.querySelector('#networkHealthDetail'),
+  refreshNetworkHealthButton: document.querySelector('#refreshNetworkHealthButton'),
+  networkLatestBlock: document.querySelector('#networkLatestBlock'),
+  networkBlockAge: document.querySelector('#networkBlockAge'),
+  networkBlockTime: document.querySelector('#networkBlockTime'),
+  networkRpcLatency: document.querySelector('#networkRpcLatency'),
+  networkWalletCount: document.querySelector('#networkWalletCount'),
+  networkReadinessList: document.querySelector('#networkReadinessList'),
+  feePlannerBody: document.querySelector('#feePlannerBody'),
   exchangeAccountStatus: document.querySelector('#exchangeAccountStatus'),
   exchangeAccountBody: document.querySelector('#exchangeAccountBody'),
   refreshExchangeButton: document.querySelector('#refreshExchangeButton'),
@@ -377,11 +393,11 @@ function connect() {
     setConnection('live', 'Live');
     state.ws.send(JSON.stringify({
       jsonrpc: '2.0', id: 1, method: 'eth_subscribe',
-      params: ['alchemy_pendingTransactions', {
-        fromAddress: state.addresses,
-        toAddress: state.addresses,
-        hashesOnly: false,
-      }],
+      params: ['alchemy_pendingTransactions', { fromAddress: state.addresses, hashesOnly: false }],
+    }));
+    state.ws.send(JSON.stringify({
+      jsonrpc: '2.0', id: 2, method: 'eth_subscribe',
+      params: ['alchemy_pendingTransactions', { toAddress: state.addresses, hashesOnly: false }],
     }));
     updateGasPrice();
     schedulePendingSync(true);
@@ -450,6 +466,87 @@ function addTransaction(tx, discoveredBy = 'live') {
   render();
   if (record.tokenContract) hydrateTokenMetadata(record);
   return record;
+}
+
+function serverTransactionRecord(row, existing = null) {
+  const raw = row?.tx_data && typeof row.tx_data === 'object' ? row.tx_data : {};
+  const hash = String(row?.hash || raw.hash || '').toLowerCase();
+  if (!/^0x[a-f0-9]{64}$/.test(hash)) return null;
+  const from = String(row?.from_address || raw.from || '').toLowerCase();
+  const to = String(row?.to_address || raw.to || '').toLowerCase();
+  const tokenTransfer = parseTokenTransfer(raw.input || raw.data || '0x');
+  const matchedAddress = state.addresses.find(address => [from, to, tokenTransfer?.from, tokenTransfer?.recipient].includes(address)) || '';
+  let value = 0;
+  try { value = Number(BigInt(raw.valueWei ?? raw.value ?? 0)) / 1e18; }
+  catch { value = hexToEth(raw.value || '0x0'); }
+  const serverStatus = ['pending', 'confirmed', 'failed', 'dropped', 'replaced'].includes(row?.status) ? row.status : 'pending';
+  const existingFinal = existing && ['confirmed', 'failed', 'dropped', 'replaced'].includes(existing.status);
+  const firstSeen = new Date(row?.first_seen || raw.observedAt || Date.now()).getTime();
+  const record = {
+    ...(existing || {}),
+    hash,
+    from,
+    to,
+    matchedAddress,
+    nonce: Number(row?.nonce ?? raw.nonce) || 0,
+    value,
+    maxFee: Number(raw.maxFeePerGasGwei) || hexToGwei(raw.maxFeePerGas || raw.gasPrice),
+    maxPriorityFee: hexToGwei(raw.maxPriorityFeePerGas),
+    gasPrice: hexToGwei(raw.gasPrice),
+    gasLimit: hexToNumber(raw.gas),
+    tokenContract: tokenTransfer ? to : '',
+    tokenRecipient: tokenTransfer?.recipient || '',
+    rawTokenAmount: tokenTransfer?.rawAmount || '',
+    tokenSymbol: existing?.tokenSymbol || (tokenTransfer ? 'ERC-20' : ''),
+    tokenName: existing?.tokenName || (tokenTransfer ? 'ERC-20 Token' : ''),
+    tokenDecimals: Number.isInteger(existing?.tokenDecimals) ? existing.tokenDecimals : null,
+    method: tokenTransfer?.method || raw.method || transactionMethod(raw.input || raw.data || '0x', raw.value || '0x0'),
+    discoveredBy: existing?.discoveredBy || 'Railway monitor',
+    firstSeen: Number.isFinite(firstSeen) ? firstSeen : Date.now(),
+    status: existingFinal && serverStatus === 'pending' ? existing.status : serverStatus,
+    replacedBy: row?.replacement_hash || existing?.replacedBy || '',
+    alerts: existing?.alerts || {},
+  };
+  return record;
+}
+
+async function syncServerTransactions({ force = false } = {}) {
+  if (!backendConfigured() || state.transactionSyncRunning) return;
+  state.transactionSyncRunning = true;
+  if (force) state.transactionSyncError = '';
+  try {
+    const response = await fetch(`${normalizedBackendUrl()}/api/transactions?limit=500`, {
+      headers: backendHeaders(), cache: 'no-store',
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || !Array.isArray(body.items)) throw new Error(body.error || `Transaction history returned ${response.status}`);
+    const merged = new Map(state.transactions.map(tx => [tx.hash, tx]));
+    const tokensToHydrate = [];
+    for (const row of body.items) {
+      const existing = merged.get(String(row?.hash || '').toLowerCase());
+      const record = serverTransactionRecord(row, existing);
+      if (!record) continue;
+      merged.set(record.hash, record);
+      if (record.tokenContract && !Number.isInteger(record.tokenDecimals)) tokensToHydrate.push(record);
+    }
+    state.transactions = [...merged.values()].sort((a, b) => b.firstSeen - a.firstSeen).slice(0, 500);
+    state.transactionSyncUpdatedAt = Date.now();
+    state.transactionSyncError = '';
+    saveTransactions();
+    render();
+    tokensToHydrate.slice(0, 20).forEach(record => hydrateTokenMetadata(record));
+  } catch (error) {
+    state.transactionSyncError = error?.message || 'Railway transaction history sync failed';
+    render();
+  } finally {
+    state.transactionSyncRunning = false;
+  }
+}
+
+function scheduleServerTransactionSync() {
+  clearInterval(state.transactionSyncTimer);
+  state.transactionSyncTimer = setInterval(syncServerTransactions, TRANSACTION_REFRESH_MS);
+  syncServerTransactions({ force:true });
 }
 
 function transactionMatchesMonitoredAddress(tx) {
@@ -1505,6 +1602,61 @@ function renderGasHeatmap(items) {
   el.gasHeatmap.innerHTML = `${markup}</div><div class="heatmap-scale"><span>${gasNumber(minimum)} Gwei</span><span>${gasNumber(maximum)} Gwei</span></div>`;
 }
 
+function renderNetworkHealth() {
+  const data = state.gasAnalytics;
+  const network = data?.network;
+  const level = network?.level || (state.gasAnalyticsError ? 'unavailable' : 'checking');
+  const labels = { healthy:'Operational', degraded:'Degraded', unavailable:'Unavailable', checking:'Checking' };
+  el.networkHealthBadge.className = `connection compact ${level === 'healthy' ? 'live' : level === 'checking' ? '' : 'error'}`;
+  el.networkHealthStatus.textContent = labels[level] || 'Checking';
+  el.networkHealthDetail.textContent = state.gasAnalyticsError
+    ? state.gasAnalyticsError
+    : network
+      ? `${network.analyticsStreamConnected && network.transactionStreamConnected ? 'Both live streams connected' : 'One or more streams require attention'} · Ethereum chain ID ${network.chainId}`
+      : 'Checking block delivery, RPC and transaction streams…';
+  el.refreshNetworkHealthButton.disabled = state.gasAnalyticsLoading;
+  el.refreshNetworkHealthButton.textContent = state.gasAnalyticsLoading ? 'Refreshing…' : 'Refresh';
+  const hasValue = value => value !== null && value !== undefined && Number.isFinite(Number(value));
+  el.networkLatestBlock.textContent = hasValue(network?.latestBlock) ? Number(network.latestBlock).toLocaleString() : '—';
+  el.networkBlockAge.textContent = hasValue(network?.blockAgeSeconds) ? `Received ${Number(network.blockAgeSeconds)}s ago` : 'Waiting for data';
+  el.networkBlockTime.textContent = hasValue(network?.blockIntervalSeconds) ? `${Number(network.blockIntervalSeconds)} sec` : '—';
+  el.networkRpcLatency.textContent = hasValue(network?.rpcLatencyMs) ? `${Number(network.rpcLatencyMs)} ms` : '—';
+  el.networkWalletCount.textContent = hasValue(network?.monitoredAddresses) ? String(network.monitoredAddresses) : '—';
+
+  const readiness = [
+    {
+      label:'Transaction monitoring',
+      detail:network?.lastTransactionAt ? `Last pending event ${age(new Date(network.lastTransactionAt).getTime())} ago` : 'Waiting for a monitored transaction',
+      value:network?.transactionStreamConnected ? 'Connected' : 'Disconnected',
+      level:network?.transactionStreamConnected ? 'ok' : 'critical',
+    },
+    {
+      label:'Block analytics',
+      detail:hasValue(network?.blockAgeSeconds) ? `Latest block sample is ${Number(network.blockAgeSeconds)} seconds old` : 'No block sample received yet',
+      value:network?.analyticsStreamConnected ? 'Connected' : 'Disconnected',
+      level:network?.analyticsStreamConnected ? 'ok' : 'critical',
+    },
+  ];
+  if (network?.gasStation) {
+    readiness.push({
+      label:network.gasStation.name || 'Gas Station',
+      detail:`Minimum reserve ${compactNumber(network.gasStation.threshold, 6)} ETH`,
+      value:`${compactNumber(network.gasStation.balance, 6)} ETH`,
+      level:network.gasStation.sufficient ? 'ok' : 'critical',
+    });
+  } else {
+    readiness.push({ label:'Gas reserve', detail:'Configure a Gas Station wallet in Wallets', value:'Not configured', level:'warning' });
+  }
+  const warning = Array.isArray(network?.warnings) ? network.warnings[0] : '';
+  readiness.push(warning
+    ? { label:'Network warning', detail:warning, value:'Review', level:'warning' }
+    : { label:'Network incidents', detail:'No active infrastructure warnings', value:'Clear', level:'ok' });
+  el.networkReadinessList.innerHTML = readiness.map(item => `<div class="network-readiness-item"><span class="overview-status-dot ${item.level}" aria-hidden="true"></span><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.detail)}</small></span><span class="network-readiness-value ${item.level}">${escapeHtml(item.value)}</span></div>`).join('');
+
+  const feePlanner = Array.isArray(data?.feePlanner) ? data.feePlanner : [];
+  el.feePlannerBody.innerHTML = feePlanner.length ? feePlanner.map(tier => `<tr><td><span class="fee-mode ${escapeHtml(tier.key)}">${escapeHtml(tier.label)}</span></td><td><strong>${gasNumber(tier.feeGwei)} Gwei</strong></td><td>${escapeHtml(tier.confirmation)}</td><td><strong>${compactNumber(tier.nativeTransferEth, 8)} ETH</strong><small>21,000 gas</small></td><td><strong>${compactNumber(tier.erc20TransferEth, 8)} ETH</strong><small>65,000 gas estimate</small></td></tr>`).join('') : '<tr><td colspan="5">Waiting for fee data…</td></tr>';
+}
+
 function renderGasAnalytics() {
   el.refreshGasAnalyticsButton.disabled = state.gasAnalyticsLoading;
   el.refreshGasAnalyticsButton.textContent = state.gasAnalyticsLoading ? 'Refreshing…' : 'Refresh';
@@ -1532,6 +1684,7 @@ function renderGasAnalytics() {
   el.gasAnalyticsChange.classList.toggle('spike', Boolean(current?.spike));
   renderGasHourly(Array.isArray(data?.hourly) ? data.hourly : [], data?.baseline);
   renderGasHeatmap(Array.isArray(data?.heatmap) ? data.heatmap : []);
+  renderNetworkHealth();
 }
 
 async function updateGasAnalytics() {
@@ -1637,22 +1790,25 @@ function renderPendingSync() {
   const missing = diagnostics.reduce((total, item) => total + Number(item.missing || 0), 0);
   const etherscanExtra = etherscanDiagnostics.reduce((total, item) => total + Number(item.extraVsAlchemy || 0), 0);
 
-  el.pendingSyncButton.disabled = state.pendingSyncRunning || !state.endpoint;
+  el.pendingSyncButton.disabled = state.pendingSyncRunning || state.transactionSyncRunning || !state.endpoint;
   el.pendingSyncNoticeButton.disabled = state.pendingSyncRunning || !state.endpoint;
   el.pendingSyncButton.textContent = state.pendingSyncRunning ? 'Syncing…' : 'Sync pending';
   el.pendingSyncNoticeButton.textContent = state.pendingSyncRunning ? 'Scanning…' : 'Scan again';
   el.pendingEtherscanLink.hidden = true;
   el.pendingEtherscanLink.removeAttribute('href');
 
-  if (state.pendingSyncRunning) {
+  const historyStatus = state.transactionSyncError
+    ? ` Railway history error: ${state.transactionSyncError}.`
+    : state.transactionSyncUpdatedAt ? ` Railway history updated ${age(state.transactionSyncUpdatedAt)} ago.` : '';
+  if (state.pendingSyncRunning || state.transactionSyncRunning) {
     el.pendingSyncStatus.textContent = 'Checking existing pending transactions…';
   } else if (state.pendingSyncError) {
     el.pendingSyncStatus.textContent = 'Pending sync failed.';
   } else if (state.pendingSyncUpdatedAt) {
     const source = backendConfigured() ? ' Alchemy + server-side Etherscan checked.' : ' Alchemy checked; connect Railway to enable Etherscan.';
-    el.pendingSyncStatus.textContent = `Pending sync checked ${age(state.pendingSyncUpdatedAt)} ago.${source}${state.pendingSnapshotError ? ' Full snapshot unavailable.' : ''}`;
+    el.pendingSyncStatus.textContent = `Pending sync checked ${age(state.pendingSyncUpdatedAt)} ago.${source}${state.pendingSnapshotError ? ' Full snapshot unavailable.' : ''}${historyStatus}`;
   } else {
-    el.pendingSyncStatus.textContent = 'Pending sync not run yet.';
+    el.pendingSyncStatus.textContent = `Pending sync not run yet.${historyStatus}`;
   }
   el.pendingSyncStatus.className = 'sync-status';
 
@@ -1731,6 +1887,7 @@ function renderOverview() {
   if (blockerCount) attention.push({ label:`${blockerCount} nonce blocker${blockerCount === 1 ? '' : 's'}`, detail:'Higher nonce transactions may be unable to confirm.', level:'critical', href:'index.html?view=wallets' });
   if (pending.length) attention.push({ label:`${pending.length} pending transaction${pending.length === 1 ? '' : 's'}`, detail:'Review age, gas and queue position.', level:'warning', href:'index.html?view=wallets' });
   if (state.pendingSyncError) attention.push({ label:'Pending synchronization unavailable', detail:state.pendingSyncError, level:'warning', href:'index.html?view=wallets' });
+  if (state.transactionSyncError) attention.push({ label:'Railway transaction history unavailable', detail:state.transactionSyncError, level:'warning', href:'index.html?view=wallets' });
   if (state.exchangeError) attention.push({ label:'Exchange update failed', detail:state.exchangeError, level:'critical', href:'exchanges.html' });
   if (state.gasAnalyticsError) attention.push({ label:'Gas Analytics unavailable', detail:state.gasAnalyticsError, level:'warning', href:'index.html?view=networks' });
   if (state.gasAnalytics?.current?.spike) attention.push({ label:'Ethereum gas spike detected', detail:`Standard fee is ${gasNumber(state.gasAnalytics.current.standard)} Gwei.`, level:'warning', href:'index.html?view=networks' });
@@ -1747,7 +1904,7 @@ function renderOverview() {
     : overviewStatusMarkup('No action required', 'Connected systems report no active operational issues.', 'ok');
 
   const websocketLive = state.ws?.readyState === 1;
-  const railwayHealthy = backendConfigured() && !state.exchangeError && !state.gasAnalyticsError;
+  const railwayHealthy = backendConfigured() && !state.exchangeError && !state.gasAnalyticsError && !state.transactionSyncError;
   const allHealthy = websocketLive && railwayHealthy;
   el.overviewSystemBadge.classList.toggle('live', allHealthy);
   el.overviewSystemBadge.classList.toggle('error', !allHealthy);
@@ -2218,6 +2375,7 @@ async function refreshOverviewData() {
   if (state.balanceSettings.enabled) tasks.push(updateWalletBalances());
   if (validAddress(state.balanceSettings.gasAddress)) tasks.push(updateGasBalance());
   if (state.endpoint) tasks.push(syncPendingState(false));
+  if (backendConfigured()) tasks.push(syncServerTransactions({ force:true }));
   await Promise.allSettled(tasks);
   el.refreshOverviewButton.disabled = false;
   el.refreshOverviewButton.textContent = 'Refresh all';
@@ -2239,9 +2397,10 @@ el.newsFilterSide.addEventListener('change', () => {
 el.refreshNewsButton.addEventListener('click', () => updateNews({ force: true }));
 el.refreshNewsSideButton.addEventListener('click', () => updateNews({ force: true }));
 el.refreshGasAnalyticsButton.addEventListener('click', updateGasAnalytics);
+el.refreshNetworkHealthButton.addEventListener('click', updateGasAnalytics);
 el.refreshExchangeButton.addEventListener('click', () => updateExchangeAccount({ force: true }));
-el.pendingSyncButton.addEventListener('click', () => syncPendingState(true));
-el.pendingSyncNoticeButton.addEventListener('click', () => syncPendingState(true));
+el.pendingSyncButton.addEventListener('click', () => Promise.allSettled([syncPendingState(true), syncServerTransactions({ force:true })]));
+el.pendingSyncNoticeButton.addEventListener('click', () => Promise.allSettled([syncPendingState(true), syncServerTransactions({ force:true })]));
 el.testEmailButton.addEventListener('click', sendTestEmail);
 el.notificationButton.addEventListener('click', enableNotifications);
 el.form.addEventListener('submit', async event => {
@@ -2287,6 +2446,7 @@ el.form.addEventListener('submit', async event => {
   updateNews();
   updateGasAnalytics();
   scheduleExchangeRefresh(true);
+  scheduleServerTransactionSync();
 });
 
 el.notificationForm.addEventListener('submit', async event => {
@@ -2435,8 +2595,16 @@ el.transactionDetails.addEventListener('click', event => {
   const button = event.target.closest('[data-copy-hash]');
   if (button) copyHash(button.dataset.copyHash);
 });
-el.clearButton.addEventListener('click', () => {
+el.clearButton.addEventListener('click', async () => {
   if (!state.transactions.length || !confirm('Delete the saved transaction history?')) return;
+  if (backendConfigured()) {
+    const response = await fetch(`${normalizedBackendUrl()}/api/transactions`, { method:'DELETE', headers:backendHeaders() });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      alert(body.error || 'Railway history could not be cleared.');
+      return;
+    }
+  }
   state.transactions = [];
   state.summaryAlerts = {};
   localStorage.removeItem(SUMMARY_ALERTS_KEY);
@@ -2450,6 +2618,7 @@ if (['overview', 'wallets'].includes(CURRENT_VIEW)) {
   hydrateStoredTokens();
   scheduleBalanceRefresh();
   scheduleNotificationChecks();
+  scheduleServerTransactionSync();
 }
 if (['overview', 'market'].includes(CURRENT_VIEW)) scheduleNewsRefresh(); else renderNews();
 if (['overview', 'networks'].includes(CURRENT_VIEW)) scheduleGasAnalyticsRefresh(); else renderGasAnalytics();

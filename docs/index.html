@@ -6,7 +6,7 @@
   <meta name="description" content="Digital asset operations dashboard for wallets, transactions, gas and market monitoring">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: wss:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
   <title>Treasury Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260912-overview-v8">
+  <link rel="stylesheet" href="styles.css?v=20260912-network-v9">
 </head>
 <body data-view="overview">
   <aside class="news-side news-side-left legacy-data-module" aria-label="Latest crypto news, first column" hidden>
@@ -161,6 +161,35 @@
       </div>
       <div class="exchange-body" id="exchangeAccountBody">
         <div class="exchange-empty">Waiting for Bitget Unified Account data…</div>
+      </div>
+    </section>
+
+    <section class="panel network-health-panel view-networks" aria-labelledby="networkHealthTitle">
+      <div class="panel-head network-health-head">
+        <div>
+          <span class="eyebrow">ETHEREUM MAINNET</span>
+          <h2 id="networkHealthTitle">Network Control</h2>
+          <p id="networkHealthDetail">Checking block delivery, RPC and transaction streams…</p>
+        </div>
+        <div class="network-health-actions"><span class="connection compact" id="networkHealthBadge"><span class="dot"></span><span id="networkHealthStatus">Checking</span></span><button class="secondary" id="refreshNetworkHealthButton" type="button">Refresh</button></div>
+      </div>
+      <div class="network-health-body">
+        <div class="network-kpis" aria-label="Ethereum network health">
+          <article><span>Latest block</span><strong id="networkLatestBlock">—</strong><small id="networkBlockAge">Waiting for data</small></article>
+          <article><span>Block interval</span><strong id="networkBlockTime">—</strong><small>Latest observed interval</small></article>
+          <article><span>RPC latency</span><strong id="networkRpcLatency">—</strong><small>Railway → Alchemy</small></article>
+          <article><span>Monitored wallets</span><strong id="networkWalletCount">—</strong><small>Server-side monitoring</small></article>
+        </div>
+        <div class="network-control-grid">
+          <section class="network-subcard" aria-labelledby="networkReadinessTitle">
+            <div class="network-subhead"><div><span class="eyebrow">READINESS</span><h3 id="networkReadinessTitle">Transaction readiness</h3></div></div>
+            <div class="network-readiness-list" id="networkReadinessList"><div class="network-empty">Waiting for network health…</div></div>
+          </section>
+          <section class="network-subcard" aria-labelledby="feePlannerTitle">
+            <div class="network-subhead"><div><span class="eyebrow">FEE PLANNER</span><h3 id="feePlannerTitle">Estimated send cost</h3></div><small>Approximate</small></div>
+            <div class="fee-planner-wrap"><table class="fee-planner-table"><thead><tr><th>Mode</th><th>Max fee</th><th>Confirmation</th><th>ETH transfer</th><th>ERC-20</th></tr></thead><tbody id="feePlannerBody"><tr><td colspan="5">Waiting for fee data…</td></tr></tbody></table></div>
+          </section>
+        </div>
       </div>
     </section>
 
@@ -486,6 +515,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=20260912-overview-v8"></script>
+  <script src="app.js?v=20260912-network-v9"></script>
 </body>
 </html>

@@ -6,7 +6,7 @@ Digital asset operations dashboard for wallets, transactions, gas, and market mo
 - `server/` contains the Node.js monitoring service.
 - PostgreSQL stores server settings, transaction state, notification history, Web Push subscriptions, and compact one-minute Gas Analytics summaries.
 
-The interface is split into focused workspaces: **Overview** for operational KPIs and alerts, **Wallets** for on-chain balances and transactions, **Exchanges** for CEX assets and positions, **Transfers** for validated drafts, **Networks** for gas analytics, and **Market** for news. Overview refreshes only the compact data required for decision-making; detailed tables remain on their own pages.
+The interface is split into focused workspaces: **Overview** for operational KPIs and alerts, **Wallets** for on-chain balances and transactions, **Exchanges** for CEX assets and positions, **Transfers** for validated drafts, **Networks** for network health, fee planning and gas analytics, and **Market** for news. Overview refreshes only the compact data required for decision-making; detailed tables remain on their own pages.
 
 ## Railway deployment
 
@@ -32,6 +32,8 @@ Email alerts use Resend when `RESEND_API_KEY` and `EMAIL_FROM` are configured. W
 The browser talks to Railway for Etherscan diagnostics and CryptoCompare news, so those provider keys are never exposed in GitHub Pages or browser storage. Both integrations require the Railway backend.
 
 Gas Analytics uses an independent Alchemy connection on Railway to sample every Ethereum block. It stores one aggregated row per minute, keeps 30 days, and removes older rows automatically. A Gas Analytics failure does not stop pending-transaction monitoring.
+
+The Railway monitor also scans confirmed Ethereum blocks and stores a persistent block checkpoint. The browser merges `/api/transactions` into its local cache every 15 seconds, so transactions observed while the page was closed or missed by the browser WebSocket still appear after reopening the dashboard.
 
 The Exchange Accounts panel reads Bitget Unified and Funding balances plus open USDT-M, USDC-M, and Coin-M futures positions. Create a dedicated Bitget key with read permissions only; do not enable trading, transfers, or withdrawals. Results are cached on Railway for 20 seconds and refreshed by the dashboard every 30 seconds.
 

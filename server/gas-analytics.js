@@ -55,6 +55,9 @@ class GasAnalyticsCollector {
     this.lastBlockAt = 0;
     this.current = null;
     this.previousStandard = null;
+    this.previousBlockTimestamp = null;
+    this.blockIntervalSeconds = null;
+    this.rpcLatencyMs = null;
     this.bucketMinute = null;
     this.bucketSamples = [];
   }
@@ -134,7 +137,9 @@ class GasAnalyticsCollector {
     if (this.collecting || !header?.baseFeePerGas) return;
     this.collecting = true;
     try {
+      const requestStartedAt = Date.now();
       const feeHistory = await this.rpc('eth_feeHistory', ['0x5', 'latest', [10, 50, 90]]);
+      this.rpcLatencyMs = Date.now() - requestStartedAt;
       const baseFee = fromHexGwei(header.baseFeePerGas);
       const rewards = Array.isArray(feeHistory?.reward) ? feeHistory.reward : [];
       const priorities = [0, 1, 2].map(index => {
@@ -148,6 +153,12 @@ class GasAnalyticsCollector {
         fast: baseFee + priorities[2],
       };
       const now = Date.now();
+      const blockTimestamp = header.timestamp ? Number.parseInt(header.timestamp, 16) : Math.floor(now / 1000);
+      if (Number.isFinite(blockTimestamp) && Number.isFinite(this.previousBlockTimestamp)) {
+        const interval = blockTimestamp - this.previousBlockTimestamp;
+        if (interval > 0 && interval < 300) this.blockIntervalSeconds = interval;
+      }
+      if (Number.isFinite(blockTimestamp)) this.previousBlockTimestamp = blockTimestamp;
       const minute = minuteStart(now);
       if (this.bucketMinute && minute.getTime() !== this.bucketMinute.getTime()) {
         await this.flushBucket(true);
@@ -162,6 +173,7 @@ class GasAnalyticsCollector {
       this.lastError = '';
       this.current = {
         blockNumber: header.number ? Number.parseInt(header.number, 16) : null,
+        blockTimestamp: new Date(blockTimestamp * 1000).toISOString(),
         sampledAt: new Date(now).toISOString(),
         baseFee: rounded(sample.base),
         priorityLow: rounded(priorities[0]),
@@ -205,6 +217,8 @@ class GasAnalyticsCollector {
       lastBlockAt: this.lastBlockAt ? new Date(this.lastBlockAt).toISOString() : null,
       error: this.lastError || null,
       current: this.current,
+      blockIntervalSeconds: this.blockIntervalSeconds,
+      rpcLatencyMs: this.rpcLatencyMs,
     };
   }
 

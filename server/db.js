@@ -55,6 +55,11 @@ async function initializeDatabase() {
     );
     CREATE INDEX IF NOT EXISTS idx_transactions_pending_sender_nonce
       ON transactions (from_address, nonce) WHERE status = 'pending';
+    CREATE TABLE IF NOT EXISTS monitor_state (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS alert_log (
       kind TEXT NOT NULL,
       scope_key TEXT NOT NULL,
@@ -132,6 +137,35 @@ async function upsertTransaction(tx) {
   return result.rows[0];
 }
 
+async function upsertConfirmedTransaction(tx, status = 'confirmed', firstSeen = null) {
+  const safeStatus = status === 'failed' ? 'failed' : 'confirmed';
+  const result = await pool.query(
+    `INSERT INTO transactions (hash, from_address, to_address, nonce, status, first_seen, tx_data)
+     VALUES ($1, $2, $3, $4, $5, COALESCE($6::timestamptz, NOW()), $7::jsonb)
+     ON CONFLICT (hash) DO UPDATE SET
+       status = EXCLUDED.status,
+       last_seen = NOW(),
+       missing_checks = 0,
+       tx_data = transactions.tx_data || EXCLUDED.tx_data
+     RETURNING *`,
+    [tx.hash, tx.from, tx.to || null, tx.nonce, safeStatus, firstSeen, JSON.stringify(tx)],
+  );
+  return result.rows[0];
+}
+
+async function getMonitorState(key) {
+  const result = await pool.query('SELECT value FROM monitor_state WHERE key = $1', [key]);
+  return result.rows[0]?.value ?? null;
+}
+
+async function saveMonitorState(key, value) {
+  await pool.query(
+    `INSERT INTO monitor_state (key, value, updated_at) VALUES ($1, $2::jsonb, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [key, JSON.stringify(value)],
+  );
+}
+
 async function pendingTransactions() {
   const result = await pool.query(`SELECT * FROM transactions WHERE status = 'pending' ORDER BY from_address, nonce, first_seen`);
   return result.rows;
@@ -144,6 +178,11 @@ async function recentTransactions(limit = 250) {
     [Math.min(1000, Math.max(1, Number(limit) || 250))],
   );
   return result.rows;
+}
+
+async function clearTransactions() {
+  const result = await pool.query('DELETE FROM transactions');
+  return result.rowCount;
 }
 
 async function markStatus(hash, status, replacementHash = null) {
@@ -281,8 +320,12 @@ module.exports = {
   getSettings,
   saveSettings,
   upsertTransaction,
+  upsertConfirmedTransaction,
+  getMonitorState,
+  saveMonitorState,
   pendingTransactions,
   recentTransactions,
+  clearTransactions,
   markStatus,
   incrementMissing,
   findSameNonce,

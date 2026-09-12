@@ -140,7 +140,7 @@ body[data-view="wallets"] .view-wallets.panel,
 body[data-view="networks"] .view-networks.panel,
 body[data-view="market"] .view-market.panel { display: block !important; }
 body[data-view="wallets"] .address-card,
-body[data-view="networks"] .gas-analytics-panel,
+body[data-view="networks"] .network-health-panel,
 body[data-view="market"] .news-panel { margin-top: 32px; }
 body[data-view="networks"] .topbar > .connection,
 body[data-view="market"] .topbar > .connection { display: none; }
@@ -216,6 +216,44 @@ a.overview-list-item:hover { background: #111824; }
 .overview-news-card h3 a { color: #e2e8f2; text-decoration: none; }
 .overview-news-card h3 a:hover { color: #aebcff; }
 .overview-news-card p { margin: 0; overflow: hidden; color: var(--muted); font-size: .68rem; line-height: 1.45; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+
+/* Network control */
+.network-health-head { align-items: flex-start; }
+.network-health-head h2 { margin-top: 5px; }
+.network-health-actions { display: flex; align-items: center; gap: 9px; }
+.network-health-body { padding: 14px; }
+.network-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.network-kpis article { min-width: 0; min-height: 108px; padding: 15px; border: 1px solid #202b3b; border-radius: 12px; background: linear-gradient(145deg, #111824, #0b1017); display: flex; flex-direction: column; }
+.network-kpis span, .network-kpis small { color: var(--muted); font-size: .69rem; }
+.network-kpis strong { margin: 10px 0 5px; overflow: hidden; font-size: 1.42rem; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.network-kpis small { margin-top: auto; }
+.network-control-grid { margin-top: 12px; display: grid; grid-template-columns: minmax(300px, .82fr) minmax(0, 1.45fr); gap: 12px; }
+.network-subcard { min-width: 0; border: 1px solid #202b3b; border-radius: 12px; background: #0a0f16; overflow: hidden; }
+.network-subhead { min-height: 62px; padding: 12px 14px; border-bottom: 1px solid #1d2736; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.network-subhead h3 { margin-top: 4px; font-size: .86rem; }
+.network-subhead > small { color: var(--muted); font-size: .65rem; }
+.network-readiness-list { padding: 4px 14px; }
+.network-readiness-item { min-height: 50px; border-bottom: 1px solid #18212e; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.network-readiness-item:last-child { border-bottom: 0; }
+.network-readiness-item strong, .network-readiness-item small { display: block; }
+.network-readiness-item strong { font-size: .75rem; }
+.network-readiness-item small { margin-top: 3px; color: var(--muted); font-size: .65rem; line-height: 1.3; }
+.network-readiness-value { color: #aeb9c9; font-size: .69rem; font-weight: 750; text-align: right; }
+.network-readiness-value.ok { color: var(--green); }
+.network-readiness-value.warning { color: var(--amber); }
+.network-readiness-value.critical { color: var(--red); }
+.network-empty { min-height: 150px; padding: 65px 10px; color: var(--muted); text-align: center; font-size: .72rem; }
+.fee-planner-wrap { overflow-x: auto; }
+.fee-planner-table { min-width: 660px; }
+.fee-planner-table th, .fee-planner-table td { padding: 13px 14px; font-size: .72rem; }
+.fee-planner-table th { font-size: .61rem; }
+.fee-planner-table th:not(:first-child), .fee-planner-table td:not(:first-child) { text-align: right; }
+.fee-planner-table td strong, .fee-planner-table td small { display: block; }
+.fee-planner-table td strong { color: #e0e7f1; font-size: .76rem; }
+.fee-planner-table td small { margin-top: 3px; color: var(--muted); font-size: .62rem; }
+.fee-mode { display: inline-flex; padding: 4px 7px; border-radius: 999px; color: #b7c2d3; background: #151d29; font-size: .65rem; font-weight: 750; }
+.fee-mode.standard { color: #aebcff; background: rgba(98,126,234,.12); }
+.fee-mode.priority { color: var(--amber); background: rgba(245,189,88,.1); }
 
 /* Dedicated exchange workspace */
 .exchange-shell { width: min(1760px, calc(100% - 48px)); margin: 0 auto; padding: 32px 0 64px; }
@@ -552,6 +590,7 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
 @media (max-width: 1100px) {
   .overview-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .overview-news-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .network-control-grid { grid-template-columns: 1fr; }
   .gas-history-layout { grid-template-columns: 1fr; }
   .exchange-sections { grid-template-columns: 1fr; }
   .exchange-workspace { grid-template-columns: 230px minmax(0, 1fr); }
@@ -565,6 +604,9 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
   .overview-actions { width: 100%; }
   .overview-primary-grid, .overview-secondary-grid { grid-template-columns: 1fr; }
   .overview-account-grid, .overview-news-grid { grid-template-columns: 1fr; }
+  .network-health-head { align-items: stretch; flex-direction: column; }
+  .network-health-actions { justify-content: space-between; }
+  .network-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .topbar, .address-card, .panel-head { align-items: flex-start; }
   .address-card, .panel-head { flex-direction: column; }
   .pending-sync-notice { align-items: flex-start; flex-direction: column; }
@@ -610,6 +652,13 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
   .overview-arrow { display: none; }
   .overview-account-card { flex-direction: column; }
   .account-value { text-align: left; }
+  .network-health-body { padding: 10px; }
+  .network-health-actions { align-items: stretch; flex-direction: column; }
+  .network-health-actions .connection { justify-content: center; }
+  .network-kpis article { min-height: 98px; padding: 13px; }
+  .network-kpis strong { font-size: 1.18rem; }
+  .network-readiness-item { grid-template-columns: auto minmax(0, 1fr); padding: 8px 0; }
+  .network-readiness-value { grid-column: 2; text-align: left; }
   .stats { grid-template-columns: 1fr 1fr; }
   .stats article { min-height: 98px; padding: 15px; }
   .stats strong { font-size: 1.6rem; }

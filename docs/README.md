@@ -8,6 +8,7 @@ Digital asset operations dashboard. The current network module monitors live pen
 - Navigate to focused **Wallets**, **Exchanges**, **Transfers**, **Networks**, and **Market** workspaces instead of stacking every module on one screen. Each workspace starts only the polling jobs it needs.
 - Monitor up to 50 Ethereum addresses from one dashboard.
 - Scan Alchemy's pending-block snapshot immediately after connection and on demand, including incoming transactions that existed before the page opened. A lighter outgoing-nonce reconciliation then runs every minute.
+- Synchronize the latest 500 Railway transaction records into the browser every 15 seconds and merge status changes without resetting the table scroll. Railway independently scans confirmed blocks and keeps a persistent checkpoint, covering transactions missed by the pending WebSocket feed.
 - Cross-check every monitored wallet's pending nonce with Etherscan through Railway once per minute. Server requests are sent in groups of three to respect the free API rate limit.
 - Show an `Etherscan detects additional pending transactions` warning and a direct link to the affected wallet's Etherscan pending page when Etherscan sees a higher pending nonce than Alchemy.
 - Show a visible warning when Alchemy reports a pending nonce gap but does not expose the missing transaction hashes in its mempool.
@@ -30,6 +31,7 @@ Digital asset operations dashboard. The current network module monitors live pen
 - Configure a dedicated Gas Station address, minimum ETH threshold, independent refresh interval, and low-balance browser/email alerts.
 - Show the Gas Station ETH balance change since the previous refresh.
 - Show live Gas Analytics on every Ethereum block: base fee, low/standard/fast totals, per-block change, spike detection, and a history-based Send now / Normal / Better wait recommendation.
+- Show Ethereum Network Control above Gas Analytics: latest block and age, observed block interval, Railway-to-Alchemy RPC latency, transaction/block stream health, Gas Station readiness, active warnings, and Economy/Standard/Priority cost estimates for native and ERC-20 transfers.
 - Store only one min/average/median/max Gas Analytics summary per minute in PostgreSQL, retain 30 days, and automatically remove older samples.
 - Display a rolling 24-hour gas table and weekday/hour heatmap. Recommendations start after 60 stored minutes and gain confidence as history grows.
 - Display Bitget Unified Account equity, Unified and Funding assets, and open USDT-M, USDC-M, and Coin-M futures positions through a read-only Railway integration.
