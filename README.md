@@ -6,6 +6,8 @@ Digital asset operations dashboard for wallets, transactions, gas, and market mo
 - `server/` contains the Node.js monitoring service.
 - PostgreSQL stores server settings, transaction state, notification history, Web Push subscriptions, and compact one-minute Gas Analytics summaries.
 
+The interface is split into focused workspaces: **Overview** for operational KPIs and alerts, **Wallets** for on-chain balances and transactions, **Exchanges** for CEX assets and positions, **Transfers** for validated drafts, **Networks** for gas analytics, and **Market** for news. Overview refreshes only the compact data required for decision-making; detailed tables remain on their own pages.
+
 ## Railway deployment
 
 1. Create a Railway project and add PostgreSQL.

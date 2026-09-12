@@ -4,6 +4,8 @@ Digital asset operations dashboard. The current network module monitors live pen
 
 ## Features
 
+- Use a compact **Overview** as the landing page: exchange equity, open PnL, position and wallet counts, an action center, provider health, connected accounts, largest exposures, recent activity, and three current market stories.
+- Navigate to focused **Wallets**, **Exchanges**, **Transfers**, **Networks**, and **Market** workspaces instead of stacking every module on one screen. Each workspace starts only the polling jobs it needs.
 - Monitor up to 50 Ethereum addresses from one dashboard.
 - Scan Alchemy's pending-block snapshot immediately after connection and on demand, including incoming transactions that existed before the page opened. A lighter outgoing-nonce reconciliation then runs every minute.
 - Cross-check every monitored wallet's pending nonce with Etherscan through Railway once per minute. Server requests are sent in groups of three to respect the free API rate limit.
@@ -38,7 +40,7 @@ Digital asset operations dashboard. The current network module monitors live pen
 - Add watch-only Ethereum wallets or connect MetaMask without exposing private keys or seed phrases. Wallet balances and Ethereum fee previews are requested through Railway.
 - Validate source balance, destination address, supported Ethereum assets, network, and MetaMask chain before saving a local draft. Transfer execution is intentionally disabled in this version.
 - Display an English crypto news feed with Ethereum, Bitcoin, market, and regulation filters. Railway caches CryptoCompare responses for 15 minutes, and the last successful result is also cached in the browser.
-- Move the eight latest news cards into denser left/right rails on screens at least 1,800 px wide, with summaries, tags, article links, and independent scrolling; keep the central responsive feed on laptops and phones.
+- Display the complete filtered news feed in the dedicated Market workspace, with a three-story market pulse on Overview.
 - Keep the Etherscan and CryptoCompare API keys exclusively in Railway environment variables.
 - Local browser storage for the Alchemy URL, addresses, alert email, and transaction history.
 - Optional Railway backend for continuous monitoring, PostgreSQL transaction state, server-side email alerts, and Web Push while the dashboard is closed.
