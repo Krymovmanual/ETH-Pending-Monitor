@@ -13,6 +13,7 @@ class EthereumMonitor {
     this.running = false;
     this.reconnectTimer = null;
     this.statusTimer = null;
+    this.heartbeatTimer = null;
     this.snapshotTimer = null;
     this.blockTimer = null;
     this.gasTimer = null;
@@ -28,6 +29,13 @@ class EthereumMonitor {
     this.subscriptionIds = new Set();
   }
 
+  getStatus() {
+    return {connected: this.connected, subscriptions: this.subscriptionIds.size,
+      lastPendingAt: this.lastPendingAt, lastConfirmedBlock: this.lastConfirmedBlock,
+      lastConfirmedBlockAt: this.lastConfirmedBlockAt, scanning: this.blockScanning,
+      error: this.lastError ? 'Provider monitoring error; inspect server logs' : null};
+  }
+
   async start() {
     this.settings = await db.getSettings();
     this.running = true;
@@ -36,7 +44,7 @@ class EthereumMonitor {
     this.snapshotTimer = setInterval(() => this.scanPendingBlock().catch(this.logError), 60_000);
     this.blockTimer = setInterval(() => this.scanConfirmedBlocks().catch(this.logError), 12_000);
     this.gasTimer = setInterval(() => this.checkGasStation().catch(this.logError), 60_000);
-    await Promise.allSettled([this.scanPendingBlock(), this.scanConfirmedBlocks(), this.checkPending(), this.checkGasStation()]);
+    void Promise.allSettled([this.scanPendingBlock(), this.scanConfirmedBlocks(), this.checkPending(), this.checkGasStation()]);
   }
 
   async reconfigure(settings) {
@@ -56,6 +64,7 @@ class EthereumMonitor {
   }
 
   disconnect() {
+    clearInterval(this.heartbeatTimer);
     clearTimeout(this.reconnectTimer);
     if (this.ws) {
       this.ws.removeAllListeners();
@@ -68,7 +77,18 @@ class EthereumMonitor {
 
   connect() {
     if (!this.running || !config.alchemyWssUrl || !this.settings?.addresses?.length) return;
+    this.subscriptionIds.clear();
     this.ws = new WebSocket(config.alchemyWssUrl);
+    const socket = this.ws;
+    let alive = true;
+    socket.on('pong', () => { alive = true; });
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = setInterval(() => {
+      if (socket.readyState !== WebSocket.OPEN) return;
+      if (!alive) { this.lastError = 'WebSocket heartbeat timeout'; socket.terminate(); return; }
+      alive = false;
+      socket.ping();
+    }, 30000);
     this.ws.on('open', () => {
       this.connected = true;
       this.lastError = '';
@@ -89,6 +109,8 @@ class EthereumMonitor {
       console.error('Alchemy WebSocket error:', this.lastError);
     });
     this.ws.on('close', () => {
+      clearInterval(this.heartbeatTimer);
+      this.subscriptionIds.clear();
       this.ws = null;
       this.connected = false;
       if (this.running) this.reconnectTimer = setTimeout(() => this.connect(), 5_000);
@@ -97,6 +119,7 @@ class EthereumMonitor {
 
   async handleMessage(data) {
     const message = JSON.parse(data.toString());
+    if (message.error) { this.lastError = message.error.message || 'Subscription rejected'; return; }
     if (message.id && message.result) this.subscriptionIds.add(message.result);
     const tx = message.params?.result;
     if (tx?.hash) {
@@ -113,7 +136,7 @@ class EthereumMonitor {
       hash: tx.hash.toLowerCase(),
       from: String(tx.from || '').toLowerCase(),
       to: tx.to ? tx.to.toLowerCase() : null,
-      nonce: Number.parseInt(tx.nonce || '0x0', 16),
+      nonce: Number.isInteger(tx.nonce) ? tx.nonce : Number.parseInt(tx.nonce || '0x0', 16),
       valueWei: BigInt(tx.value || '0x0').toString(),
       maxFeePerGasGwei: Number(BigInt(maxFee)) / 1e9,
       method: input.startsWith(ERC20_TRANSFER) ? 'transfer' : input.startsWith(ERC20_TRANSFER_FROM) ? 'transferFrom' : input.slice(0, 10),
@@ -150,7 +173,7 @@ class EthereumMonitor {
 
   async rpc(method, params) {
     const response = await fetch(config.alchemyHttpUrl, {
-      method: 'POST',
+      method: 'POST', signal: AbortSignal.timeout(20000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
     });
@@ -181,19 +204,21 @@ class EthereumMonitor {
       const target = Math.min(current, this.lastConfirmedBlock + 25);
       for (let blockNumber = this.lastConfirmedBlock + 1; blockNumber <= target; blockNumber += 1) {
         const block = await this.rpc('eth_getBlockByNumber', [`0x${blockNumber.toString(16)}`, true]);
+        if (!block || !Array.isArray(block.transactions)) throw new Error('Block unavailable; checkpoint retained');
         const firstSeen = block?.timestamp ? new Date(Number.parseInt(block.timestamp, 16) * 1000).toISOString() : null;
         for (const raw of block?.transactions || []) {
           if (!this.isMonitored(raw)) continue;
           const tx = this.normalizeTransaction(raw);
           const receipt = await this.rpc('eth_getTransactionReceipt', [tx.hash]);
+          if (!receipt || !['0x0', '0x1'].includes(receipt.status)) throw new Error('Receipt unavailable; checkpoint retained');
           const status = receipt?.status === '0x0' ? 'failed' : 'confirmed';
           const replacements = await db.findSameNonce(tx.from, tx.nonce, tx.hash);
           await db.upsertConfirmedTransaction(tx, status, firstSeen);
           for (const old of replacements) await db.markStatus(old.hash, 'replaced', tx.hash);
         }
+        await db.saveMonitorState('ethereum_confirmed_block', { blockNumber });
         this.lastConfirmedBlock = blockNumber;
         this.lastConfirmedBlockAt = firstSeen ? new Date(firstSeen).getTime() : Date.now();
-        await db.saveMonitorState('ethereum_confirmed_block', { blockNumber });
       }
       this.lastError = '';
     } catch (error) {

@@ -32,6 +32,7 @@ document.querySelectorAll('[data-nav-view]').forEach(link => {
 });
 
 // Remove provider secrets saved by older browser-only versions.
+localStorage.removeItem(ENDPOINT_KEY);
 localStorage.removeItem('eth-pending-monitor-etherscan-key');
 localStorage.removeItem('eth-pending-monitor-cryptocompare-key');
 const BALANCE_TOKENS = [
@@ -45,7 +46,7 @@ const storedNews = loadStoredObject(NEWS_CACHE_KEY);
 
 const state = {
   ws: null,
-  endpoint: localStorage.getItem(ENDPOINT_KEY) || '',
+  endpoint: '',
   backendUrl: localStorage.getItem(BACKEND_URL_KEY) || '',
   backendToken: localStorage.getItem(BACKEND_TOKEN_KEY) || '',
   addresses: loadAddresses(),
@@ -70,6 +71,7 @@ const state = {
   transactionSyncRunning: false,
   transactionSyncUpdatedAt: 0,
   transactionSyncError: '',
+  serverMonitorStatus: null,
   alertEvaluationRunning: false,
   pendingSyncRunning: false,
   pendingSyncUpdatedAt: 0,
@@ -252,29 +254,24 @@ const el = {
 function loadAddresses() {
   try {
     const stored = JSON.parse(localStorage.getItem(ADDRESSES_KEY) || '[]');
-    return Array.isArray(stored) && stored.length ? stored : [DEFAULT_ADDRESS];
+    const addresses = Array.isArray(stored) ? stored.filter(address => typeof address === 'string' && validAddress(address)).map(address => address.toLowerCase()) : [];
+    return addresses.length ? [...new Set(addresses)].slice(0,50) : [DEFAULT_ADDRESS];
   } catch { return [DEFAULT_ADDRESS]; }
 }
 
 function loadTransactions() {
   try {
     const stored = JSON.parse(localStorage.getItem(TX_KEY) || '[]');
-    return Array.isArray(stored) ? stored : [];
+    return Array.isArray(stored) ? stored.filter(tx => tx && typeof tx.hash === 'string' && /^0x[0-9a-f]{64}$/i.test(tx.hash) && Number.isFinite(tx.firstSeen) && Number.isInteger(tx.nonce)) : [];
   } catch { return []; }
 }
 
-function loadAddressLabels() {
-  try { return JSON.parse(localStorage.getItem(LABELS_KEY) || '{}'); }
-  catch { return {}; }
-}
+function loadAddressLabels() { return loadStoredObject(LABELS_KEY); }
 
-function loadTokenCache() {
-  try { return JSON.parse(localStorage.getItem(TOKEN_CACHE_KEY) || '{}'); }
-  catch { return {}; }
-}
+function loadTokenCache() { return loadStoredObject(TOKEN_CACHE_KEY); }
 
 function loadStoredObject(key) {
-  try { return JSON.parse(localStorage.getItem(key) || '{}'); }
+  try { const value = JSON.parse(localStorage.getItem(key) || '{}'); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
   catch { return {}; }
 }
 
@@ -375,51 +372,17 @@ function reconnect() {
   setTimeout(connect, 50);
 }
 
-function connect() {
+async function connect() {
   clearTimeout(state.reconnectTimer);
-  if (!state.endpoint) {
-    clearInterval(state.pendingSyncTimer);
-    setConnection('', 'Not connected');
+  if (!backendConfigured()) {
+    setConnection('', 'Setup required');
     if (!el.dialog.open) openSettings();
     return;
   }
-
-  state.manualClose = false;
-  setConnection('', 'Connecting…');
-  try { state.ws = new WebSocket(state.endpoint); }
-  catch { setConnection('error', 'Invalid URL'); return; }
-
-  state.ws.addEventListener('open', () => {
-    setConnection('live', 'Live');
-    state.ws.send(JSON.stringify({
-      jsonrpc: '2.0', id: 1, method: 'eth_subscribe',
-      params: ['alchemy_pendingTransactions', { fromAddress: state.addresses, hashesOnly: false }],
-    }));
-    state.ws.send(JSON.stringify({
-      jsonrpc: '2.0', id: 2, method: 'eth_subscribe',
-      params: ['alchemy_pendingTransactions', { toAddress: state.addresses, hashesOnly: false }],
-    }));
-    updateGasPrice();
-    schedulePendingSync(true);
-  });
-
-  state.ws.addEventListener('message', event => {
-    let message;
-    try { message = JSON.parse(event.data); } catch { return; }
-    if (message.error) {
-      setConnection('error', message.error.message || 'Alchemy error');
-      return;
-    }
-    const tx = message?.params?.result;
-    if (tx?.hash) addTransaction(tx);
-  });
-
-  state.ws.addEventListener('close', () => {
-    if (state.manualClose) return;
-    setConnection('error', 'Connection lost');
-    state.reconnectTimer = setTimeout(connect, 5000);
-  });
-  state.ws.addEventListener('error', () => setConnection('error', 'Connection error'));
+  setConnection('', 'Connecting to Railway…');
+  await syncServerTransactions();
+  updateGasPrice();
+  schedulePendingSync(true);
 }
 
 function addTransaction(tx, discoveredBy = 'live') {
@@ -428,7 +391,7 @@ function addTransaction(tx, discoveredBy = 'live') {
 
   const from = (tx.from || '').toLowerCase();
   const to = (tx.to || '').toLowerCase();
-  const nonce = hexToNumber(tx.nonce);
+  const nonce = Number.isInteger(tx.nonce) ? tx.nonce : hexToNumber(tx.nonce);
   const replaced = state.transactions.filter(item => item.status === 'pending' && item.from === from && item.nonce === nonce);
   for (const item of replaced) {
     item.status = 'replaced';
@@ -516,10 +479,11 @@ async function syncServerTransactions({ force = false } = {}) {
   if (force) state.transactionSyncError = '';
   try {
     const response = await fetch(`${normalizedBackendUrl()}/api/transactions?limit=500`, {
-      headers: backendHeaders(), cache: 'no-store',
+      headers: backendHeaders(), cache: 'no-store', signal: AbortSignal.timeout(20000),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || !Array.isArray(body.items)) throw new Error(body.error || `Transaction history returned ${response.status}`);
+    state.serverMonitorStatus = body.monitor || null;
     const merged = new Map(state.transactions.map(tx => [tx.hash, tx]));
     const tokensToHydrate = [];
     for (const row of body.items) {
@@ -532,11 +496,14 @@ async function syncServerTransactions({ force = false } = {}) {
     state.transactions = [...merged.values()].sort((a, b) => b.firstSeen - a.firstSeen).slice(0, 500);
     state.transactionSyncUpdatedAt = Date.now();
     state.transactionSyncError = '';
+    const monitor = state.serverMonitorStatus;
+    setConnection(monitor?.connected && monitor?.subscriptions >= 2 ? 'live' : 'error', monitor?.connected && monitor?.subscriptions >= 2 ? 'Railway · Live' : 'Railway online · Stream unavailable');
     saveTransactions();
     render();
     tokensToHydrate.slice(0, 20).forEach(record => hydrateTokenMetadata(record));
   } catch (error) {
     state.transactionSyncError = error?.message || 'Railway transaction history sync failed';
+    setConnection('error', 'Railway sync failed');
     render();
   } finally {
     state.transactionSyncRunning = false;
@@ -641,7 +608,7 @@ async function loadPendingBlockSnapshot() {
 }
 
 async function syncPendingState(scanSnapshot = false) {
-  if (!state.endpoint || state.pendingSyncRunning) return;
+  if (!backendConfigured() || state.pendingSyncRunning) return;
   state.pendingSyncRunning = true;
   state.pendingSyncError = '';
   renderPendingSync();
@@ -715,7 +682,7 @@ function transactionMethod(input, value) {
 async function hydrateTokenMetadata(tx) {
   const contract = tx.tokenContract;
   let metadata = state.tokenCache[contract];
-  if (!metadata && state.endpoint) {
+  if (!metadata && backendConfigured()) {
     try {
       const endpoint = toHttpEndpoint(state.endpoint);
       const [symbolResult, nameResult, decimalsResult] = await Promise.allSettled([
@@ -790,7 +757,7 @@ function hydrateStoredTokens() {
 }
 
 async function checkStatuses() {
-  if (!state.endpoint) return;
+  if (!backendConfigured()) return;
   const pending = state.transactions.filter(tx => tx.status === 'pending');
   if (!pending.length) return;
   const httpEndpoint = toHttpEndpoint(state.endpoint);
@@ -820,7 +787,7 @@ async function checkStatuses() {
 }
 
 async function verifyTransactionsStillPending(transactions) {
-  if (!state.endpoint) return [];
+  if (!backendConfigured()) return [];
   const candidates = [...new Map(
     transactions
       .filter(tx => tx?.status === 'pending' && tx.hash)
@@ -913,7 +880,7 @@ async function verifyLiveBlocker(tx) {
 }
 
 async function updateGasPrice() {
-  if (!state.endpoint) return;
+  if (!backendConfigured()) return;
   try {
     const result = await rpc(toHttpEndpoint(state.endpoint), 'eth_gasPrice', []);
     state.currentGasPrice = hexToGwei(result);
@@ -1244,21 +1211,25 @@ function updateNotificationStatus(permission = ('Notification' in window ? Notif
   el.notificationButton.disabled = permission === 'granted' && registered;
 }
 
-async function rpc(endpoint, method, params) {
-  const response = await fetch(endpoint, { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({jsonrpc:'2.0', id:1, method, params}) });
+async function rpc(_endpoint, method, params) {
+  if (!backendConfigured()) throw new Error('Configure Railway connection first');
+  const response = await fetch(`${normalizedBackendUrl()}/api/providers/alchemy/rpc`, {
+    method: 'POST', headers: backendHeaders(), signal: AbortSignal.timeout(25000),
+    body: JSON.stringify({jsonrpc:'2.0', id:1, method, params}),
+  });
   const body = await response.json();
-  if (!response.ok || body.error) throw new Error(body.error?.message || `RPC ${method} failed`);
+  if (!response.ok || body.error) throw new Error(response.status === 401 ? 'Access denied: check your server access token' : body.error?.message || body.error || `RPC ${method} failed (${response.status})`);
   return body.result;
 }
 
 async function rpcBatch(requests) {
-  const endpoint = toHttpEndpoint(state.endpoint);
+  const endpoint = `${normalizedBackendUrl()}/api/providers/alchemy/rpc`;
   const answers = new Map();
   for (let start = 0; start < requests.length; start += 100) {
     const chunk = requests.slice(start, start + 100);
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: {'content-type':'application/json'},
+      headers: backendHeaders(), signal: AbortSignal.timeout(25000),
       body: JSON.stringify(chunk.map(item => ({jsonrpc:'2.0', ...item}))),
     });
     const body = await response.json();
@@ -1273,7 +1244,7 @@ function balanceOfData(address) {
 }
 
 async function updateWalletBalances() {
-  if (!state.endpoint || !state.balanceSettings.enabled || state.balanceLoading) return;
+  if (!backendConfigured() || !state.balanceSettings.enabled || state.balanceLoading) return;
   state.balanceLoading = true;
   state.balanceLoadError = '';
   renderBalances();
@@ -1312,7 +1283,7 @@ async function updateWalletBalances() {
 
 async function updateGasBalance() {
   const settings = state.balanceSettings;
-  if (!state.endpoint || !validAddress(settings.gasAddress) || state.gasLoading) return;
+  if (!backendConfigured() || !validAddress(settings.gasAddress) || state.gasLoading) return;
   state.gasLoading = true;
   state.gasLoadError = '';
   renderBalances();
@@ -1790,8 +1761,8 @@ function renderPendingSync() {
   const missing = diagnostics.reduce((total, item) => total + Number(item.missing || 0), 0);
   const etherscanExtra = etherscanDiagnostics.reduce((total, item) => total + Number(item.extraVsAlchemy || 0), 0);
 
-  el.pendingSyncButton.disabled = state.pendingSyncRunning || state.transactionSyncRunning || !state.endpoint;
-  el.pendingSyncNoticeButton.disabled = state.pendingSyncRunning || !state.endpoint;
+  el.pendingSyncButton.disabled = state.pendingSyncRunning || state.transactionSyncRunning || !backendConfigured();
+  el.pendingSyncNoticeButton.disabled = state.pendingSyncRunning || !backendConfigured();
   el.pendingSyncButton.textContent = state.pendingSyncRunning ? 'Syncing…' : 'Sync pending';
   el.pendingSyncNoticeButton.textContent = state.pendingSyncRunning ? 'Scanning…' : 'Scan again';
   el.pendingEtherscanLink.hidden = true;
@@ -1903,7 +1874,7 @@ function renderOverview() {
     ? attention.slice(0, 5).map(item => overviewStatusMarkup(item.label, item.detail, item.level, item.href)).join('')
     : overviewStatusMarkup('No action required', 'Connected systems report no active operational issues.', 'ok');
 
-  const websocketLive = state.ws?.readyState === 1;
+  const websocketLive = Boolean(state.serverMonitorStatus?.connected && state.serverMonitorStatus?.subscriptions >= 2);
   const railwayHealthy = backendConfigured() && !state.exchangeError && !state.gasAnalyticsError && !state.transactionSyncError;
   const allHealthy = websocketLive && railwayHealthy;
   el.overviewSystemBadge.classList.toggle('live', allHealthy);
@@ -1911,7 +1882,7 @@ function renderOverview() {
   el.overviewSystemLabel.textContent = allHealthy ? 'Operational' : 'Check systems';
   const gas = state.gasAnalytics?.current;
   el.overviewSystemGrid.innerHTML = [
-    {label:'Alchemy live stream', value:websocketLive ? 'Connected' : state.endpoint ? 'Reconnecting' : 'Not configured', level:websocketLive ? 'ok' : 'warning'},
+    {label:'Alchemy live stream', value:websocketLive ? 'Connected' : backendConfigured() ? 'Reconnecting' : 'Not configured', level:websocketLive ? 'ok' : 'warning'},
     {label:'Railway backend', value:backendConfigured() ? 'Configured' : 'Not configured', level:backendConfigured() ? 'ok' : 'critical'},
     {label:'Bitget account', value:exchange ? `Updated ${age(exchange.updatedAt)} ago` : state.exchangeLoading ? 'Connecting' : 'Unavailable', level:exchange ? 'ok' : 'warning'},
     {label:'Ethereum standard gas', value:gas ? `${gasNumber(gas.standard)} Gwei` : 'Collecting', level:gas?.spike ? 'warning' : gas ? 'ok' : 'neutral'},
@@ -1952,6 +1923,13 @@ function renderOverview() {
 }
 
 function render() {
+  const diagnostic = document.querySelector('#syncDiagnostics');
+  if (diagnostic) {
+    const monitor = state.serverMonitorStatus;
+    diagnostic.textContent = !backendConfigured() ? 'Setup required: enter Railway URL and access token in Connection settings.'
+      : state.transactionSyncError ? `Synchronization failed: ${state.transactionSyncError}. Existing records are retained.`
+      : `Last successful sync: ${state.transactionSyncUpdatedAt ? age(state.transactionSyncUpdatedAt) + ' ago' : 'waiting'} · Live subscriptions: ${monitor?.subscriptions ?? 'unknown'}/2 · Last scanned block: ${monitor?.lastConfirmedBlock ?? 'waiting'}${monitor?.error ? ' · Server monitoring needs attention' : ''}`;
+  }
   const pending = state.transactions.filter(tx => tx.status === 'pending').length;
   const confirmed = state.transactions.filter(tx => ['confirmed','failed'].includes(tx.status)).length;
   const problems = state.transactions.filter(tx => ['dropped','replaced'].includes(tx.status)).length;
@@ -2008,7 +1986,7 @@ function render() {
     transactionScroll.scrollLeft = savedScrollLeft;
   }
   el.emptyState.classList.toggle('hidden', filtered.length > 0);
-  el.emptyMessage.textContent = query ? 'No transactions match your search.' : state.endpoint ? 'Connection active. New events will appear here.' : 'Configure the Alchemy connection to start monitoring.';
+  el.emptyMessage.textContent = query ? 'No transactions match your search.' : backendConfigured() ? 'No saved transactions yet. Server synchronization runs every 15 seconds.' : 'Open Connection settings to connect Railway.';
   el.paginationInfo.textContent = visible.length ? `${start + 1}–${Math.min(start + state.pageSize, visible.length)} of ${visible.length}` : '0 transactions';
   el.pageIndicator.textContent = `Page ${state.page} of ${totalPages}`;
   el.previousPage.disabled = state.page <= 1;
@@ -2374,7 +2352,7 @@ async function refreshOverviewData() {
   ];
   if (state.balanceSettings.enabled) tasks.push(updateWalletBalances());
   if (validAddress(state.balanceSettings.gasAddress)) tasks.push(updateGasBalance());
-  if (state.endpoint) tasks.push(syncPendingState(false));
+  if (backendConfigured()) tasks.push(syncPendingState(false));
   if (backendConfigured()) tasks.push(syncServerTransactions({ force:true }));
   await Promise.allSettled(tasks);
   el.refreshOverviewButton.disabled = false;
@@ -2411,19 +2389,15 @@ el.form.addEventListener('submit', async event => {
   const backendToken = el.backendToken.value.trim();
   const parsed = parseAddressLines(el.addresses.value);
   const addresses = parsed.addresses;
-  if (!/^wss:\/\/eth-mainnet\.g\.alchemy\.com\/v2\/[A-Za-z0-9_-]+$/.test(endpoint)) {
-    el.error.textContent = 'Enter the full WebSocket URL starting with wss://';
-    return;
-  }
   if (!addresses.length || addresses.length > 50 || addresses.some(address => !validAddress(address))) {
     el.error.textContent = 'Enter 1–50 valid Ethereum addresses, one per line.';
     return;
   }
-  if ((backendUrl || backendToken) && (!/^https:\/\/[A-Za-z0-9.-]+(?::\d+)?(?:\/.*)?$/.test(backendUrl) || backendToken.length < 24)) {
-    el.error.textContent = 'Enter both the HTTPS Railway URL and its ADMIN_TOKEN (at least 24 characters), or leave both empty.';
+  if ((!/^https:\/\/[A-Za-z0-9.-]+(?::\d+)?(?:\/.*)?$/.test(backendUrl) || backendToken.length < 24)) {
+    el.error.textContent = 'Enter both the HTTPS Railway URL and its ADMIN_TOKEN (at least 24 characters), to connect.';
     return;
   }
-  state.endpoint = endpoint;
+  state.endpoint = ''; 
   state.backendUrl = backendUrl;
   state.backendToken = backendToken;
   state.addresses = addresses;
@@ -2434,7 +2408,7 @@ el.form.addEventListener('submit', async event => {
   state.pendingSnapshotError = '';
   state.etherscanDiagnostics = {};
   state.etherscanSyncError = '';
-  localStorage.setItem(ENDPOINT_KEY, endpoint);
+  localStorage.removeItem(ENDPOINT_KEY);
   if (backendUrl) localStorage.setItem(BACKEND_URL_KEY, backendUrl); else localStorage.removeItem(BACKEND_URL_KEY);
   if (backendToken) localStorage.setItem(BACKEND_TOKEN_KEY, backendToken); else localStorage.removeItem(BACKEND_TOKEN_KEY);
   localStorage.setItem(ADDRESSES_KEY, JSON.stringify(addresses));
@@ -2596,15 +2570,7 @@ el.transactionDetails.addEventListener('click', event => {
   if (button) copyHash(button.dataset.copyHash);
 });
 el.clearButton.addEventListener('click', async () => {
-  if (!state.transactions.length || !confirm('Delete the saved transaction history?')) return;
-  if (backendConfigured()) {
-    const response = await fetch(`${normalizedBackendUrl()}/api/transactions`, { method:'DELETE', headers:backendHeaders() });
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      alert(body.error || 'Railway history could not be cleared.');
-      return;
-    }
-  }
+  if (!state.transactions.length || !confirm('Clear this browser’s cached history? Railway records remain and will resynchronize.')) return;
   state.transactions = [];
   state.summaryAlerts = {};
   localStorage.removeItem(SUMMARY_ALERTS_KEY);
@@ -2629,3 +2595,5 @@ if (['overview', 'wallets'].includes(CURRENT_VIEW)) {
   setInterval(checkStatuses, 12000);
   setInterval(updateGasPrice, 30000);
 }
+
+window.treasuryBootComplete = true;

@@ -132,6 +132,7 @@ h2 { margin: 0; font-size: 1.2rem; letter-spacing: -.02em; }
 /* Product views and command-center overview */
 .legacy-data-module, .overview-dashboard, .view-wallets, .view-networks, .view-market { display: none !important; }
 body[data-view="overview"] .overview-dashboard { display: block !important; }
+body[data-view="overview"] .view-overview { display: block !important; }
 body[data-view="wallets"] .view-wallets.address-card { display: flex !important; }
 body[data-view="wallets"] .view-wallets.stats { display: grid !important; }
 body[data-view="wallets"] .view-wallets.pending-sync-notice:not([hidden]) { display: flex !important; }

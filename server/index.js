@@ -4,7 +4,7 @@ const { config, tokenMatches, validateEnvironment, normalizeOrigin } = require('
 const db = require('./db');
 const { EthereumMonitor } = require('./monitor');
 const { sendEmail, sendPush, hasPushConfiguration } = require('./notifier');
-const { fetchEtherscanPendingNonces, fetchCryptoCompareNews } = require('./providers');
+const { proxyAlchemyRpc, fetchEtherscanPendingNonces, fetchCryptoCompareNews } = require('./providers');
 const { GasAnalyticsCollector, RETENTION_DAYS } = require('./gas-analytics');
 const { configured: bitgetConfigured, fetchBitgetAccount, fetchBitgetAccounts } = require('./bitget');
 const { fetchWalletBalances, estimateEthereumTransfer } = require('./wallets');
@@ -212,11 +212,7 @@ app.put('/api/settings', requireAdmin, async (req, res, next) => {
 });
 
 app.get('/api/transactions', requireAdmin, async (req, res, next) => {
-  try { res.json({ items: await db.recentTransactions(req.query.limit) }); } catch (error) { next(error); }
-});
-
-app.delete('/api/transactions', requireAdmin, async (_req, res, next) => {
-  try { res.json({ success: true, deleted: await db.clearTransactions() }); } catch (error) { next(error); }
+  try { res.json({ items: await db.recentTransactions(req.query.limit), monitor: monitor.getStatus() }); } catch (error) { next(error); }
 });
 
 app.get('/api/gas-analytics', requireAdmin, async (_req, res, next) => {
@@ -243,6 +239,14 @@ app.get('/api/gas-analytics', requireAdmin, async (_req, res, next) => {
       ...summary,
     });
   } catch (error) { next(error); }
+});
+
+app.post('/api/providers/alchemy/rpc', requireAdmin, async (req, res, next) => {
+  try { res.json(await proxyAlchemyRpc(req.body)); }
+  catch (error) {
+    if (/must contain|not allowed|Invalid params/.test(error.message)) return res.status(400).json({error: error.message});
+    next(error);
+  }
 });
 
 app.post('/api/providers/etherscan/pending-nonces', requireAdmin, async (req, res, next) => {

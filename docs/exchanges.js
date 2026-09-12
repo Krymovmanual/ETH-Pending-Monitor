@@ -215,6 +215,9 @@ function renderPositions(accounts) {
 
 function render({ preserveScroll = true } = {}) {
   const scrollY = window.scrollY;
+  const table = document.querySelector('.exchange-page-table-wrap');
+  const tableTop = table?.scrollTop || 0;
+  const tableLeft = table?.scrollLeft || 0;
   renderTree();
   const accounts = selectedAccounts();
   renderSummary(accounts);
@@ -235,6 +238,7 @@ function render({ preserveScroll = true } = {}) {
   el.connectionText.textContent = state.error ? 'Update failed' : state.data ? 'Connected' : 'Connecting';
   el.refresh.disabled = state.loading || !backendConfigured();
   el.refresh.textContent = state.loading ? 'Refreshing…' : 'Refresh';
+  if (preserveScroll && table) { table.scrollTop = tableTop; table.scrollLeft = tableLeft; }
   if (preserveScroll) requestAnimationFrame(() => window.scrollTo({ top:scrollY, behavior:'instant' }));
 }
 
