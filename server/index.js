@@ -7,6 +7,7 @@ const { sendEmail, sendPush, hasPushConfiguration } = require('./notifier');
 const { fetchEtherscanPendingNonces, fetchCryptoCompareNews } = require('./providers');
 const { GasAnalyticsCollector, RETENTION_DAYS } = require('./gas-analytics');
 const { configured: bitgetConfigured, fetchBitgetAccount, fetchBitgetAccounts } = require('./bitget');
+const { fetchWalletBalances, estimateEthereumTransfer } = require('./wallets');
 
 const app = express();
 const monitor = new EthereumMonitor();
@@ -214,6 +215,25 @@ app.get('/api/exchanges/accounts', requireAdmin, async (req, res) => {
     if (/not configured/.test(error.message)) return res.status(503).json({ error: error.message });
     console.error(error);
     res.status(502).json({ error: String(error?.message || 'Exchange account request failed').slice(0, 220) });
+  }
+});
+
+app.post('/api/wallets/balances', requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await fetchWalletBalances(Array.isArray(req.body?.addresses) ? req.body.addresses : []));
+  } catch (error) {
+    if (/Enter 1/.test(error.message)) return res.status(400).json({ error:error.message });
+    next(error);
+  }
+});
+
+app.post('/api/transfers/estimate', requireAdmin, async (req, res) => {
+  try {
+    res.json(await estimateEthereumTransfer(req.body || {}));
+  } catch (error) {
+    const message = String(error?.message || 'Transfer estimate failed').slice(0, 220);
+    const status = /Enter |not supported|greater than|decimal places/.test(message) ? 400 : 502;
+    res.status(status).json({ error:message });
   }
 });
 

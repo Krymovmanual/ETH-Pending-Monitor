@@ -35,4 +35,6 @@ The Exchange Accounts panel reads Bitget Unified and Funding balances plus open 
 
 `docs/exchanges.html` is the dedicated multi-exchange workspace. Railway exposes a normalized account model at `/api/exchanges/accounts`, so future Binance, Bybit, OKX, and other connectors can use the same interface. The page supports an exchange/account tree, multi-selection, consolidated or per-account assets, and consolidated exposure or detailed open positions. Automatic refresh is deferred while the user is actively scrolling or interacting with the tables.
 
+`docs/transfers.html` is a draft-only transfer workspace. It combines Bitget Unified/Funding balances with monitored, watch-only, and MetaMask Ethereum wallets; supports Internal and External transfer plans; validates amount, balance, destination, asset, network, and MetaMask chain; and can estimate Ethereum gas through Railway. Drafts remain in local browser storage. This version never signs or sends a transaction and does not require Bitget transfer or withdrawal permissions.
+
 See [docs/README.md](docs/README.md) for the dashboard feature list and GitHub Pages instructions.

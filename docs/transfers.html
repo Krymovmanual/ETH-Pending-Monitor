@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Prepare internal and external digital asset transfers">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+  <title>Transfers · Treasury Operations Center</title>
+  <link rel="stylesheet" href="styles.css?v=20260912-transfers-v7">
+</head>
+<body class="transfers-page">
+  <main class="transfer-shell">
+    <header class="topbar transfer-page-topbar">
+      <div>
+        <div class="eyebrow">DIGITAL ASSET OPERATIONS</div>
+        <h1>Transfers</h1>
+        <nav class="product-nav" aria-label="Treasury sections">
+          <a href="index.html">Wallets</a>
+          <a href="exchanges.html">Exchanges</a>
+          <a class="active" href="transfers.html" aria-current="page">Transfers</a>
+          <span>Networks</span><span>Market</span>
+        </nav>
+      </div>
+      <div class="transfer-header-actions">
+        <div class="connection" id="transferConnection"><span class="dot"></span><span id="transferConnectionText">Connecting</span></div>
+        <button class="secondary" id="refreshTransferSources" type="button">Refresh balances</button>
+      </div>
+    </header>
+
+    <div class="transfer-mode-switch" role="tablist" aria-label="Transfer type">
+      <button class="active" data-transfer-mode="internal" role="tab" aria-selected="true" type="button"><strong>Internal</strong><small>Between your own accounts</small></button>
+      <button data-transfer-mode="external" role="tab" aria-selected="false" type="button"><strong>External</strong><small>To another wallet address</small></button>
+    </div>
+
+    <div class="transfer-layout">
+      <section class="transfer-form-panel" aria-labelledby="transferFormTitle">
+        <div class="transfer-section-head">
+          <div><span class="eyebrow">NEW DRAFT</span><h2 id="transferFormTitle">Prepare internal transfer</h2></div>
+          <span class="draft-only-badge">Draft only</span>
+        </div>
+        <div class="transfer-form-body">
+          <label for="transferSource">Source account</label>
+          <select id="transferSource"><option value="">Loading sources…</option></select>
+          <p class="transfer-field-meta" id="sourceMeta">Connect Railway to load balances.</p>
+
+          <label for="transferAsset">Asset</label>
+          <select id="transferAsset"><option value="">Select source first</option></select>
+
+          <div id="internalDestinationGroup">
+            <label for="internalDestination">Destination account</label>
+            <select id="internalDestination"><option value="">Select destination</option></select>
+            <div id="depositAddressGroup" hidden>
+              <label for="internalDepositAddress">Deposit address <span class="optional">required for an exchange destination</span></label>
+              <input id="internalDepositAddress" type="text" autocomplete="off" placeholder="0x…">
+            </div>
+          </div>
+
+          <div id="externalDestinationGroup" hidden>
+            <label for="externalDestination">Recipient address</label>
+            <input id="externalDestination" type="text" autocomplete="off" placeholder="0x…">
+            <label for="externalLabel">Recipient label <span class="optional">optional</span></label>
+            <input id="externalLabel" type="text" maxlength="80" placeholder="Supplier, personal wallet…">
+          </div>
+
+          <label for="transferNetwork">Network</label>
+          <select id="transferNetwork">
+            <option value="ethereum">Ethereum Mainnet</option>
+            <option value="internal">Bitget internal</option>
+          </select>
+
+          <label for="transferAmount">Amount</label>
+          <div class="amount-field"><input id="transferAmount" type="number" min="0" step="any" inputmode="decimal" placeholder="0.00"><button class="secondary" id="maxTransferAmount" type="button">Max</button></div>
+          <p class="transfer-field-meta" id="availableBalance">Available: —</p>
+
+          <div class="transfer-form-actions">
+            <button class="secondary" id="calculateTransfer" type="button">Calculate preview</button>
+            <button class="primary" id="saveTransferDraft" type="button">Save draft</button>
+          </div>
+          <p class="transfer-safety-note">No transaction is signed or sent. API keys remain read-only.</p>
+        </div>
+      </section>
+
+      <aside class="transfer-preview-panel" aria-labelledby="transferPreviewTitle">
+        <div class="transfer-section-head"><div><span class="eyebrow">PREVIEW</span><h2 id="transferPreviewTitle">Transfer summary</h2></div><span id="previewStatus" class="preview-status">Incomplete</span></div>
+        <dl class="transfer-summary">
+          <div><dt>From</dt><dd id="previewFrom">—</dd></div>
+          <div><dt>To</dt><dd id="previewTo">—</dd></div>
+          <div><dt>Asset</dt><dd id="previewAsset">—</dd></div>
+          <div><dt>Network</dt><dd id="previewNetwork">—</dd></div>
+          <div><dt>Amount</dt><dd id="previewAmount">—</dd></div>
+          <div><dt>Estimated fee</dt><dd id="previewFee">—</dd></div>
+          <div class="summary-emphasis"><dt>Balance after</dt><dd id="previewBalanceAfter">—</dd></div>
+        </dl>
+        <div class="transfer-checks" id="transferChecks"></div>
+      </aside>
+    </div>
+
+    <section class="wallet-sources-panel">
+      <div class="transfer-section-head">
+        <div><span class="eyebrow">OWN WALLETS</span><h2>Wallet connections</h2><p>Only public addresses are stored. Private keys and seed phrases are never requested.</p></div>
+        <div class="wallet-source-actions"><button class="secondary" id="connectMetaMask" type="button">Connect MetaMask</button><button class="secondary" id="openWatchWallet" type="button">Add watch-only wallet</button></div>
+      </div>
+      <div class="wallet-source-grid" id="walletSourceGrid"><div class="transfer-empty">No wallets added yet.</div></div>
+    </section>
+
+    <section class="transfer-drafts-panel">
+      <div class="transfer-section-head"><div><span class="eyebrow">LOCAL WORKSPACE</span><h2>Transfer drafts</h2><p>Drafts are saved only in this browser and cannot move funds.</p></div><span id="draftCount">0 drafts</span></div>
+      <div id="transferDrafts"><div class="transfer-empty">No transfer drafts yet.</div></div>
+    </section>
+  </main>
+
+  <dialog id="watchWalletDialog" class="watch-wallet-dialog">
+    <form method="dialog" id="watchWalletForm">
+      <div class="dialog-head"><div><div class="eyebrow">WATCH-ONLY</div><h2>Add wallet</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <label for="watchWalletName">Wallet name</label>
+      <input id="watchWalletName" type="text" maxlength="80" placeholder="Treasury wallet" required>
+      <label for="watchWalletAddress">Ethereum address</label>
+      <input id="watchWalletAddress" type="text" autocomplete="off" placeholder="0x…" required>
+      <div class="dialog-error" id="watchWalletError" role="alert"></div>
+      <div class="dialog-actions"><button class="secondary" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Add wallet</button></div>
+    </form>
+  </dialog>
+
+  <script src="transfers.js?v=20260912-transfers-v7"></script>
+</body>
+</html>

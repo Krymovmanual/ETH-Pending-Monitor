@@ -192,6 +192,68 @@ h2 { margin: 0; font-size: 1.2rem; letter-spacing: -.02em; }
 .exchange-page-table td small { display: block; margin-top: 3px; color: var(--muted); font-size: .67rem; }
 .exchange-page-table .numeric { text-align: right; }
 .exchange-page-empty { height: 220px; color: var(--muted) !important; text-align: center; }
+
+/* Transfer planning workspace */
+.transfer-shell { width: min(1440px, calc(100% - 48px)); margin: 0 auto; padding: 36px 0 64px; }
+.transfer-page-topbar { margin-bottom: 24px; }
+.transfer-page-topbar h1 { font-size: clamp(2rem, 4vw, 3.25rem); }
+.transfer-header-actions, .wallet-source-actions { display: flex; align-items: center; gap: 9px; }
+.transfer-mode-switch { width: min(620px, 100%); margin-bottom: 14px; padding: 5px; border: 1px solid var(--border); border-radius: 14px; background: #090d13; display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.transfer-mode-switch button { min-height: 58px; padding: 10px 14px; border: 0; background: transparent; color: var(--muted); text-align: left; }
+.transfer-mode-switch button.active { color: var(--text); background: #17202d; box-shadow: 0 0 0 1px #2a374b inset; }
+.transfer-mode-switch strong, .transfer-mode-switch small { display: block; }
+.transfer-mode-switch strong { font-size: .86rem; }
+.transfer-mode-switch small { margin-top: 4px; color: inherit; font-size: .7rem; }
+.transfer-layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(350px, .85fr); gap: 14px; align-items: start; }
+.transfer-form-panel, .transfer-preview-panel, .wallet-sources-panel, .transfer-drafts-panel { border: 1px solid var(--border); border-radius: 16px; background: var(--surface); overflow: hidden; }
+.transfer-preview-panel { position: sticky; top: 18px; }
+.transfer-section-head { min-height: 78px; padding: 16px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.transfer-section-head h2 { margin-top: 4px; font-size: 1.05rem; }
+.transfer-section-head p { margin: 5px 0 0; color: var(--muted); font-size: .72rem; }
+.draft-only-badge, .preview-status { padding: 5px 8px; border: 1px solid #2a3547; border-radius: 999px; color: var(--muted); background: #111823; font-size: .68rem; white-space: nowrap; }
+.preview-status.ready { border-color: rgba(67,214,156,.3); color: var(--green); background: rgba(67,214,156,.08); }
+.transfer-form-body { padding: 18px; }
+.transfer-form-body label { display: block; margin: 16px 0 7px; color: #c6d0de; font-size: .8rem; font-weight: 700; }
+.transfer-form-body label:first-child { margin-top: 0; }
+.transfer-form-body select, .transfer-form-body input { width: 100%; min-height: 46px; padding: 0 12px; }
+.transfer-form-body select:focus, .transfer-form-body input:focus, .exchange-table-tools input:focus { outline: 2px solid rgba(98,126,234,.35); border-color: var(--blue); }
+.transfer-field-meta { min-height: 17px; margin: 6px 0 0; color: var(--muted); font-size: .7rem; }
+.amount-field { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.amount-field button { min-height: 46px; }
+.transfer-form-actions { margin-top: 22px; display: flex; justify-content: flex-end; gap: 9px; }
+.transfer-form-actions button { min-width: 150px; }
+.transfer-form-actions button:disabled { cursor: default; opacity: .42; }
+.transfer-safety-note { margin: 12px 0 0; color: #718096; font-size: .69rem; text-align: right; }
+.transfer-summary { margin: 0; padding: 8px 18px 4px; }
+.transfer-summary div { min-height: 51px; border-bottom: 1px solid #18212e; display: grid; grid-template-columns: 145px minmax(0, 1fr); align-items: center; gap: 16px; }
+.transfer-summary div:last-child { border-bottom: 0; }
+.transfer-summary dt { color: var(--muted); font-size: .75rem; }
+.transfer-summary dd { margin: 0; overflow-wrap: anywhere; color: #dce5f2; font-size: .82rem; font-weight: 650; text-align: right; font-variant-numeric: tabular-nums; }
+.transfer-summary .summary-emphasis { min-height: 62px; }
+.transfer-summary .summary-emphasis dd { color: var(--blue); font-size: 1rem; }
+.transfer-checks { padding: 13px 18px 18px; border-top: 1px solid var(--border); display: grid; gap: 7px; }
+.transfer-check { min-height: 34px; padding: 8px 10px; border-radius: 9px; display: flex; align-items: center; gap: 9px; color: #aab5c6; background: #111722; font-size: .72rem; }
+.transfer-check span { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: .65rem; font-weight: 900; }
+.transfer-check.ok span { color: var(--green); background: rgba(67,214,156,.11); }
+.transfer-check.failed span { color: var(--red); background: rgba(255,107,117,.11); }
+.transfer-check.warning { color: var(--amber); }
+.transfer-check.warning span { color: var(--amber); background: rgba(245,189,88,.11); }
+.wallet-sources-panel, .transfer-drafts-panel { margin-top: 14px; }
+.wallet-source-grid { min-height: 120px; padding: 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.wallet-source-card { min-width: 0; min-height: 112px; padding: 14px; border: 1px solid #1d2736; border-radius: 12px; background: linear-gradient(145deg, #111824, #0c1119); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.wallet-source-card h3 { margin: 7px 0 5px; font-size: .86rem; }
+.wallet-source-card code { color: var(--muted); font-size: .68rem; }
+.wallet-type { color: #91a6ff; font-size: .64rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.wallet-source-balance { text-align: right; }
+.wallet-source-balance span, .wallet-source-balance strong { display: block; }
+.wallet-source-balance span { color: var(--muted); font-size: .66rem; }
+.wallet-source-balance strong { margin-top: 7px; font-size: .82rem; font-variant-numeric: tabular-nums; }
+.transfer-empty { grid-column: 1 / -1; min-height: 105px; padding: 42px 16px; color: var(--muted); text-align: center; font-size: .78rem; }
+.draft-table-wrap { overflow-x: auto; }
+.draft-table { min-width: 960px; }
+.draft-table th, .draft-table td { padding: 13px 15px; font-size: .75rem; }
+.draft-type { padding: 4px 7px; border-radius: 999px; color: #aebaff; background: rgba(98,126,234,.1); font-size: .66rem; text-transform: capitalize; }
+.watch-wallet-dialog { width: min(560px, calc(100% - 32px)); }
 .panel { border: 1px solid var(--border); border-radius: 16px; background: var(--surface); overflow: hidden; }
 .news-side { display: none; }
 .news-panel { margin-bottom: 14px; }
@@ -403,6 +465,7 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
   .exchange-sections { grid-template-columns: 1fr; }
   .exchange-workspace { grid-template-columns: 230px minmax(0, 1fr); }
   .exchange-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wallet-source-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 800px) {
@@ -426,6 +489,13 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
   .account-sidebar-note { display: none; }
   .exchange-data-head { align-items: stretch; flex-direction: column; }
   .exchange-table-tools input { width: 100%; }
+  .transfer-shell { width: min(100% - 24px, 720px); padding-top: 24px; }
+  .transfer-page-topbar { align-items: flex-start; }
+  .transfer-layout { grid-template-columns: 1fr; }
+  .transfer-preview-panel { position: static; }
+  .wallet-source-grid { grid-template-columns: 1fr; }
+  .wallet-source-actions { width: 100%; }
+  .wallet-source-actions button { flex: 1; }
   .token-balances { grid-template-columns: repeat(3, minmax(82px, 1fr)); }
   .news-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .gas-live-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -457,6 +527,15 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
   .view-switch { width: 100%; }
   .view-switch button { flex: 1; }
   .exchange-table-tools { align-items: stretch; flex-direction: column; }
+  .transfer-page-topbar { flex-direction: column; }
+  .transfer-header-actions { width: 100%; align-items: stretch; flex-direction: column; }
+  .transfer-header-actions .connection { justify-content: center; }
+  .transfer-mode-switch { grid-template-columns: 1fr; }
+  .transfer-section-head { align-items: flex-start; flex-direction: column; }
+  .transfer-form-actions { flex-direction: column; }
+  .transfer-form-actions button { width: 100%; }
+  .transfer-summary div { grid-template-columns: 105px minmax(0, 1fr); }
+  .wallet-source-actions { flex-direction: column; }
   .news-grid { grid-template-columns: 1fr; }
   .gas-analytics-body { padding: 12px; }
   .gas-live-grid { grid-template-columns: 1fr 1fr; }

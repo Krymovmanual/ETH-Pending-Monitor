@@ -34,6 +34,9 @@ Digital asset operations dashboard. The current network module monitors live pen
 - Show position direction, size, leverage, entry price, mark price, estimated liquidation price, unrealized PnL, and ROI; refresh the exchange view every 30 seconds.
 - Normalize inverse Coin-M contracts separately: show base-asset size, USD contract notional, raw PnL in the margin coin, and converted USD PnL. Linear USDT/USDC futures keep their native USD-equivalent values.
 - Open exchange data on a dedicated page with an account tree, account multi-selection, Consolidated/By account views, aggregated assets, and net long/short exposure. Automatic updates do not interrupt active table navigation or reset the page scroll.
+- Prepare Internal and External transfer drafts from Bitget or Ethereum wallet sources on a dedicated Transfers page.
+- Add watch-only Ethereum wallets or connect MetaMask without exposing private keys or seed phrases. Wallet balances and Ethereum fee previews are requested through Railway.
+- Validate source balance, destination address, supported Ethereum assets, network, and MetaMask chain before saving a local draft. Transfer execution is intentionally disabled in this version.
 - Display an English crypto news feed with Ethereum, Bitcoin, market, and regulation filters. Railway caches CryptoCompare responses for 15 minutes, and the last successful result is also cached in the browser.
 - Move the eight latest news cards into denser left/right rails on screens at least 1,800 px wide, with summaries, tags, article links, and independent scrolling; keep the central responsive feed on laptops and phones.
 - Keep the Etherscan and CryptoCompare API keys exclusively in Railway environment variables.
