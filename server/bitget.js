@@ -16,6 +16,13 @@ function numberOrNull(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function baseAssetFromSymbol(value) {
+  const symbol = String(value || '').toUpperCase();
+  return symbol
+    .replace(/(?:USDT|USDC|USD)(?:_CM|_UMCBL|_DMCBL|_PERP)?$/, '')
+    .replace(/(?:_CM|_UMCBL|_DMCBL|_PERP)$/, '') || symbol;
+}
+
 function signedHeaders(method, requestPath, body = '') {
   const timestamp = String(Date.now());
   const prehash = `${timestamp}${method.toUpperCase()}${requestPath}${body}`;
@@ -63,30 +70,52 @@ function normalizeAsset(item, account) {
 }
 
 function normalizePosition(item) {
+  const category = String(item?.category || '').slice(0, 30).toUpperCase();
   const symbol = String(item?.symbol || '').slice(0, 40);
-  const size = numberOrNull(item?.total ?? item?.positionBalance);
+  const contractSize = numberOrNull(item?.total ?? item?.positionBalance);
   const markPrice = numberOrNull(item?.markPrice);
+  const coinMargined = category === 'COIN-FUTURES' || /USD_CM$/i.test(symbol);
+  const baseAsset = baseAssetFromSymbol(symbol);
+  const size = coinMargined && contractSize !== null && markPrice > 0
+    ? Math.abs(contractSize) / markPrice
+    : contractSize;
+  const unrealisedPnl = numberOrNull(item?.unrealisedPnl);
+  const pnlCurrency = coinMargined
+    ? String(item?.marginCoin || baseAsset).toUpperCase()
+    : category === 'USDC-FUTURES' ? 'USDC' : 'USDT';
+  const pnlNeedsUsdConversion = coinMargined && !['USD', 'USDT', 'USDC'].includes(pnlCurrency);
+  const unrealisedPnlUsd = unrealisedPnl === null
+    ? null
+    : pnlNeedsUsdConversion && markPrice !== null ? unrealisedPnl * markPrice : unrealisedPnl;
+  const rawMargin = numberOrNull(item?.marginSize ?? item?.positionMargin ?? item?.margin);
   return {
-    id: `bitget:${String(item?.category || 'futures').toLowerCase()}:${symbol}:${String(item?.posSide || 'long').toLowerCase()}`,
+    id: `bitget:${String(category || 'futures').toLowerCase()}:${symbol}:${String(item?.posSide || 'long').toLowerCase()}`,
     exchangeId: 'bitget',
     accountId: 'bitget:unified',
-    category: String(item?.category || '').slice(0, 30),
+    category,
     symbol,
-    baseAsset: symbol.replace(/(?:USDT|USDC|USD|PERP)$/i, '') || symbol,
+    baseAsset,
     side: String(item?.posSide || '').toLowerCase() === 'short' ? 'short' : 'long',
     marginMode: String(item?.marginMode || '').slice(0, 20),
     marginCoin: String(item?.marginCoin || '').slice(0, 20),
     size,
+    contractSize,
+    sizeCurrency: baseAsset,
     available: numberOrNull(item?.available),
     leverage: numberOrNull(item?.leverage),
     entryPrice: numberOrNull(item?.avgPrice),
     markPrice,
-    notional: numberOrNull(item?.positionValue ?? item?.notional) ?? (
-      size !== null && markPrice !== null ? Math.abs(size * markPrice) : null
-    ),
-    margin: numberOrNull(item?.marginSize ?? item?.positionMargin ?? item?.margin),
+    notional: coinMargined
+      ? (contractSize === null ? null : Math.abs(contractSize))
+      : numberOrNull(item?.positionValue ?? item?.notional) ?? (
+        size !== null && markPrice !== null ? Math.abs(size * markPrice) : null
+      ),
+    margin: rawMargin,
+    marginUsd: rawMargin === null ? null : coinMargined && markPrice !== null ? rawMargin * markPrice : rawMargin,
     liquidationPrice: numberOrNull(item?.liquidationPrice),
-    unrealisedPnl: numberOrNull(item?.unrealisedPnl),
+    unrealisedPnl,
+    unrealisedPnlUsd,
+    pnlCurrency,
     profitRate: numberOrNull(item?.profitRate),
     updatedAt: numberOrNull(item?.updatedTime),
   };
@@ -120,7 +149,9 @@ async function fetchBitgetAccount({ force = false } = {}) {
   const unifiedAssets = Array.isArray(unified?.assets) ? unified.assets : [];
   const fundingAssets = Array.isArray(funding) ? funding : [];
   const positions = positionResults
-    .flatMap(result => Array.isArray(result?.list) ? result.list : [])
+    .flatMap((result, index) => Array.isArray(result?.list)
+      ? result.list.map(item => ({ ...item, category: item?.category || POSITION_CATEGORIES[index] }))
+      : [])
     .map(normalizePosition)
     .filter(item => item.symbol && Number(item.size) !== 0);
   const assets = [

@@ -154,7 +154,8 @@ function aggregatePositions(accounts) {
     const row = grouped.get(asset);
     const notional = Number(position.notional);
     if (Number.isFinite(notional)) row[position.side === 'short' ? 'short' : 'long'] += Math.abs(notional);
-    if (Number.isFinite(Number(position.unrealisedPnl))) { row.pnl += Number(position.unrealisedPnl); row.pnlKnown = true; }
+    const pnlUsd = position.unrealisedPnlUsd ?? position.unrealisedPnl;
+    if (Number.isFinite(Number(pnlUsd))) { row.pnl += Number(pnlUsd); row.pnlKnown = true; }
     row.count += 1;
     row.exchanges.add(position.exchangeName);
   }
@@ -164,7 +165,7 @@ function aggregatePositions(accounts) {
 function renderSummary(accounts) {
   const positions = accounts.flatMap(account => account.positions || []);
   const equity = sumKnown(accounts, account => account.summary?.equityUsd);
-  const pnl = sumKnown(positions, position => position.unrealisedPnl);
+  const pnl = sumKnown(positions, position => position.unrealisedPnlUsd ?? position.unrealisedPnl);
   const positionValue = sumKnown(positions, position => position.notional);
   const exchanges = new Set(accounts.map(account => account.exchangeId));
   el.equity.textContent = equity.known ? money(equity.value) : '—';
@@ -201,7 +202,14 @@ function renderPositions(accounts) {
     el.body.innerHTML = rows.map(row => `<tr><td><strong>${escapeHtml(row.asset)}</strong></td><td>${escapeHtml(row.exchangeName)}</td><td class="numeric positive">${money(row.long)}</td><td class="numeric negative">${money(row.short)}</td><td class="numeric ${row.net > 0 ? 'positive' : row.net < 0 ? 'negative' : ''}">${signedMoney(row.net)}</td><td class="numeric ${row.pnl > 0 ? 'positive' : row.pnl < 0 ? 'negative' : ''}">${row.pnlKnown ? signedMoney(row.pnl) : '—'}</td><td class="numeric">${row.count}</td></tr>`).join('') || '<tr><td colspan="7" class="exchange-page-empty">No open positions in the selected scope.</td></tr>';
   } else {
     el.head.innerHTML = '<tr><th>Market</th><th>Exchange / account</th><th>Side</th><th class="numeric">Size</th><th class="numeric">Leverage</th><th class="numeric">Entry</th><th class="numeric">Mark</th><th class="numeric">Liquidation</th><th class="numeric">PnL / ROI</th></tr>';
-    el.body.innerHTML = rows.map(row => `<tr><td><strong>${escapeHtml(row.symbol)}</strong><small>${escapeHtml(String(row.category || '').replace('-FUTURES', ''))}</small></td><td>${escapeHtml(row.exchangeName)}<small>${escapeHtml(row.accountName)}</small></td><td><span class="position-side ${row.side === 'short' ? 'short' : 'long'}">${escapeHtml(row.side)}</span></td><td class="numeric">${number(row.size)}</td><td class="numeric">${number(row.leverage, 2)}×</td><td class="numeric">${number(row.entryPrice)}</td><td class="numeric">${number(row.markPrice)}</td><td class="numeric">${Number(row.liquidationPrice) > 0 ? number(row.liquidationPrice) : '—'}</td><td class="numeric ${Number(row.unrealisedPnl) > 0 ? 'positive' : Number(row.unrealisedPnl) < 0 ? 'negative' : ''}">${signedMoney(row.unrealisedPnl)}<small>${Number.isFinite(Number(row.profitRate)) ? `${number(Number(row.profitRate) * 100, 2)}%` : '—'}</small></td></tr>`).join('') || '<tr><td colspan="9" class="exchange-page-empty">No open positions in the selected scope.</td></tr>';
+    el.body.innerHTML = rows.map(row => {
+      const pnlUsd = row.unrealisedPnlUsd ?? row.unrealisedPnl;
+      const rawPnl = Number.isFinite(Number(row.unrealisedPnl))
+        ? `${number(row.unrealisedPnl)} ${escapeHtml(row.pnlCurrency || '')}`.trim()
+        : '—';
+      const roi = Number.isFinite(Number(row.profitRate)) ? `${number(Number(row.profitRate) * 100, 2)}%` : '—';
+      return `<tr><td><strong>${escapeHtml(row.symbol)}</strong><small>${escapeHtml(String(row.category || '').replace('-FUTURES', ''))}</small></td><td>${escapeHtml(row.exchangeName)}<small>${escapeHtml(row.accountName)}</small></td><td><span class="position-side ${row.side === 'short' ? 'short' : 'long'}">${escapeHtml(row.side)}</span></td><td class="numeric">${number(row.size)}<small>${escapeHtml(row.sizeCurrency || row.baseAsset || '')}</small></td><td class="numeric">${number(row.leverage, 2)}×</td><td class="numeric">${number(row.entryPrice)}</td><td class="numeric">${number(row.markPrice)}</td><td class="numeric">${Number(row.liquidationPrice) > 0 ? number(row.liquidationPrice) : '—'}</td><td class="numeric ${Number(pnlUsd) > 0 ? 'positive' : Number(pnlUsd) < 0 ? 'negative' : ''}">${signedMoney(pnlUsd)}<small>${rawPnl} · ${roi}</small></td></tr>`;
+    }).join('') || '<tr><td colspan="9" class="exchange-page-empty">No open positions in the selected scope.</td></tr>';
   }
 }
 
