@@ -1,3 +1,7 @@
+# Treasury Operations Center — Users v11
+
+Start with [USERS-v11.md](USERS-v11.md). It supersedes the deployment instructions below for authentication, hosting and credentials.
+
 # Treasury Operations Center
 
 Digital asset operations dashboard for wallets, transactions, gas, and market monitoring, with an optional 24/7 Railway backend. The repository and deployment URLs retain the `ETH-Pending-Monitor` name.

@@ -338,3 +338,6 @@ module.exports = {
   cleanupGasAnalytics,
   gasAnalyticsSummary,
 };
+
+// All private operations require an authenticated user or a bound worker context.
+Object.assign(module.exports, require('./user-db').scopedDatabase(pool, defaultSettings));

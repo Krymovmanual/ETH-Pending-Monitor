@@ -1,4 +1,4 @@
-const DEFAULT_ADDRESS = '0xced92fa7f0797cbc851b48140ae218a0b0d41ce0';
+const DEFAULT_ADDRESS = '';
 const ENDPOINT_KEY = 'eth-pending-monitor-endpoint';
 const ADDRESSES_KEY = 'eth-pending-monitor-addresses';
 const LABELS_KEY = 'eth-pending-monitor-address-labels';
@@ -32,9 +32,9 @@ document.querySelectorAll('[data-nav-view]').forEach(link => {
 });
 
 // Remove provider secrets saved by older browser-only versions.
-localStorage.removeItem(ENDPOINT_KEY);
-localStorage.removeItem('eth-pending-monitor-etherscan-key');
-localStorage.removeItem('eth-pending-monitor-cryptocompare-key');
+Treasury.storage.removeItem(ENDPOINT_KEY);
+Treasury.storage.removeItem('eth-pending-monitor-etherscan-key');
+Treasury.storage.removeItem('eth-pending-monitor-cryptocompare-key');
 const BALANCE_TOKENS = [
   { symbol: 'USDT ERC-20', contract: '0xdac17f958d2ee523a2206206994597c13d831ec7', decimals: 6 },
   { symbol: 'USDC', contract: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', decimals: 6 },
@@ -47,11 +47,11 @@ const storedNews = loadStoredObject(NEWS_CACHE_KEY);
 const state = {
   ws: null,
   endpoint: '',
-  backendUrl: localStorage.getItem(BACKEND_URL_KEY) || '',
-  backendToken: localStorage.getItem(BACKEND_TOKEN_KEY) || '',
+  backendUrl: location.origin,
+  backendToken: '',
   addresses: loadAddresses(),
   addressLabels: loadAddressLabels(),
-  email: localStorage.getItem(EMAIL_KEY) || '',
+  email: Treasury.storage.getItem(EMAIL_KEY) || '',
   notificationSettings: loadNotificationSettings(),
   summaryAlerts: loadStoredObject(SUMMARY_ALERTS_KEY),
   transactions: loadTransactions(),
@@ -103,7 +103,7 @@ const state = {
   sortKey: 'age',
   sortDirection: 'asc',
   page: 1,
-  pageSize: [25, 50, 100].includes(Number(localStorage.getItem(PAGE_SIZE_KEY))) ? Number(localStorage.getItem(PAGE_SIZE_KEY)) : 25,
+  pageSize: [25, 50, 100].includes(Number(Treasury.storage.getItem(PAGE_SIZE_KEY))) ? Number(Treasury.storage.getItem(PAGE_SIZE_KEY)) : 25,
 };
 
 const el = {
@@ -253,15 +253,15 @@ const el = {
 
 function loadAddresses() {
   try {
-    const stored = JSON.parse(localStorage.getItem(ADDRESSES_KEY) || '[]');
+    const stored = JSON.parse(Treasury.storage.getItem(ADDRESSES_KEY) || '[]');
     const addresses = Array.isArray(stored) ? stored.filter(address => typeof address === 'string' && validAddress(address)).map(address => address.toLowerCase()) : [];
-    return addresses.length ? [...new Set(addresses)].slice(0,50) : [DEFAULT_ADDRESS];
-  } catch { return [DEFAULT_ADDRESS]; }
+    return addresses.length ? [...new Set(addresses)].slice(0,50) : [];
+  } catch { return []; }
 }
 
 function loadTransactions() {
   try {
-    const stored = JSON.parse(localStorage.getItem(TX_KEY) || '[]');
+    const stored = JSON.parse(Treasury.storage.getItem(TX_KEY) || '[]');
     return Array.isArray(stored) ? stored.filter(tx => tx && typeof tx.hash === 'string' && /^0x[0-9a-f]{64}$/i.test(tx.hash) && Number.isFinite(tx.firstSeen) && Number.isInteger(tx.nonce)) : [];
   } catch { return []; }
 }
@@ -271,7 +271,7 @@ function loadAddressLabels() { return loadStoredObject(LABELS_KEY); }
 function loadTokenCache() { return loadStoredObject(TOKEN_CACHE_KEY); }
 
 function loadStoredObject(key) {
-  try { const value = JSON.parse(localStorage.getItem(key) || '{}'); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+  try { const value = JSON.parse(Treasury.storage.getItem(key) || '{}'); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
   catch { return {}; }
 }
 
@@ -284,7 +284,7 @@ function loadBalanceSettings() {
     gasThreshold: 0.1,
     gasInterval: 300000,
   };
-  try { return {...defaults, ...JSON.parse(localStorage.getItem(BALANCE_SETTINGS_KEY) || '{}')}; }
+  try { return {...defaults, ...JSON.parse(Treasury.storage.getItem(BALANCE_SETTINGS_KEY) || '{}')}; }
   catch { return defaults; }
 }
 
@@ -304,7 +304,7 @@ function loadNotificationSettings() {
     quietEnd: '08:00',
   };
   try {
-    const stored = JSON.parse(localStorage.getItem(NOTIFICATION_SETTINGS_KEY) || '{}');
+    const stored = JSON.parse(Treasury.storage.getItem(NOTIFICATION_SETTINGS_KEY) || '{}');
     if (stored.rules) {
       const rules = Object.fromEntries(Object.entries(defaultRules).map(([key, rule]) => [key, {...rule, ...(stored.rules[key] || {})}]));
       // Older builds used an immediate (0 minute) blocker alert. Migrate that
@@ -334,7 +334,7 @@ function loadNotificationSettings() {
 
 function saveTransactions() {
   state.transactions = state.transactions.slice(0, 500);
-  localStorage.setItem(TX_KEY, JSON.stringify(state.transactions));
+  Treasury.storage.setItem(TX_KEY, JSON.stringify(state.transactions));
 }
 
 function parseAddressLines(value) {
@@ -379,6 +379,7 @@ async function connect() {
     if (!el.dialog.open) openSettings();
     return;
   }
+  if (!state.addresses.length && !el.dialog.open) openSettings();
   setConnection('', 'Connecting to Railway…');
   await syncServerTransactions();
   updateGasPrice();
@@ -608,7 +609,7 @@ async function loadPendingBlockSnapshot() {
 }
 
 async function syncPendingState(scanSnapshot = false) {
-  if (!backendConfigured() || state.pendingSyncRunning) return;
+  if (!backendConfigured() || !state.addresses.length || state.pendingSyncRunning) return;
   state.pendingSyncRunning = true;
   state.pendingSyncError = '';
   renderPendingSync();
@@ -699,7 +700,7 @@ async function hydrateTokenMetadata(tx) {
       if (!metadata.name) metadata.name = metadata.symbol;
       if (!Number.isInteger(metadata.decimals) || metadata.decimals < 0 || metadata.decimals > 255) metadata.decimals = 18;
       state.tokenCache[contract] = metadata;
-      localStorage.setItem(TOKEN_CACHE_KEY, JSON.stringify(state.tokenCache));
+      Treasury.storage.setItem(TOKEN_CACHE_KEY, JSON.stringify(state.tokenCache));
     } catch { return; }
   }
   if (!metadata) return;
@@ -939,7 +940,7 @@ async function evaluatePendingSummaries(pendingAfterMs) {
   for (const wallet of Object.keys(state.summaryAlerts)) {
     if (!groups.has(wallet)) { delete state.summaryAlerts[wallet]; changed = true; }
   }
-  if (changed) localStorage.setItem(SUMMARY_ALERTS_KEY, JSON.stringify(state.summaryAlerts));
+  if (changed) Treasury.storage.setItem(SUMMARY_ALERTS_KEY, JSON.stringify(state.summaryAlerts));
 }
 
 async function sendPendingSummary(wallet, transactions) {
@@ -992,7 +993,7 @@ async function sendPendingSummary(wallet, transactions) {
     ? `${walletLabel(wallet)} · ${shortHash(actionable.hash)} · nonce ${actionable.nonce} · ${browserCause}`
     : `${walletLabel(wallet)}: ${count} pending. ${browserCause}`;
   state.summaryAlerts[wallet] = {signature, sentAt:Date.now()};
-  localStorage.setItem(SUMMARY_ALERTS_KEY, JSON.stringify(state.summaryAlerts));
+  Treasury.storage.setItem(SUMMARY_ALERTS_KEY, JSON.stringify(state.summaryAlerts));
   let browserDelivered = false;
   if (channels.browser) {
     try {
@@ -1008,7 +1009,7 @@ async function sendPendingSummary(wallet, transactions) {
     try { await sendEmail(state.email, emailSubject, primary, 'stuck_summary', {count, transactions:sorted, blocker, boostTransactions, cause}); }
     catch {
       if (!browserDelivered) delete state.summaryAlerts[wallet];
-      localStorage.setItem(SUMMARY_ALERTS_KEY, JSON.stringify(state.summaryAlerts));
+      Treasury.storage.setItem(SUMMARY_ALERTS_KEY, JSON.stringify(state.summaryAlerts));
     }
   }
 }
@@ -1161,7 +1162,7 @@ async function sendTestEmail() {
       await sendEmail(email, alertTitle('test'), null, 'test');
     }
     state.email = email;
-    localStorage.setItem(EMAIL_KEY, email);
+    Treasury.storage.setItem(EMAIL_KEY, email);
     showTestStatus('Sent. Check your inbox and confirm the address if requested.');
   } catch (error) {
     showTestStatus(error.message || 'Could not send the test email.', true);
@@ -1196,7 +1197,7 @@ async function enableNotifications() {
   } else updateNotificationStatus(permission);
 }
 
-function updateNotificationStatus(permission = ('Notification' in window ? Notification.permission : 'unsupported'), serverPush = localStorage.getItem(PUSH_REGISTERED_KEY) === 'true') {
+function updateNotificationStatus(permission = ('Notification' in window ? Notification.permission : 'unsupported'), serverPush = Treasury.storage.getItem(PUSH_REGISTERED_KEY) === 'true') {
   const registered = Boolean(serverPush && backendConfigured());
   const messages = {
     granted: registered ? '24/7 browser push notifications are enabled.' : 'Browser notifications are enabled. Connect this browser to Railway for 24/7 alerts.',
@@ -1272,7 +1273,7 @@ async function updateWalletBalances() {
       next[field.address].tokens[field.symbol] = {raw, decimals:field.decimals};
     }
     state.walletBalances = next;
-    localStorage.setItem(WALLET_BALANCES_KEY, JSON.stringify(next));
+    Treasury.storage.setItem(WALLET_BALANCES_KEY, JSON.stringify(next));
   } catch {
     state.balanceLoadError = 'Update failed. Try again.';
   } finally {
@@ -1293,10 +1294,10 @@ async function updateGasBalance() {
     const previousRaw = state.gasBalance.raw;
     const changeRaw = previousRaw !== undefined && previousRaw !== null ? (BigInt(raw) - BigInt(previousRaw)).toString() : null;
     state.gasBalance = {raw, decimals:18, updatedAt:Date.now(), changeRaw};
-    localStorage.setItem(GAS_BALANCE_KEY, JSON.stringify(state.gasBalance));
+    Treasury.storage.setItem(GAS_BALANCE_KEY, JSON.stringify(state.gasBalance));
     const current = Number(formatTokenAmount(state.gasBalance.raw, 18).replace(/,/g, ''));
     if (current < Number(settings.gasThreshold)) await sendGasAlert(current);
-    else localStorage.removeItem(GAS_ALERT_KEY);
+    else Treasury.storage.removeItem(GAS_ALERT_KEY);
   } catch {
     state.gasLoadError = 'Update failed. Try again.';
   } finally {
@@ -1306,12 +1307,12 @@ async function updateGasBalance() {
 }
 
 async function sendGasAlert(currentBalance) {
-  const lastSent = Number(localStorage.getItem(GAS_ALERT_KEY) || 0);
+  const lastSent = Number(Treasury.storage.getItem(GAS_ALERT_KEY) || 0);
   const rule = notificationRule('gasLow');
   if (!rule.enabled || inQuietHours('gasLow') || !alertCanRepeat(lastSent, 'gasLow')) return;
   const channels = activeAlertChannels('gasLow');
   if (!channels.browser && !channels.email) return;
-  localStorage.setItem(GAS_ALERT_KEY, String(Date.now()));
+  Treasury.storage.setItem(GAS_ALERT_KEY, String(Date.now()));
   const settings = state.balanceSettings;
   const title = 'URGENT: Gas Station balance is low';
   const bodyText = `${settings.gasName}: ${compactNumber(currentBalance, 6)} ETH. Minimum: ${compactNumber(settings.gasThreshold, 6)} ETH.`;
@@ -1339,7 +1340,7 @@ async function sendGasAlert(currentBalance) {
     });
     if (!response.ok) throw new Error('Email failed');
   } catch {
-    if (!browserDelivered) localStorage.removeItem(GAS_ALERT_KEY);
+    if (!browserDelivered) Treasury.storage.removeItem(GAS_ALERT_KEY);
   }
 }
 
@@ -1495,7 +1496,7 @@ async function updateNews({ force = false } = {}) {
     state.newsItems = items;
     state.newsUpdatedAt = Number(body.updatedAt) || Date.now();
     state.newsSource = 'Railway feed';
-    localStorage.setItem(NEWS_CACHE_KEY, JSON.stringify({updatedAt:state.newsUpdatedAt, items}));
+    Treasury.storage.setItem(NEWS_CACHE_KEY, JSON.stringify({updatedAt:state.newsUpdatedAt, items}));
   } catch (error) {
     state.newsError = error?.message || 'News update failed';
   } finally {
@@ -1926,7 +1927,7 @@ function render() {
   const diagnostic = document.querySelector('#syncDiagnostics');
   if (diagnostic) {
     const monitor = state.serverMonitorStatus;
-    diagnostic.textContent = !backendConfigured() ? 'Setup required: enter Railway URL and access token in Connection settings.'
+    diagnostic.textContent = !backendConfigured() ? 'Sign in to open your workspace.'
       : state.transactionSyncError ? `Synchronization failed: ${state.transactionSyncError}. Existing records are retained.`
       : `Last successful sync: ${state.transactionSyncUpdatedAt ? age(state.transactionSyncUpdatedAt) + ' ago' : 'waiting'} · Live subscriptions: ${monitor?.subscriptions ?? 'unknown'}/2 · Last scanned block: ${monitor?.lastConfirmedBlock ?? 'waiting'}${monitor?.error ? ' · Server monitoring needs attention' : ''}`;
   }
@@ -2202,21 +2203,17 @@ function normalizedBackendUrl(value = state.backendUrl) {
   return String(value || '').trim().replace(/\/$/, '');
 }
 
-function backendConfigured() {
-  return /^https:\/\//.test(normalizedBackendUrl()) && state.backendToken.length >= 24;
-}
+function backendConfigured() { return Boolean(window.Treasury?.user); }
 
 function updateBackendStatus(message, isError = false) {
   if (!el.backendStatus) return;
   el.backendStatus.textContent = message || (backendConfigured()
-    ? '24/7 server configured. Etherscan and CryptoCompare requests are protected by Railway.'
-    : 'Connect Railway to enable server-side Etherscan checks and authenticated CryptoCompare news.');
+    ? 'Signed in. Wallet settings are saved to your account.'
+    : 'Sign in to configure your wallets.');
   el.backendStatus.classList.toggle('error', isError);
 }
 
-function backendHeaders() {
-  return { 'Content-Type': 'application/json', Authorization: `Bearer ${state.backendToken}` };
-}
+function backendHeaders() { return {'Content-Type':'application/json'}; }
 
 function serverSettingsPayload() {
   return {
@@ -2266,7 +2263,7 @@ async function subscribeServerPush() {
     method: 'POST', headers: backendHeaders(), body: JSON.stringify(subscription),
   });
   if (!response.ok) throw new Error('Could not register server push notifications');
-  localStorage.setItem(PUSH_REGISTERED_KEY, 'true');
+  Treasury.storage.setItem(PUSH_REGISTERED_KEY, 'true');
   return true;
 }
 
@@ -2385,16 +2382,12 @@ el.form.addEventListener('submit', async event => {
   if (event.submitter?.value !== 'default') return;
   event.preventDefault();
   const endpoint = el.endpoint.value.trim();
-  const backendUrl = normalizedBackendUrl(el.backendUrl.value);
-  const backendToken = el.backendToken.value.trim();
+  const backendUrl = location.origin;
+  const backendToken = '';
   const parsed = parseAddressLines(el.addresses.value);
   const addresses = parsed.addresses;
-  if (!addresses.length || addresses.length > 50 || addresses.some(address => !validAddress(address))) {
+  if (addresses.length > 50 || addresses.some(address => !validAddress(address))) {
     el.error.textContent = 'Enter 1–50 valid Ethereum addresses, one per line.';
-    return;
-  }
-  if ((!/^https:\/\/[A-Za-z0-9.-]+(?::\d+)?(?:\/.*)?$/.test(backendUrl) || backendToken.length < 24)) {
-    el.error.textContent = 'Enter both the HTTPS Railway URL and its ADMIN_TOKEN (at least 24 characters), to connect.';
     return;
   }
   state.endpoint = ''; 
@@ -2408,11 +2401,11 @@ el.form.addEventListener('submit', async event => {
   state.pendingSnapshotError = '';
   state.etherscanDiagnostics = {};
   state.etherscanSyncError = '';
-  localStorage.removeItem(ENDPOINT_KEY);
-  if (backendUrl) localStorage.setItem(BACKEND_URL_KEY, backendUrl); else localStorage.removeItem(BACKEND_URL_KEY);
-  if (backendToken) localStorage.setItem(BACKEND_TOKEN_KEY, backendToken); else localStorage.removeItem(BACKEND_TOKEN_KEY);
-  localStorage.setItem(ADDRESSES_KEY, JSON.stringify(addresses));
-  localStorage.setItem(LABELS_KEY, JSON.stringify(parsed.labels));
+  Treasury.storage.removeItem(ENDPOINT_KEY);
+  if (backendUrl) Treasury.storage.setItem(BACKEND_URL_KEY, backendUrl); else Treasury.storage.removeItem(BACKEND_URL_KEY);
+  if (backendToken) Treasury.storage.setItem(BACKEND_TOKEN_KEY, backendToken); else Treasury.storage.removeItem(BACKEND_TOKEN_KEY);
+  Treasury.storage.setItem(ADDRESSES_KEY, JSON.stringify(addresses));
+  Treasury.storage.setItem(LABELS_KEY, JSON.stringify(parsed.labels));
   if (backendConfigured() && !(await syncBackendSettings({ report: true }))) return;
   el.dialog.close();
   reconnect();
@@ -2467,8 +2460,8 @@ el.notificationForm.addEventListener('submit', async event => {
     quietStart: el.quietStart.value || '22:00',
     quietEnd: el.quietEnd.value || '08:00',
   };
-  if (email) localStorage.setItem(EMAIL_KEY, email); else localStorage.removeItem(EMAIL_KEY);
-  localStorage.setItem(NOTIFICATION_SETTINGS_KEY, JSON.stringify(state.notificationSettings));
+  if (email) Treasury.storage.setItem(EMAIL_KEY, email); else Treasury.storage.removeItem(EMAIL_KEY);
+  Treasury.storage.setItem(NOTIFICATION_SETTINGS_KEY, JSON.stringify(state.notificationSettings));
   await syncBackendSettings();
   el.notificationDialog.close();
   scheduleNotificationChecks();
@@ -2488,7 +2481,7 @@ el.balanceForm.addEventListener('submit', async event => {
     enabled: el.showBalances.checked,
     balanceInterval: Number(el.balanceInterval.value),
   };
-  localStorage.setItem(BALANCE_SETTINGS_KEY, JSON.stringify(state.balanceSettings));
+  Treasury.storage.setItem(BALANCE_SETTINGS_KEY, JSON.stringify(state.balanceSettings));
   await syncBackendSettings();
   el.balanceDialog.close();
   scheduleBalanceRefresh(true);
@@ -2516,10 +2509,10 @@ el.gasForm.addEventListener('submit', async event => {
   };
   if (gasChanged) {
     state.gasBalance = {};
-    localStorage.removeItem(GAS_BALANCE_KEY);
-    localStorage.removeItem(GAS_ALERT_KEY);
+    Treasury.storage.removeItem(GAS_BALANCE_KEY);
+    Treasury.storage.removeItem(GAS_ALERT_KEY);
   }
-  localStorage.setItem(BALANCE_SETTINGS_KEY, JSON.stringify(state.balanceSettings));
+  Treasury.storage.setItem(BALANCE_SETTINGS_KEY, JSON.stringify(state.balanceSettings));
   await syncBackendSettings();
   el.gasDialog.close();
   scheduleBalanceRefresh(true);
@@ -2534,7 +2527,7 @@ el.search.addEventListener('input', () => {
 el.pageSize.addEventListener('change', () => {
   state.pageSize = Number(el.pageSize.value);
   state.page = 1;
-  localStorage.setItem(PAGE_SIZE_KEY, String(state.pageSize));
+  Treasury.storage.setItem(PAGE_SIZE_KEY, String(state.pageSize));
   render();
 });
 el.previousPage.addEventListener('click', () => { if (state.page > 1) { state.page -= 1; render(); } });
@@ -2573,7 +2566,7 @@ el.clearButton.addEventListener('click', async () => {
   if (!state.transactions.length || !confirm('Clear this browser’s cached history? Railway records remain and will resynchronize.')) return;
   state.transactions = [];
   state.summaryAlerts = {};
-  localStorage.removeItem(SUMMARY_ALERTS_KEY);
+  Treasury.storage.removeItem(SUMMARY_ALERTS_KEY);
   saveTransactions();
   render();
 });

@@ -6,8 +6,8 @@
   <meta name="description" content="Digital asset operations dashboard for wallets, transactions, gas and market monitoring">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: wss:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
   <title>Treasury Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260912-recovery-v10">
-</head>
+  <link rel="stylesheet" href="styles.css?v=11">
+<link rel="stylesheet" href="accounts.css?v=11"></head>
 <body data-view="overview">
   <section id="startupDiagnostic" role="alert" class="panel" style="margin:20px;padding:20px;border-color:#b98031" hidden>
     <h2>Application needs attention</h2><p></p><button id="retryStartup" type="button">Reload application</button>
@@ -106,7 +106,7 @@
       </div>
       <div class="address-actions">
         <button class="secondary" id="notificationSettingsButton" type="button">Notification settings</button>
-        <button class="secondary" id="settingsButton" type="button">Connection settings</button>
+        <button class="secondary" id="settingsButton" type="button">Wallet settings</button>
       </div>
     </section>
 
@@ -495,18 +495,8 @@
         <button class="icon-button" value="cancel" aria-label="Close" type="submit">×</button>
       </div>
 
-      <div class="settings-section first-section">
-        <h3>24/7 server <span class="optional">All providers stay on the server</span></h3>
-        <label for="backendUrlInput">Railway backend URL</label>
-        <input id="backendUrlInput" type="url" spellcheck="false" autocomplete="url" placeholder="https://your-service.up.railway.app">
-        <label for="backendTokenInput">Server access token</label>
-        <input id="backendTokenInput" type="password" spellcheck="false" autocomplete="off" placeholder="The ADMIN_TOKEN value from Railway">
-        <p class="hint" id="backendStatus">When connected, settings and provider requests are handled by Railway. Etherscan and CryptoCompare keys stay on the server.</p>
-      </div>
-
-      <input id="endpointInput" type="hidden">
-      <p class="hint">Alchemy, Etherscan and CryptoCompare keys stay in Railway variables.</p>
-
+      <div class="settings-section first-section"><h3>Your wallet settings</h3><p class="hint" id="backendStatus">Signed in. Changes are saved to your account.</p></div>
+      <input id="backendUrlInput" type="hidden"><input id="backendTokenInput" type="hidden"><input id="endpointInput" type="hidden">
       <label for="addressesInput">Ethereum addresses</label>
       <textarea id="addressesInput" spellcheck="false" placeholder="Fireblocks ETH | 0x1234…"></textarea>
       <p class="hint">Add up to 50 addresses. Use “Wallet name | 0x address”, one per line. The name is optional.</p>
@@ -519,6 +509,6 @@
     </form>
   </dialog>
 
-  <script src="app.js?v=20260912-recovery-v10"></script>
+  <script src="session.js?v=11" data-module="app.js"></script>
 </body>
 </html>

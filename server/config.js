@@ -14,7 +14,7 @@ const config = {
   bitgetApiSecret: String(process.env.BITGET_API_SECRET || '').trim(),
   bitgetApiPassphrase: String(process.env.BITGET_API_PASSPHRASE || '').trim(),
   adminToken: String(process.env.ADMIN_TOKEN || '').trim(),
-  frontendOrigins: String(process.env.FRONTEND_ORIGIN || '')
+  frontendOrigins: String(process.env.APP_ORIGIN || process.env.FRONTEND_ORIGIN || '')
     .split(',')
     .map(normalizeOrigin)
     .filter(Boolean),
@@ -37,7 +37,9 @@ function validateEnvironment() {
   const missing = [];
   if (!config.databaseUrl) missing.push('DATABASE_URL');
   if (!/^wss:\/\//.test(config.alchemyWssUrl)) missing.push('ALCHEMY_WSS_URL');
-  if (config.adminToken.length < 24) missing.push('ADMIN_TOKEN (minimum 24 characters)');
+  if (!process.env.APP_ORIGIN) missing.push('APP_ORIGIN');
+  if (!process.env.CREDENTIAL_ENCRYPTION_KEY) missing.push('CREDENTIAL_ENCRYPTION_KEY');
+  if (!config.resendApiKey) missing.push('RESEND_API_KEY');
   return missing;
 }
 

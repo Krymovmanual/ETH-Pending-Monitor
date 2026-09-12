@@ -9,7 +9,7 @@ const state = {
   pendingData: null,
   selected: new Set(loadJson(SELECTION_KEY, [])),
   expanded: new Set(['bitget']),
-  view: localStorage.getItem(VIEW_KEY) === 'account' ? 'account' : 'consolidated',
+  view: Treasury.storage.getItem(VIEW_KEY) === 'account' ? 'account' : 'consolidated',
   tab: 'assets',
   search: '',
   hideZero: true,
@@ -44,7 +44,7 @@ const el = {
 };
 
 function loadJson(key, fallback) {
-  try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
+  try { return JSON.parse(Treasury.storage.getItem(key) || JSON.stringify(fallback)); }
   catch { return fallback; }
 }
 
@@ -52,10 +52,10 @@ function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' })[char]);
 }
 
-function backendUrl() { return String(localStorage.getItem(BACKEND_URL_KEY) || '').trim().replace(/\/$/, ''); }
-function backendToken() { return String(localStorage.getItem(BACKEND_TOKEN_KEY) || '').trim(); }
-function backendConfigured() { return /^https?:\/\//.test(backendUrl()) && backendToken().length >= 24; }
-function headers() { return { Authorization: `Bearer ${backendToken()}` }; }
+function backendUrl() { return location.origin; }
+function backendToken() { return ''; }
+function backendConfigured() { return Boolean(window.Treasury?.user); }
+function headers() { return {}; }
 
 function money(value) {
   if (!Number.isFinite(Number(value))) return '—';
@@ -97,7 +97,7 @@ function initializeSelection() {
 }
 
 function saveSelection() {
-  localStorage.setItem(SELECTION_KEY, JSON.stringify([...state.selected]));
+  Treasury.storage.setItem(SELECTION_KEY, JSON.stringify([...state.selected]));
 }
 
 function renderTree() {
@@ -311,7 +311,7 @@ el.selectAll.addEventListener('click', () => {
 
 document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => {
   state.view = button.dataset.view;
-  localStorage.setItem(VIEW_KEY, state.view);
+  Treasury.storage.setItem(VIEW_KEY, state.view);
   render();
 }));
 

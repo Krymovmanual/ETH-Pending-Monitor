@@ -1,35 +1,38 @@
 const express = require('express');
-const cors = require('cors');
+const path = require('node:path');
+const {createAuth,appOrigin}=require('./auth/service');
+const {createAccounts}=require('./accounts');
+const {createMonitors}=require('./monitors');
 const { config, tokenMatches, validateEnvironment, normalizeOrigin } = require('./config');
 const db = require('./db');
-const { EthereumMonitor } = require('./monitor');
+
 const { sendEmail, sendPush, hasPushConfiguration } = require('./notifier');
 const { proxyAlchemyRpc, fetchEtherscanPendingNonces, fetchCryptoCompareNews } = require('./providers');
 const { GasAnalyticsCollector, RETENTION_DAYS } = require('./gas-analytics');
-const { configured: bitgetConfigured, fetchBitgetAccount, fetchBitgetAccounts } = require('./bitget');
+
 const { fetchWalletBalances, estimateEthereumTransfer } = require('./wallets');
 
 const app = express();
-const monitor = new EthereumMonitor();
+const monitors = createMonitors(db.pool);
+const auth = createAuth(db.pool, async (recipient,subject,fields) => {
+  if (!config.resendApiKey) throw new Error('Email service not configured');
+  await sendEmail(recipient,subject,fields);
+});
+const accounts = createAccounts(db.pool,auth);
 const gasAnalytics = new GasAnalyticsCollector();
 
 app.disable('x-powered-by');
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin || !config.frontendOrigins.length || config.frontendOrigins.includes(normalizeOrigin(origin))) return callback(null, true);
-    return callback(new Error('Origin is not allowed'));
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
-app.use(express.json({ limit: '128kb' }));
-
-function requireAdmin(req, res, next) {
-  const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  if (!config.adminToken) return res.status(503).json({ error: 'ADMIN_TOKEN is not configured on the server' });
-  if (!tokenMatches(token)) return res.status(401).json({ error: 'Invalid access token' });
+app.set('trust proxy', 1);
+app.use(express.json({limit:'128kb'}));
+app.use((req,res,next) => {
+  res.set('X-Content-Type-Options','nosniff'); res.set('Referrer-Policy','no-referrer');
+  res.set('X-Frame-Options','DENY');
+  res.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'");
   next();
-}
+});
+app.use('/api',auth.origin);
+auth.routes(app);
+accounts.routes(app);
 
 function validAddress(value) {
   return /^0x[a-fA-F0-9]{40}$/.test(String(value || ''));
@@ -38,8 +41,8 @@ function validAddress(value) {
 function sanitizeSettings(body) {
   const addresses = [...new Set((Array.isArray(body.addresses) ? body.addresses : [])
     .map(value => String(value).trim().toLowerCase()))];
-  if (!addresses.length || addresses.length > 50 || addresses.some(value => !validAddress(value))) {
-    throw new Error('Enter 1–50 valid Ethereum addresses');
+  if (addresses.length > 50 || addresses.some(value => !validAddress(value))) {
+    throw new Error('Enter up to 50 valid Ethereum addresses');
   }
   const labels = {};
   for (const address of addresses) {
@@ -78,6 +81,8 @@ function sanitizeSettings(body) {
       quietEnd: validTime(body.notificationSettings?.quietEnd) ? body.notificationSettings.quietEnd : '08:00',
     },
     balanceSettings: {
+      enabled: body.balanceSettings?.enabled !== false,
+      balanceInterval: clamp(body.balanceSettings?.balanceInterval, 3600000, 60000, 86400000),
       gasName: String(body.balanceSettings?.gasName || 'Main Gas Station').trim().slice(0, 80),
       gasAddress,
       gasThreshold: clamp(body.balanceSettings?.gasThreshold, 0.1, 0, 1_000_000),
@@ -161,49 +166,23 @@ function ethereumFeePlanner(current) {
   });
 }
 
-app.get('/health', (_req, res) => {
-  const missing = validateEnvironment();
-  const analyticsStatus = gasAnalytics.status();
-  const transactionStatus = monitor.status();
-  res.json({
-    status: 'ok',
-    configured: missing.length === 0,
-    missing,
-    pushConfigured: hasPushConfiguration(),
-    providers: {
-      alchemy: Boolean(config.alchemyWssUrl),
-      etherscan: Boolean(config.etherscanApiKey),
-      cryptoCompare: Boolean(config.cryptoCompareApiKey),
-      bitget: bitgetConfigured(),
-    },
-    gasAnalytics: { connected: analyticsStatus.connected, lastBlockAt: analyticsStatus.lastBlockAt },
-    transactionMonitor: {
-      connected: transactionStatus.connected,
-      monitoredAddresses: transactionStatus.monitoredAddresses,
-      lastConfirmedBlock: transactionStatus.lastConfirmedBlock,
-      lastConfirmedBlockAt: transactionStatus.lastConfirmedBlockAt,
-      error: transactionStatus.error,
-    },
-  });
-});
-
-app.get('/', (_req, res) => {
-  res.json({ service: 'ETH Pending Monitor', status: 'online', health: '/health' });
-});
+app.get('/health', (_req,res) => res.json({status:'ok',version:'11',authentication:'sessions'}));
+app.use(express.static(path.join(__dirname,'../docs'),{index:'index.html',maxAge:0}));
 
 app.get('/api/public-config', (_req, res) => {
   res.json({ pushEnabled: hasPushConfiguration(), vapidPublicKey: config.vapidPublicKey || null });
 });
 
-app.get('/api/settings', requireAdmin, async (_req, res, next) => {
+app.get('/api/settings', auth.requireUser, async (req, res, next) => {
   try { res.json(await db.getSettings()); } catch (error) { next(error); }
 });
 
-app.put('/api/settings', requireAdmin, async (req, res, next) => {
+app.put('/api/settings', auth.requireUser, async (req, res, next) => {
   try {
-    const settings = sanitizeSettings(req.body || {});
+    const settings = sanitizeSettings({...req.body, email:req.user.email});
     await db.saveSettings(settings);
-    await monitor.reconfigure(settings);
+    await monitors.ensure(req.user.id,settings);
+    await auth.audit(req.user.id,'settings_updated',req);
     res.json({ success: true, settings });
   } catch (error) {
     if (/Enter /.test(error.message)) return res.status(400).json({ error: error.message });
@@ -211,17 +190,17 @@ app.put('/api/settings', requireAdmin, async (req, res, next) => {
   }
 });
 
-app.get('/api/transactions', requireAdmin, async (req, res, next) => {
-  try { res.json({ items: await db.recentTransactions(req.query.limit), monitor: monitor.getStatus() }); } catch (error) { next(error); }
+app.get('/api/transactions', auth.requireUser, async (req, res, next) => {
+  try { res.json({ items: await db.recentTransactions(req.query.limit), monitor: monitors.get(req.user.id).getStatus() }); } catch (error) { next(error); }
 });
 
-app.get('/api/gas-analytics', requireAdmin, async (_req, res, next) => {
+app.get('/api/gas-analytics', auth.requireUser, async (req, res, next) => {
   try {
     const settings = await db.getSettings();
     const summary = await db.gasAnalyticsSummary(safeTimezone(settings.timezone));
     const current = gasAnalytics.status().current;
     const analyticsStatus = gasAnalytics.status();
-    const monitorStatus = monitor.status();
+    const monitorStatus = monitors.get(req.user.id).status();
     const minutes = Number(summary.baseline.minutes) || 0;
     let recommendation = { level: 'collecting', label: 'Building baseline', confidence: 'Low' };
     if (current && minutes >= 60) {
@@ -241,15 +220,15 @@ app.get('/api/gas-analytics', requireAdmin, async (_req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.post('/api/providers/alchemy/rpc', requireAdmin, async (req, res, next) => {
-  try { res.json(await proxyAlchemyRpc(req.body)); }
+app.post('/api/providers/alchemy/rpc', auth.requireUser, async (req, res, next) => {
+  try { await auth.limit('rpc:'+req.user.id,1200,60,Array.isArray(req.body)?req.body.length:1); res.json(await proxyAlchemyRpc(req.body)); }
   catch (error) {
     if (/must contain|not allowed|Invalid params/.test(error.message)) return res.status(400).json({error: error.message});
     next(error);
   }
 });
 
-app.post('/api/providers/etherscan/pending-nonces', requireAdmin, async (req, res, next) => {
+app.post('/api/providers/etherscan/pending-nonces', auth.requireUser, async (req, res, next) => {
   try {
     const addresses = [...new Set((Array.isArray(req.body?.addresses) ? req.body.addresses : [])
       .map(value => String(value).trim().toLowerCase()))];
@@ -263,34 +242,34 @@ app.post('/api/providers/etherscan/pending-nonces', requireAdmin, async (req, re
   }
 });
 
-app.get('/api/providers/cryptocompare/news', requireAdmin, async (req, res, next) => {
+app.get('/api/providers/cryptocompare/news', auth.requireUser, async (req, res, next) => {
   try {
-    const force = req.query.refresh === '1';
+    const force = false;
     res.json(await fetchCryptoCompareNews({ force }));
   } catch (error) { next(error); }
 });
 
-app.get('/api/providers/bitget/account', requireAdmin, async (req, res, next) => {
+app.get('/api/providers/bitget/account', auth.requireUser, async (req, res, next) => {
   try {
-    res.json(await fetchBitgetAccount({ force: req.query.refresh === '1' }));
+    res.json(await accounts.summary());
   } catch (error) {
     if (/not configured/.test(error.message)) return res.status(503).json({ error: error.message });
-    console.error(error);
+    console.error('Request failed', error.code || error.status || 'upstream_error');
     res.status(502).json({ error: String(error?.message || 'Bitget account request failed').slice(0, 220) });
   }
 });
 
-app.get('/api/exchanges/accounts', requireAdmin, async (req, res) => {
+app.get('/api/exchanges/accounts', auth.requireUser, async (req, res) => {
   try {
-    res.json(await fetchBitgetAccounts({ force: req.query.refresh === '1' }));
+    res.json(await accounts.all());
   } catch (error) {
     if (/not configured/.test(error.message)) return res.status(503).json({ error: error.message });
-    console.error(error);
+    console.error('Request failed', error.code || error.status || 'upstream_error');
     res.status(502).json({ error: String(error?.message || 'Exchange account request failed').slice(0, 220) });
   }
 });
 
-app.post('/api/wallets/balances', requireAdmin, async (req, res, next) => {
+app.post('/api/wallets/balances', auth.requireUser, async (req, res, next) => {
   try {
     res.json(await fetchWalletBalances(Array.isArray(req.body?.addresses) ? req.body.addresses : []));
   } catch (error) {
@@ -299,7 +278,7 @@ app.post('/api/wallets/balances', requireAdmin, async (req, res, next) => {
   }
 });
 
-app.post('/api/transfers/estimate', requireAdmin, async (req, res) => {
+app.post('/api/transfers/estimate', auth.requireUser, async (req, res) => {
   try {
     res.json(await estimateEthereumTransfer(req.body || {}));
   } catch (error) {
@@ -309,16 +288,19 @@ app.post('/api/transfers/estimate', requireAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/push/subscribe', requireAdmin, async (req, res, next) => {
+app.post('/api/push/subscribe', auth.requireUser, async (req, res, next) => {
   try {
     if (!hasPushConfiguration()) return res.status(503).json({ error: 'Web Push is not configured on the server' });
     if (!req.body?.endpoint || !req.body?.keys?.p256dh || !req.body?.keys?.auth) return res.status(400).json({ error: 'Invalid push subscription' });
-    await db.savePushSubscription(req.body);
+    const endpoint = new URL(req.body.endpoint);
+    const allowedPushHosts=['fcm.googleapis.com','updates.push.services.mozilla.com','web.push.apple.com','notify.windows.com'];
+    if(endpoint.protocol!=='https:'||endpoint.port||!allowedPushHosts.some(host=>endpoint.hostname===host||endpoint.hostname.endsWith('.'+host)))return res.status(400).json({error:'Unsupported browser push service'});
+    await db.savePushSubscription(req.body,req.session.id_hash);
     res.json({ success: true });
   } catch (error) { next(error); }
 });
 
-app.post('/api/test-push', requireAdmin, async (req, res, next) => {
+app.post('/api/test-push', auth.requireUser, async (req, res, next) => {
   try {
     if (!hasPushConfiguration()) return res.status(503).json({ error: 'Web Push is not configured on the server' });
     const requestedUrl = String(req.body?.url || '');
@@ -337,9 +319,9 @@ app.post('/api/test-push', requireAdmin, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.post('/api/test-email', requireAdmin, async (req, res, next) => {
+app.post('/api/test-email', auth.requireUser, async (req, res, next) => {
   try {
-    const email = String(req.body?.email || '').trim();
+    const email = req.user.email;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
     await sendEmail(email, 'ETH Pending Monitor server test', {
       event: 'test',
@@ -350,15 +332,48 @@ app.post('/api/test-email', requireAdmin, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.get('/api/preferences',auth.requireUser,async(req,res)=>{
+  const r=await db.pool.query('SELECT value FROM user_monitor_state WHERE user_id=$1 AND key=$2',[req.user.id,'ui_preferences']);
+  res.json(r.rows[0]?.value||{});
+});
+app.put('/api/preferences',auth.requireUser,async(req,res)=>{
+  const allowed=['treasury-wallet-sources','treasury-transfer-drafts','treasury-exchange-selection','treasury-exchange-view'];
+  const value={};for(const key of allowed)if(typeof req.body?.[key]==='string'&&req.body[key].length<=20000)value[key]=req.body[key];
+  await db.saveMonitorState('ui_preferences',value);res.json({success:true});
+});
+app.post('/api/owner/import',auth.requireUser,async(req,res)=>{
+  if(!process.env.BOOTSTRAP_OWNER_EMAIL||req.user.email!==process.env.BOOTSTRAP_OWNER_EMAIL.trim().toLowerCase())return res.status(403).json({error:'Owner access required'});
+  await auth.factor(req);
+  await auth.tx(async client=>{
+    const user=(await client.query('SELECT * FROM users WHERE id=$1 FOR UPDATE',[req.user.id])).rows[0];
+    if(user.legacy_imported)throw Object.assign(new Error('Previous workspace has already been imported'),{status:409});
+    const old=(await client.query('SELECT settings FROM app_settings WHERE id=1')).rows[0]?.settings;
+    if(old){old.email=req.user.email;await client.query('INSERT INTO user_settings(user_id,settings) VALUES($1,$2::jsonb) ON CONFLICT(user_id) DO NOTHING',[req.user.id,JSON.stringify(old)]);}
+    await client.query(`INSERT INTO user_transactions(user_id,hash,from_address,to_address,nonce,status,first_seen,last_seen,missing_checks,replacement_hash,tx_data)
+      SELECT $1,hash,from_address,to_address,nonce,status,first_seen,last_seen,missing_checks,replacement_hash,tx_data FROM transactions ON CONFLICT(user_id,hash) DO NOTHING`,[req.user.id]);
+    await client.query("INSERT INTO user_monitor_state(user_id,key,value) SELECT $1,key,value FROM monitor_state ON CONFLICT(user_id,key) DO NOTHING",[req.user.id]);
+    await client.query('UPDATE users SET legacy_imported=TRUE WHERE id=$1',[req.user.id]);
+  });
+  await monitors.ensure(req.user.id,await db.getSettings());await auth.audit(req.user.id,'legacy_imported',req);res.json({success:true});
+});
+
 app.use((error, _req, res, _next) => {
-  console.error(error);
-  res.status(500).json({ error: 'Server request failed' });
+  console.error('Request failed', error.code || error.status || 'upstream_error');
+  res.status(error.status || (error.code==='23505'?409:500)).json({error:error.status?error.message:error.code==='23505'?'This name is already in use':'Server request failed'});
 });
 
 async function boot() {
   await db.initializeDatabase();
-  gasAnalytics.start();
-  await monitor.start();
+  await auth.initialize();
+  if (process.env.DISABLE_MONITORS !== 'true') gasAnalytics.start();
+  await monitors.start();
+  const cleanup=async()=>{
+    await db.pool.query("DELETE FROM sessions WHERE expires_at<NOW() OR last_seen<NOW()-INTERVAL '7 days'; DELETE FROM email_tokens WHERE expires_at<NOW(); DELETE FROM request_limits WHERE reset_at<NOW(); DELETE FROM security_events WHERE created_at<NOW()-INTERVAL '30 days';");
+    await db.pool.query(`DELETE FROM user_transactions WHERE (user_id,hash) IN (
+      SELECT user_id,hash FROM (SELECT user_id,hash,ROW_NUMBER() OVER(PARTITION BY user_id ORDER BY first_seen DESC) AS row_number FROM user_transactions WHERE status<>'pending') ranked WHERE row_number>2000)`);
+  };
+  cleanup().catch(()=>console.error('Cleanup failed'));
+  setInterval(()=>cleanup().catch(()=>console.error('Cleanup failed')),3600000).unref();
   app.listen(config.port, '0.0.0.0', () => {
     const missing = validateEnvironment();
     console.log(`ETH Pending Monitor server listening on port ${config.port}`);
@@ -368,12 +383,13 @@ async function boot() {
 
 async function shutdown(signal) {
   console.log(`${signal} received, shutting down`);
-  monitor.stop();
+  monitors.stop();
   await gasAnalytics.stop();
   await db.pool.end();
   process.exit(0);
 }
 
+if (require.main === module) {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
@@ -381,3 +397,6 @@ boot().catch(error => {
   console.error('Startup failed:', error);
   process.exit(1);
 });
+
+}
+module.exports={app,auth,accounts,boot};

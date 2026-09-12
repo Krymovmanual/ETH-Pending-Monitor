@@ -1,15 +1,15 @@
 {
   "name": "eth-pending-monitor-server",
-  "version": "1.0.0",
+  "version": "11.0.0",
   "private": true,
-  "description": "24/7 backend for ETH Pending Monitor",
+  "description": "Treasury Operations Center with isolated user accounts",
   "main": "server/index.js",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "start": "node server/index.js",
-    "check": "node --check server/index.js && node --check server/monitor.js && node --check server/gas-analytics.js && node --check server/bitget.js && node --check server/wallets.js && node --check server/db.js && node --check server/notifier.js && node --check server/providers.js && node --check server/config.js && node --check docs/app.js && node --check docs/exchanges.js && node --check docs/transfers.js && node --check docs/sw.js",
+    "check": "node scripts/check.js",
     "test": "node --test tests/*.test.js"
   },
   "dependencies": {
@@ -18,5 +18,10 @@
     "pg": "^8.16.3",
     "web-push": "^3.6.7",
     "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@playwright/test": "^1.63.0",
+    "@sparticuz/chromium": "^153.0.0"
   }
 }

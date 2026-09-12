@@ -14,6 +14,6 @@
   window.addEventListener('unhandledrejection', () => show('An operation failed unexpectedly. Saved settings remain. Check the connection status and retry.'));
   window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('retryStartup')?.addEventListener('click', () => location.reload());
-    if (!window.treasuryBootComplete) show('Application startup did not finish. Reload this page to obtain the latest application files.');
+    if (!window.treasuryBootComplete && !window.treasurySessionLoading) show('Application startup did not finish. Reload this page to obtain the latest application files.');
   });
 })();

@@ -30,17 +30,17 @@ const el = Object.fromEntries([
 ].map(id => [id, document.querySelector(`#${id}`)]));
 
 function loadJson(key, fallback) {
-  try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
+  try { return JSON.parse(Treasury.storage.getItem(key) || JSON.stringify(fallback)); }
   catch { return fallback; }
 }
 
-function saveJson(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
+function saveJson(key, value) { Treasury.storage.setItem(key, JSON.stringify(value)); }
 function validAddress(value) { return /^0x[a-fA-F0-9]{40}$/.test(String(value || '').trim()); }
 function shortAddress(value) { const address = String(value || ''); return address ? `${address.slice(0, 8)}…${address.slice(-6)}` : '—'; }
-function backendUrl() { return String(localStorage.getItem(BACKEND_URL_KEY) || '').trim().replace(/\/$/, ''); }
-function backendToken() { return String(localStorage.getItem(BACKEND_TOKEN_KEY) || '').trim(); }
-function backendConfigured() { return /^https?:\/\//.test(backendUrl()) && backendToken().length >= 24; }
-function backendHeaders(json = false) { return { Authorization:`Bearer ${backendToken()}`, ...(json ? { 'Content-Type':'application/json' } : {}) }; }
+function backendUrl() { return location.origin; }
+function backendToken() { return ''; }
+function backendConfigured() { return Boolean(window.Treasury?.user); }
+function backendHeaders(json = false) { return json ? {'Content-Type':'application/json'} : {}; }
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' })[char]);

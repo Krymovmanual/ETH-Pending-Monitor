@@ -11,12 +11,14 @@ function application(stored = {}, fetchImpl = async () => { throw Error('offline
     closest(){return null;}, addEventListener(){}, setAttribute(){}, removeAttribute(){},
     querySelectorAll(){return [];}, showModal(){this.open=true;}, value:'all', textContent:'', innerHTML:'' });
   const nodes = {};
+  const Treasury = {user:null,storage:{getItem(key){return stored[key] ?? null;},removeItem(key){delete stored[key];},setItem(key,value){stored[key]=value;}}};
   const context = vm.createContext({
+    Treasury,
     document: {body:element(), querySelector(selector) {
       if (selector.startsWith('#') && !html.includes(`id="${selector.slice(1)}"`)) return null;
       return nodes[selector] ||= element();
     }, querySelectorAll(){return [];}, addEventListener(){}},
-    window: {location:{search:'?view=wallets'},addEventListener(){}}, location:{}, navigator:{},
+    window: {Treasury,location:{search:'?view=wallets'},addEventListener(){}}, location:{origin:'https://example.test'}, navigator:{},
     localStorage:{getItem(key){return stored[key] ?? null;},removeItem(key){delete stored[key];},setItem(key,value){stored[key]=value;}},
     URLSearchParams, URL, AbortSignal, console, Intl, fetch:fetchImpl,
     setInterval(){},setTimeout(){},clearInterval(){},clearTimeout(){},
@@ -34,13 +36,13 @@ test('null cached objects do not crash startup', () => {
   const app=application(Object.fromEntries(['news-cache','wallet-balances','gas-balance','address-labels','token-cache','summary-alerts'].map(key=>['eth-pending-monitor-'+key,'null'])));
   assert.equal(app.context.window.treasuryBootComplete,true);
 });
-test('Alchemy RPC uses authenticated backend, never the supplied browser endpoint',async()=>{
+test('Alchemy RPC uses session backend, never the supplied browser endpoint',async()=>{
   const calls=[];
   const app=application({},async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({result:'0x1'})};});
-  app.run("state.backendUrl='https://example.test'; state.backendToken='abcdefghijklmnopqrstuvwx'");
+  app.run("state.backendUrl='https://example.test'; Treasury.user={id:'test'}");
   assert.equal(await app.run("rpc('https://secret.alchemy.test', 'eth_gasPrice', [])"),'0x1');
   assert.equal(calls[0].url,'https://example.test/api/providers/alchemy/rpc');
-  assert.match(calls[0].options.headers.Authorization,/^Bearer /);
+  assert.equal(calls[0].options.headers.Authorization,undefined);
 });
 test('nonce normalization is idempotent',()=>{
   const {EthereumMonitor}=require('../server/monitor');
@@ -59,7 +61,7 @@ test('missing block cannot advance scanner checkpoint',async()=>{
 });
 test('authorization failure is actionable', async()=>{
   const app=application({},async()=>({ok:false,status:401,json:async()=>({error:'Unauthorized'})}));
-  app.run("state.backendUrl='https://example.test'; state.backendToken='abcdefghijklmnopqrstuvwx'");
+  app.run("state.backendUrl='https://example.test'; Treasury.user={id:'test'}");
   await assert.rejects(app.run("rpc('', 'eth_gasPrice', [])"),/check your server access token/);
 });
 test('missing receipt cannot mark a transaction confirmed',async()=>{

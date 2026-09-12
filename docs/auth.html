@@ -1,0 +1,9 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Sign in · Treasury</title><link rel="stylesheet" href="styles.css?v=11"><link rel="stylesheet" href="accounts.css?v=11"></head>
+<body><main class="account-shell"><p class="eyebrow">TREASURY OPERATIONS CENTER</p><h1>Your asset workspace</h1><p class="muted">Your wallets. Your exchange accounts. Your view.</p>
+<section class="panel account-panel"><nav class="auth-tabs" aria-label="Account action"><button data-mode="login">Sign in</button><button data-mode="register">Create account</button><button data-mode="forgot">Reset password</button></nav>
+<h2 id="authTitle">Sign in</h2><form method="post" id="authForm">
+<label id="emailLabel">Email<input id="email" type="email" autocomplete="email" maxlength="254" required></label>
+<label id="passwordLabel">Password<input id="password" type="password" autocomplete="current-password" minlength="12" maxlength="128" required></label>
+<label id="codeLabel" hidden>Authenticator or recovery code<input id="code" type="text" autocomplete="one-time-code" maxlength="32"></label>
+<p id="authHint" class="muted"></p><button id="submitAuth" type="submit">Sign in</button>
+</form><p id="authResult" role="status"></p><button class="secondary" id="resend">Resend verification email</button></section></main><script src="auth.js?v=11"></script></body></html>

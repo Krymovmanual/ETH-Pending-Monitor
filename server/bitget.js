@@ -1,6 +1,8 @@
 const crypto = require('node:crypto');
-const { config } = require('./config');
 
+
+function createBitgetClient(credentials) {
+const config = {bitgetApiKey:credentials.apiKey,bitgetApiSecret:credentials.secret,bitgetApiPassphrase:credentials.passphrase};
 const BASE_URL = 'https://api.bitget.com';
 const CACHE_MS = 20_000;
 const POSITION_CATEGORIES = ['USDT-FUTURES', 'USDC-FUTURES', 'COIN-FUTURES'];
@@ -239,4 +241,15 @@ async function fetchBitgetAccounts(options = {}) {
   return toExchangeAccounts(await fetchBitgetAccount(options));
 }
 
-module.exports = { configured, fetchBitgetAccount, fetchBitgetAccounts, toExchangeAccounts, normalizeAsset, normalizePosition, signedHeaders };
+return { fetchBitgetAccount, fetchBitgetAccounts, toExchangeAccounts, normalizeAsset, normalizePosition, signedHeaders,
+  async validateReadOnly() {
+    const info = await request('/api/v2/spot/account/info');
+    const permissions = info?.authorities;
+    if (!Array.isArray(permissions) || !permissions.length || permissions.some(p => !['readonly', 'read-only', 'read_only'].includes(String(p).toLowerCase()))) {
+      throw new Error('Use an API key with read-only permission. The exchange did not confirm read-only access.');
+    }
+    await request('/api/v3/account/assets');
+  }
+};
+}
+module.exports = {createBitgetClient};
