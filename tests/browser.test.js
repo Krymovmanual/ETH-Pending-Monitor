@@ -18,9 +18,13 @@ test('browser: login, 2FA, add account, all tabs, logout and other user',async t
   const form=page.locator('#addExchangeForm');for(const [name,value]of Object.entries({name:'Personal Bitget',apiKey:'fixture-key',secret:'fixture-secret',passphrase:'fixture-passphrase',code:codes[0]}))await form.locator(`[name="${name}"]`).fill(value);
   await form.locator('[name="readOnlyConfirmed"]').check();
   await form.locator('#submitAddExchange').click();await page.getByText('Personal Bitget · Unified',{exact:true}).waitFor();
+  await page.goto(f.origin+'/index.html');await page.waitForFunction(()=>window.treasuryBootComplete===true);await page.locator('#overviewAccountGrid').getByText('Personal Bitget · Unified',{exact:true}).waitFor();await page.locator('#settingsDialog').evaluate(dialog=>dialog.open&&dialog.close());
+  await page.screenshot({path:require('node:path').join(__dirname,'../overview-preview.png'),fullPage:true});
+  await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth),true);await page.screenshot({path:require('node:path').join(__dirname,'../overview-mobile-preview.png'),fullPage:true});await page.setViewportSize({width:1440,height:1000});
+  await page.getByRole('link',{name:'Add account',exact:true}).click();await page.locator('#addExchangeDialog').waitFor({state:'visible'});await page.locator('#closeAddExchange').click();
   for(const path of ['exchanges.html','transfers.html','index.html?view=networks','index.html?view=market','index.html?view=wallets']){
     await page.goto(f.origin+'/'+path);await page.locator('.session-bar').waitFor();
-    await page.waitForFunction(()=>document.querySelector('script[src$="?v=11"]')&&window.Treasury?.user);
+    await page.waitForFunction(()=>document.querySelector('script[src$="?v=13"]')&&window.Treasury?.user);
     await page.waitForTimeout(250);
   }
   await page.goto(f.origin+'/security.html');await page.locator('#connections').getByText('Personal Bitget',{exact:true}).waitFor();

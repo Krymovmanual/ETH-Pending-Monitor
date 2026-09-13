@@ -23,6 +23,7 @@ function application(stored = {}, fetchImpl = async () => { throw Error('offline
     URLSearchParams, URL, AbortSignal, console, Intl, fetch:fetchImpl,
     setInterval(){},setTimeout(){},clearInterval(){},clearTimeout(){},
   });
+  vm.runInContext(fs.readFileSync(path.join(root, 'docs/overview-data.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(root, 'docs/app.js'),'utf8'),context);
   return {context,nodes,run:source=>vm.runInContext(source,context)};
 }

@@ -29,3 +29,10 @@ test('Binance adapter blocks enabled write permissions and returns spot assets',
 test('Gate.io adapter signs read requests and maps spot assets',async()=>withFetch(async url=>{
   const value=String(url);if(value.includes('/spot/accounts'))return Response.json([{currency:'USDT',available:'20',locked:'2'}]);return Response.json([]);
 },async()=>{const client=createGateClient(credentials);await client.validateReadOnly();const data=await client.fetchAccounts();assert.equal(data.accounts[0].assets[0].equity,22);}));
+
+test('Gate.io adapter treats an unopened BTC futures account as optional',async()=>withFetch(async url=>{
+  const value=String(url);
+  if(value.includes('/spot/accounts'))return Response.json([]);
+  if(value.includes('/futures/btc/'))return Response.json({label:'ACCOUNT_NOT_FOUND',message:'please transfer funds first to create futures account'},{status:400});
+  return Response.json([]);
+},async()=>{const data=await createGateClient(credentials).fetchAccounts();assert.deepEqual(data.warnings,[]);assert.equal(data.accounts.some(account=>account.type==='futures-btc'),false);}));

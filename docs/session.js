@@ -50,7 +50,7 @@
     const status=document.createElement('span');status.id='sessionStatus';status.setAttribute('role','status');
     const logout=document.createElement('button');logout.type='button';logout.className='secondary';logout.textContent='Sign out';logout.onclick=()=>Treasury.logout();
     bar.append(email,link,status,logout);document.body.prepend(bar);
-    const script=document.createElement('script');script.src=moduleName+'?v=11';document.body.append(script);
+    const script=document.createElement('script');script.src=moduleName+'?v=13';document.body.append(script);
   }
   start().catch(error=>{
     const panel=document.createElement('div');panel.className='panel';panel.style.padding='24px';panel.textContent=error.message;document.body.prepend(panel);

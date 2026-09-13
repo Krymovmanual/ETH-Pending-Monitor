@@ -237,18 +237,21 @@ const el = {
   overviewSettingsButton: document.querySelector('#overviewSettingsButton'),
   refreshOverviewButton: document.querySelector('#refreshOverviewButton'),
   overviewExchangeEquity: document.querySelector('#overviewExchangeEquity'),
+  overviewExchangeScope: document.querySelector('#overviewExchangeScope'),
   overviewUnrealizedPnl: document.querySelector('#overviewUnrealizedPnl'),
-  overviewOpenPositions: document.querySelector('#overviewOpenPositions'),
-  overviewWalletCount: document.querySelector('#overviewWalletCount'),
+  overviewAvailableBalance: document.querySelector('#overviewAvailableBalance'),
+  overviewAttentionMetric: document.querySelector('#overviewAttentionMetric'),
+  overviewAttentionContext: document.querySelector('#overviewAttentionContext'),
   overviewAttentionCount: document.querySelector('#overviewAttentionCount'),
   overviewAttentionList: document.querySelector('#overviewAttentionList'),
   overviewSystemBadge: document.querySelector('#overviewSystemBadge'),
   overviewSystemLabel: document.querySelector('#overviewSystemLabel'),
-  overviewSystemGrid: document.querySelector('#overviewSystemGrid'),
+  overviewUpdatedAt: document.querySelector('#overviewUpdatedAt'),
   overviewAccountGrid: document.querySelector('#overviewAccountGrid'),
+  overviewAccountsMeta: document.querySelector('#overviewAccountsMeta'),
+  overviewAccountsFoot: document.querySelector('#overviewAccountsFoot'),
   overviewExposureBody: document.querySelector('#overviewExposureBody'),
-  overviewActivityList: document.querySelector('#overviewActivityList'),
-  overviewNewsGrid: document.querySelector('#overviewNewsGrid'),
+  overviewAllocationBody: document.querySelector('#overviewAllocationBody'),
 };
 
 function loadAddresses() {
@@ -1841,19 +1844,21 @@ function overviewStatusMarkup(label, detail, level = 'ok', href = '') {
 
 function renderOverview() {
   if (!el.overviewExchangeEquity) return;
-  const exchange = state.exchangeData;
-  const summary = exchange?.summary || {};
-  const positions = Array.isArray(exchange?.positions) ? exchange.positions : [];
+  const overview = window.TreasuryOverview.summarize(state.exchangeData);
+  const accounts = overview.accounts;
+  const positions = overview.positions;
   const pending = state.transactions.filter(tx => tx.status === 'pending');
   const problems = state.transactions.filter(tx => ['dropped', 'replaced', 'failed'].includes(tx.status));
   const blockerCount = pending.filter(tx => queueInfo(tx)?.role === 'blocker').length;
-  const pnl = Number(summary.unrealisedPnl);
+  const pnl = overview.pnl.value;
 
-  el.overviewExchangeEquity.textContent = exchangeMoney(summary.accountEquity);
-  el.overviewUnrealizedPnl.textContent = Number.isFinite(pnl) ? exchangeSignedMoney(pnl) : '—';
-  el.overviewUnrealizedPnl.className = Number.isFinite(pnl) ? (pnl > 0 ? 'positive' : pnl < 0 ? 'negative' : 'neutral') : '';
-  el.overviewOpenPositions.textContent = exchange ? String(positions.length) : '—';
-  el.overviewWalletCount.textContent = String(state.addresses.length);
+  el.overviewExchangeEquity.textContent = exchangeMoney(overview.equity.value);
+  el.overviewExchangeScope.textContent = accounts.length
+    ? `${overview.exchangeCount} exchange${overview.exchangeCount === 1 ? '' : 's'} · ${accounts.length} account${accounts.length === 1 ? '' : 's'}`
+    : 'No exchange accounts connected';
+  el.overviewUnrealizedPnl.textContent = pnl !== null ? exchangeSignedMoney(pnl) : '—';
+  el.overviewUnrealizedPnl.className = pnl !== null ? (pnl > 0 ? 'positive' : pnl < 0 ? 'negative' : 'neutral') : '';
+  el.overviewAvailableBalance.textContent = exchangeMoney(overview.available.value);
 
   const attention = [];
   if (blockerCount) attention.push({ label:`${blockerCount} nonce blocker${blockerCount === 1 ? '' : 's'}`, detail:'Higher nonce transactions may be unable to confirm.', level:'critical', href:'index.html?view=wallets' });
@@ -1861,6 +1866,7 @@ function renderOverview() {
   if (state.pendingSyncError) attention.push({ label:'Pending synchronization unavailable', detail:state.pendingSyncError, level:'warning', href:'index.html?view=wallets' });
   if (state.transactionSyncError) attention.push({ label:'Railway transaction history unavailable', detail:state.transactionSyncError, level:'warning', href:'index.html?view=wallets' });
   if (state.exchangeError) attention.push({ label:'Exchange update failed', detail:state.exchangeError, level:'critical', href:'exchanges.html' });
+  overview.warnings.slice(0, 3).forEach(warning => attention.push({ label:'Exchange data partially unavailable', detail:warning, level:'warning', href:'exchanges.html' }));
   if (state.gasAnalyticsError) attention.push({ label:'Gas Analytics unavailable', detail:state.gasAnalyticsError, level:'warning', href:'index.html?view=networks' });
   if (state.gasAnalytics?.current?.spike) attention.push({ label:'Ethereum gas spike detected', detail:`Standard fee is ${gasNumber(state.gasAnalytics.current.standard)} Gwei.`, level:'warning', href:'index.html?view=networks' });
   if (validAddress(state.balanceSettings.gasAddress) && (state.gasBalance.raw || state.gasBalance.raw === '0')) {
@@ -1869,6 +1875,9 @@ function renderOverview() {
   }
   if (problems.length) attention.push({ label:`${problems.length} transaction issue${problems.length === 1 ? '' : 's'} in history`, detail:'Dropped, replaced or failed transactions require review.', level:'warning', href:'index.html?view=wallets' });
 
+  el.overviewAttentionMetric.textContent = String(attention.length);
+  el.overviewAttentionMetric.className = attention.some(item => item.level === 'critical') ? 'negative' : attention.length ? 'warning' : 'positive';
+  el.overviewAttentionContext.textContent = attention.length ? `${attention.filter(item => item.level === 'critical').length} critical · ${attention.filter(item => item.level === 'warning').length} warning` : 'Nothing needs review';
   el.overviewAttentionCount.textContent = String(attention.length);
   el.overviewAttentionCount.classList.toggle('clear', attention.length === 0);
   el.overviewAttentionList.innerHTML = attention.length
@@ -1876,24 +1885,26 @@ function renderOverview() {
     : overviewStatusMarkup('No action required', 'Connected systems report no active operational issues.', 'ok');
 
   const websocketLive = Boolean(state.serverMonitorStatus?.connected && state.serverMonitorStatus?.subscriptions >= 2);
+  const websocketHealthy = !state.addresses.length || websocketLive;
   const railwayHealthy = backendConfigured() && !state.exchangeError && !state.gasAnalyticsError && !state.transactionSyncError;
-  const allHealthy = websocketLive && railwayHealthy;
+  const allHealthy = websocketHealthy && railwayHealthy && !overview.warnings.length;
   el.overviewSystemBadge.classList.toggle('live', allHealthy);
-  el.overviewSystemBadge.classList.toggle('error', !allHealthy);
-  el.overviewSystemLabel.textContent = allHealthy ? 'Operational' : 'Check systems';
-  const gas = state.gasAnalytics?.current;
-  el.overviewSystemGrid.innerHTML = [
-    {label:'Alchemy live stream', value:websocketLive ? 'Connected' : backendConfigured() ? 'Reconnecting' : 'Not configured', level:websocketLive ? 'ok' : 'warning'},
-    {label:'Railway backend', value:backendConfigured() ? 'Configured' : 'Not configured', level:backendConfigured() ? 'ok' : 'critical'},
-    {label:'Bitget account', value:exchange ? `Updated ${age(exchange.updatedAt)} ago` : state.exchangeLoading ? 'Connecting' : 'Unavailable', level:exchange ? 'ok' : 'warning'},
-    {label:'Ethereum standard gas', value:gas ? `${gasNumber(gas.standard)} Gwei` : 'Collecting', level:gas?.spike ? 'warning' : gas ? 'ok' : 'neutral'},
-  ].map(item => `<div class="overview-system-item"><span>${escapeHtml(item.label)}</span><strong class="${item.level}">${escapeHtml(item.value)}</strong></div>`).join('');
+  el.overviewSystemBadge.classList.toggle('error', !railwayHealthy);
+  el.overviewSystemBadge.classList.toggle('warning', railwayHealthy && !allHealthy);
+  el.overviewSystemLabel.textContent = allHealthy ? 'All systems operational' : railwayHealthy ? 'Partial data available' : 'Systems need attention';
+  el.overviewUpdatedAt.textContent = overview.updatedAt ? `Exchange data updated ${age(overview.updatedAt)} ago` : state.exchangeLoading ? 'Updating exchange accounts' : 'Waiting for exchange data';
 
-  const assetCount = Array.isArray(exchange?.assets) ? exchange.assets.length : 0;
-  const accountCards = [];
-  if (exchange) accountCards.push(`<a class="overview-account-card" href="exchanges.html"><div><span class="account-provider">BITGET</span><h3>${escapeHtml(exchange.accountType || 'Unified Account')}</h3><p>${assetCount} non-zero assets · ${positions.length} open positions</p></div><div class="account-value"><strong>${exchangeMoney(summary.accountEquity)}</strong><small>${Number.isFinite(pnl) ? `${exchangeSignedMoney(pnl)} open PnL` : 'PnL unavailable'}</small></div></a>`);
-  accountCards.push(`<a class="overview-account-card" href="index.html?view=wallets"><div><span class="account-provider">ON-CHAIN</span><h3>Monitored wallets</h3><p>Ethereum balances and pending activity</p></div><div class="account-value"><strong>${state.addresses.length}</strong><small>${pending.length} pending</small></div></a>`);
-  el.overviewAccountGrid.innerHTML = accountCards.join('');
+  const accountRows = [...accounts].sort((left, right) => `${left.exchangeName} ${left.name}`.localeCompare(`${right.exchangeName} ${right.name}`));
+  el.overviewAccountsMeta.textContent = accounts.length ? `${overview.exchangeCount} connected exchange${overview.exchangeCount === 1 ? '' : 's'} · ${accounts.length} account${accounts.length === 1 ? '' : 's'}` : 'Connect an exchange to begin';
+  el.overviewAccountGrid.innerHTML = accountRows.length ? accountRows.map(account => {
+    const equity = window.TreasuryOverview.accountValue(account, 'equityUsd');
+    const accountPnl = window.TreasuryOverview.accountValue(account, 'unrealisedPnl');
+    const accountPositions = Array.isArray(account.positions) ? account.positions.length : 0;
+    const status = overview.statusByExchange.get(account.exchangeId) || 'connected';
+    const statusLabel = status === 'partial' ? 'Partial' : status === 'error' ? 'Unavailable' : 'Connected';
+    return `<tr><td><a class="overview-account-name" href="exchanges.html"><span class="overview-account-mark">${escapeHtml(String(account.exchangeName || '?').slice(0, 1))}</span><span><strong>${escapeHtml(account.name || account.exchangeName || 'Exchange account')}</strong><small>${escapeHtml(account.exchangeName || account.exchangeId || '')} · ${escapeHtml(String(account.type || 'account').replaceAll('-', ' '))} · ${escapeHtml(statusLabel)}</small></span></a></td><td><span class="overview-account-status ${escapeHtml(status)}"><i></i>${escapeHtml(statusLabel)}</span></td><td>${exchangeMoney(equity)}</td><td class="${accountPnl > 0 ? 'positive' : accountPnl < 0 ? 'negative' : 'neutral'}">${accountPnl !== null ? exchangeSignedMoney(accountPnl) : '—'}</td><td>${accountPositions}</td></tr>`;
+  }).join('') : '<tr><td colspan="5"><div class="overview-empty">No exchange accounts connected. Add a read-only API key to begin.</div></td></tr>';
+  el.overviewAccountsFoot.textContent = accounts.length ? `${overview.equity.count} of ${accounts.length} accounts currently provide a known USD equity value.` : '';
 
   const exposure = new Map();
   positions.forEach(position => {
@@ -1911,16 +1922,10 @@ function renderOverview() {
     return `<tr><td><strong>${escapeHtml(row.asset)}</strong><small>${row.count} position${row.count === 1 ? '' : 's'}</small></td><td>${exchangeMoney(row.long + row.short)}</td><td class="${net > 0 ? 'positive' : net < 0 ? 'negative' : 'neutral'}">${exchangeSignedMoney(net)}</td><td class="${row.pnl > 0 ? 'positive' : row.pnl < 0 ? 'negative' : 'neutral'}">${exchangeSignedMoney(row.pnl)}</td></tr>`;
   }).join('')}</tbody></table></div>` : '<div class="overview-empty">No open exchange positions.</div>';
 
-  const recent = [...state.transactions].sort((a, b) => b.firstSeen - a.firstSeen).slice(0, 5);
-  el.overviewActivityList.innerHTML = recent.length ? recent.map(tx => overviewStatusMarkup(
-    `${statusLabel(tx.status)} · ${transactionAmount(tx)}`,
-    `${walletLabel(tx.matchedAddress || tx.from)} · nonce ${tx.nonce} · ${age(tx.firstSeen)} ago`,
-    tx.status === 'confirmed' ? 'ok' : tx.status === 'pending' ? 'warning' : 'critical',
-    `https://etherscan.io/tx/${tx.hash}`,
-  )).join('') : overviewStatusMarkup('No recent activity', 'New monitored transactions will appear here.', 'neutral');
-
-  const news = [...state.newsItems].sort((a, b) => b.publishedAt - a.publishedAt).slice(0, 3);
-  el.overviewNewsGrid.innerHTML = news.length ? news.map(item => `<article class="overview-news-card"><div class="news-meta"><span class="news-source">${escapeHtml(item.source)}</span><time datetime="${new Date(item.publishedAt).toISOString()}">${age(item.publishedAt)} ago</time></div><h3><a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a></h3><p>${escapeHtml(item.summary || 'Open the article to read the full story.')}</p></article>`).join('') : '<div class="overview-empty">Market news is loading.</div>';
+  const allocationTotal = overview.allocation.reduce((sum, venue) => sum + Math.max(0, venue.value), 0);
+  el.overviewAllocationBody.innerHTML = allocationTotal > 0
+    ? `<div class="overview-allocation-bar" aria-label="Exchange allocation">${overview.allocation.map((venue, index) => `<span class="venue-${index % 5}" style="width:${Math.max(0, venue.value) / allocationTotal * 100}%" title="${escapeHtml(venue.name)}"></span>`).join('')}</div><div class="overview-allocation-list">${overview.allocation.map((venue, index) => `<div><span><i class="venue-${index % 5}"></i>${escapeHtml(venue.name)}</span><strong>${exchangeMoney(venue.value)}<small>${Math.round(Math.max(0, venue.value) / allocationTotal * 100)}%</small></strong></div>`).join('')}</div><p class="overview-allocation-note">Accounts without a verified USD value are listed above but excluded from allocation.</p>`
+    : '<div class="overview-empty">USD allocation becomes available when connected accounts provide equity values.</div>';
 }
 
 function render() {
@@ -2163,13 +2168,13 @@ async function updateExchangeAccount({ force = false } = {}) {
   state.exchangeError = '';
   renderExchangeAccount();
   try {
-    const url = `${normalizedBackendUrl()}/api/providers/bitget/account${force ? '?refresh=1' : ''}`;
+    const url = `${normalizedBackendUrl()}/api/exchanges/accounts${force ? '?refresh=1' : ''}`;
     const response = await fetch(url, { headers: backendHeaders(), cache: 'no-store' });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error || `Bitget returned ${response.status}`);
+    if (!response.ok) throw new Error(body.error || `Exchange service returned ${response.status}`);
     state.exchangeData = body;
   } catch (error) {
-    state.exchangeError = error?.message || 'Bitget account update failed';
+    state.exchangeError = error?.message || 'Exchange account update failed';
   } finally {
     state.exchangeLoading = false;
     renderExchangeAccount();
@@ -2344,7 +2349,6 @@ async function refreshOverviewData() {
   el.refreshOverviewButton.textContent = 'Refreshing…';
   const tasks = [
     updateExchangeAccount({ force:true }),
-    updateNews({ force:true }),
     updateGasAnalytics(),
   ];
   if (state.balanceSettings.enabled) tasks.push(updateWalletBalances());
@@ -2353,12 +2357,12 @@ async function refreshOverviewData() {
   if (backendConfigured()) tasks.push(syncServerTransactions({ force:true }));
   await Promise.allSettled(tasks);
   el.refreshOverviewButton.disabled = false;
-  el.refreshOverviewButton.textContent = 'Refresh all';
+  el.refreshOverviewButton.textContent = 'Refresh';
   render();
 }
 
 el.settingsButton.addEventListener('click', openSettings);
-el.overviewSettingsButton.addEventListener('click', openSettings);
+el.overviewSettingsButton?.addEventListener('click', openSettings);
 el.notificationSettingsButton.addEventListener('click', openNotificationSettings);
 el.refreshOverviewButton.addEventListener('click', refreshOverviewData);
 el.newsFilter.addEventListener('change', () => {
@@ -2579,11 +2583,11 @@ if (['overview', 'wallets'].includes(CURRENT_VIEW)) {
   scheduleNotificationChecks();
   scheduleServerTransactionSync();
 }
-if (['overview', 'market'].includes(CURRENT_VIEW)) scheduleNewsRefresh(); else renderNews();
+if (CURRENT_VIEW === 'market') scheduleNewsRefresh(); else renderNews();
 if (['overview', 'networks'].includes(CURRENT_VIEW)) scheduleGasAnalyticsRefresh(); else renderGasAnalytics();
 if (CURRENT_VIEW === 'overview') scheduleExchangeRefresh(); else renderExchangeAccount();
 setInterval(render, 1000);
-if (['overview', 'market'].includes(CURRENT_VIEW)) setInterval(renderNews, 60000);
+if (CURRENT_VIEW === 'market') setInterval(renderNews, 60000);
 if (['overview', 'wallets'].includes(CURRENT_VIEW)) {
   setInterval(checkStatuses, 12000);
   setInterval(updateGasPrice, 30000);

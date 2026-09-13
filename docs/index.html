@@ -4,15 +4,33 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Digital asset operations dashboard for wallets, transactions, gas and market monitoring">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: wss:; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: wss:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; img-src 'self' data:">
   <title>Treasury Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=11">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=13">
 <link rel="stylesheet" href="accounts.css?v=11"></head>
 <body data-view="overview">
   <section id="startupDiagnostic" role="alert" class="panel" style="margin:20px;padding:20px;border-color:#b98031" hidden>
     <h2>Application needs attention</h2><p></p><button id="retryStartup" type="button">Reload application</button>
   </section>
   <script src="boot.js?v=10"></script>
+  <aside class="overview-rail" aria-label="Treasury navigation">
+    <a class="overview-brand" href="index.html"><span aria-hidden="true">T</span><strong>Treasury</strong></a>
+    <nav>
+      <a class="active" href="index.html">Overview</a>
+      <a href="exchanges.html">Accounts</a>
+      <a href="index.html?view=wallets">Wallets</a>
+      <a href="transfers.html">Transfers</a>
+      <a href="index.html?view=networks">Networks</a>
+      <a href="index.html?view=market">Market</a>
+    </nav>
+    <div class="overview-rail-status">
+      <span class="connection compact" id="overviewSystemBadge"><span class="dot"></span><span id="overviewSystemLabel">Checking systems</span></span>
+      <small id="overviewUpdatedAt">Waiting for the first update</small>
+    </div>
+  </aside>
   <aside class="news-side news-side-left legacy-data-module" aria-label="Latest crypto news, first column" hidden>
     <div class="news-side-head">
       <div><span class="eyebrow">MARKET FEED</span><h2>Crypto News</h2></div>
@@ -55,48 +73,39 @@
 
     <section class="overview-dashboard" id="overviewDashboard" aria-labelledby="overviewTitle">
       <div class="overview-commandbar">
-        <div><span class="eyebrow">COMMAND CENTER</span><h2 id="overviewTitle">Operations overview</h2><p>Balances, exposure and items that need attention across connected accounts.</p></div>
-        <div class="overview-actions"><a class="secondary button-link" href="transfers.html">New transfer draft</a><button class="secondary" id="overviewSettingsButton" type="button">Connections</button><button class="secondary" id="refreshOverviewButton" type="button">Refresh all</button></div>
+        <div><span class="eyebrow">OVERVIEW</span><h2 id="overviewTitle">Your treasury at a glance</h2><p>Consolidated across exchanges and on-chain wallets.</p></div>
+        <div class="overview-actions"><a class="secondary button-link" href="exchanges.html#add">Add account</a><a class="primary button-link" href="transfers.html">New transfer</a><button class="secondary" id="refreshOverviewButton" type="button">Refresh</button></div>
       </div>
 
       <section class="overview-kpis" aria-label="Portfolio summary">
-        <article><span>Exchange equity</span><strong id="overviewExchangeEquity">—</strong><small>Connected CEX accounts</small></article>
+        <article><span>Total exchange equity</span><strong id="overviewExchangeEquity">—</strong><small id="overviewExchangeScope">Connected accounts</small></article>
         <article><span>Unrealized PnL</span><strong id="overviewUnrealizedPnl">—</strong><small>Open exchange positions</small></article>
-        <article><span>Open positions</span><strong id="overviewOpenPositions">—</strong><small>Across all accounts</small></article>
-        <article><span>Wallets monitored</span><strong id="overviewWalletCount">—</strong><small>On-chain addresses</small></article>
+        <article><span>Available balance</span><strong id="overviewAvailableBalance">—</strong><small>Known USD values</small></article>
+        <article><span>Items requiring action</span><strong id="overviewAttentionMetric">0</strong><small id="overviewAttentionContext">Nothing needs review</small></article>
       </section>
 
       <div class="overview-primary-grid">
+        <section class="overview-card overview-accounts" aria-labelledby="overviewAccountsTitle">
+          <div class="overview-card-head"><div><h2 id="overviewAccountsTitle">Accounts</h2><p id="overviewAccountsMeta">Connected exchange accounts</p></div><a href="exchanges.html">View all accounts →</a></div>
+          <div class="overview-table-wrap"><table class="overview-table overview-accounts-table"><thead><tr><th>Account</th><th>Status</th><th>Equity</th><th>Open PnL</th><th>Positions</th></tr></thead><tbody id="overviewAccountGrid"></tbody></table></div>
+          <div class="overview-table-foot" id="overviewAccountsFoot"></div>
+        </section>
         <section class="overview-card attention-card" aria-labelledby="overviewAttentionTitle">
-          <div class="overview-card-head"><div><span class="eyebrow">ATTENTION</span><h2 id="overviewAttentionTitle">Action center</h2></div><span class="overview-count" id="overviewAttentionCount">0</span></div>
+          <div class="overview-card-head"><div><h2 id="overviewAttentionTitle">Needs attention</h2><p>Only operational items requiring review</p></div><span class="overview-count" id="overviewAttentionCount">0</span></div>
           <div class="overview-list" id="overviewAttentionList"></div>
         </section>
-        <section class="overview-card" aria-labelledby="overviewSystemsTitle">
-          <div class="overview-card-head"><div><span class="eyebrow">CONNECTIVITY</span><h2 id="overviewSystemsTitle">Systems</h2></div><span class="connection compact" id="overviewSystemBadge"><span class="dot"></span><span id="overviewSystemLabel">Checking</span></span></div>
-          <div class="overview-system-grid" id="overviewSystemGrid"></div>
-        </section>
       </div>
-
-      <section class="overview-card" aria-labelledby="overviewAccountsTitle">
-        <div class="overview-card-head"><div><span class="eyebrow">ACCOUNTS</span><h2 id="overviewAccountsTitle">Connected accounts</h2></div><a href="exchanges.html">Open Exchanges →</a></div>
-        <div class="overview-account-grid" id="overviewAccountGrid"></div>
-      </section>
 
       <div class="overview-secondary-grid">
         <section class="overview-card" aria-labelledby="overviewExposureTitle">
-          <div class="overview-card-head"><div><span class="eyebrow">RISK</span><h2 id="overviewExposureTitle">Largest exposures</h2></div><a href="exchanges.html">View positions →</a></div>
+          <div class="overview-card-head"><div><h2 id="overviewExposureTitle">Largest exposures</h2><p>Net exposure across every venue</p></div><a href="exchanges.html">Open positions →</a></div>
           <div id="overviewExposureBody"></div>
         </section>
-        <section class="overview-card" aria-labelledby="overviewActivityTitle">
-          <div class="overview-card-head"><div><span class="eyebrow">ACTIVITY</span><h2 id="overviewActivityTitle">Recent events</h2></div><a href="index.html?view=wallets">Open Wallets →</a></div>
-          <div class="overview-list" id="overviewActivityList"></div>
+        <section class="overview-card" aria-labelledby="overviewAllocationTitle">
+          <div class="overview-card-head"><div><h2 id="overviewAllocationTitle">Allocation by venue</h2><p>Known USD values only</p></div><a href="exchanges.html">Review assets →</a></div>
+          <div class="overview-allocation" id="overviewAllocationBody"></div>
         </section>
       </div>
-
-      <section class="overview-card overview-market-pulse" aria-labelledby="overviewMarketTitle">
-        <div class="overview-card-head"><div><span class="eyebrow">MARKET PULSE</span><h2 id="overviewMarketTitle">Latest relevant news</h2></div><a href="index.html?view=market">Open Market →</a></div>
-        <div class="overview-news-grid" id="overviewNewsGrid"></div>
-      </section>
     </section>
 
     <section class="address-card view-wallets">
@@ -197,7 +206,7 @@
       </div>
     </section>
 
-    <section class="panel view-wallets view-overview" style="padding:16px;margin-bottom:16px" aria-label="Synchronization status">
+    <section class="panel view-wallets" style="padding:16px;margin-bottom:16px" aria-label="Synchronization status">
       <strong>Synchronization</strong><p id="syncDiagnostics" role="status">Waiting for Railway connection…</p>
     </section>
     <section class="panel gas-analytics-panel view-networks" aria-labelledby="gasAnalyticsTitle">
@@ -509,6 +518,7 @@
     </form>
   </dialog>
 
-  <script src="session.js?v=11" data-module="app.js"></script>
+  <script src="overview-data.js?v=13"></script>
+  <script src="session.js?v=13" data-module="app.js"></script>
 </body>
 </html>

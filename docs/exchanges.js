@@ -342,16 +342,17 @@ el.hideZero.addEventListener('change', () => { state.hideZero = el.hideZero.chec
 el.refresh.addEventListener('click', () => loadData({ force:true }));
 el.pendingUpdate.addEventListener('click', () => state.pendingData && applyData(state.pendingData));
 
-document.querySelector('#openAddExchange').addEventListener('click', () => {
+function openAddExchange() {
   el.addError.textContent = '';
   el.addDialog.showModal();
   el.addForm.elements.name.focus();
-});
+}
+document.querySelector('#openAddExchange').addEventListener('click', openAddExchange);
 
 const exchangeFormOptions = {
   bitget:{name:'Bitget Main',passphrase:true,text:'API key is <strong>Read-only</strong>; Unified account → <strong>Manage</strong> and <strong>Trade</strong> data access are enabled; transfers and withdrawals are disabled.'},
   bybit:{name:'Bybit Main',passphrase:false,text:'API key is <strong>Read-only</strong> and has Account, Wallet and Position query access. Trading, transfers and withdrawals are disabled.'},
-  gate:{name:'Gate.io Main',passphrase:false,text:'Every Gate.io permission is <strong>Read-only</strong>. Spot, wallet and futures queries are enabled; trading and withdrawals are disabled.'},
+  gate:{name:'Gate.io Main',passphrase:false,text:'<strong>Spot Trading</strong> and <strong>Perpetual Futures</strong> are enabled as <strong>Read Only</strong>. Delivery Futures, Wallets and every write permission are disabled.'},
   okx:{name:'OKX Main',passphrase:true,text:'API key has the <strong>Read</strong> permission only. The Trade and Withdraw permissions are disabled.'},
   binance:{name:'Binance Main',passphrase:false,text:'API key is <strong>read-only</strong>. Spot & Margin Trading, Futures trading, withdrawals and universal transfers are disabled.'},
 };
@@ -410,5 +411,9 @@ for (const eventName of ['wheel', 'touchmove', 'pointerdown', 'keydown']) {
 
 render({ preserveScroll:false });
 loadData();
+if (location.hash === '#add') {
+  history.replaceState(null, '', `${location.pathname}${location.search}`);
+  openAddExchange();
+}
 setInterval(loadData, REFRESH_MS);
 setInterval(() => { if (state.data && !state.loading) render(); }, 10_000);
