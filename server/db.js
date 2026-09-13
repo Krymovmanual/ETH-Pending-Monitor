@@ -12,6 +12,8 @@ const pool = new Pool({
 const defaultSettings = {
   addresses: [],
   labels: {},
+  solanaAddresses: [],
+  solanaLabels: {},
   email: '',
   timezone: 'UTC',
   notificationSettings: {
@@ -30,7 +32,11 @@ const defaultSettings = {
     gasName: 'Main Gas Station',
     gasAddress: '',
     gasThreshold: 0.1,
-    gasInterval: 300000
+    gasInterval: 300000,
+    solanaGasName: 'Solana Gas Station',
+    solanaGasAddress: '',
+    solanaGasThreshold: 1,
+    solanaGasInterval: 300000
   }
 };
 

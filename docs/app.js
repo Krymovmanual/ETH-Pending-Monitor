@@ -9,6 +9,11 @@ const BALANCE_SETTINGS_KEY = 'eth-pending-monitor-balance-settings';
 const WALLET_BALANCES_KEY = 'eth-pending-monitor-wallet-balances';
 const GAS_BALANCE_KEY = 'eth-pending-monitor-gas-balance';
 const GAS_ALERT_KEY = 'eth-pending-monitor-gas-alert-sent';
+const SOLANA_ADDRESSES_KEY = 'paseqa-solana-addresses';
+const SOLANA_LABELS_KEY = 'paseqa-solana-address-labels';
+const SOLANA_WALLET_BALANCES_KEY = 'paseqa-solana-wallet-balances';
+const SOLANA_GAS_BALANCE_KEY = 'paseqa-solana-gas-balance';
+const SOLANA_GAS_ALERT_KEY = 'paseqa-solana-gas-alert-sent';
 const PAGE_SIZE_KEY = 'eth-pending-monitor-page-size';
 const NOTIFICATION_SETTINGS_KEY = 'eth-pending-monitor-notification-settings';
 const SUMMARY_ALERTS_KEY = 'eth-pending-monitor-summary-alerts';
@@ -60,6 +65,8 @@ const state = {
   backendToken: '',
   addresses: loadAddresses(),
   addressLabels: loadAddressLabels(),
+  solanaAddresses: loadSolanaAddresses(),
+  solanaLabels: loadStoredObject(SOLANA_LABELS_KEY),
   email: Treasury.storage.getItem(EMAIL_KEY) || '',
   notificationSettings: loadNotificationSettings(),
   summaryAlerts: loadStoredObject(SUMMARY_ALERTS_KEY),
@@ -68,12 +75,17 @@ const state = {
   balanceSettings: loadBalanceSettings(),
   walletBalances: loadStoredObject(WALLET_BALANCES_KEY),
   gasBalance: loadStoredObject(GAS_BALANCE_KEY),
+  solanaWalletBalances: loadStoredObject(SOLANA_WALLET_BALANCES_KEY),
+  solanaGasBalance: loadStoredObject(SOLANA_GAS_BALANCE_KEY),
   balanceLoading: false,
   gasLoading: false,
   balanceLoadError: '',
   gasLoadError: '',
   balanceTimer: null,
   gasTimer: null,
+  solanaBalanceLoading: false,
+  solanaGasLoading: false,
+  solanaGasTimer: null,
   alertTimer: null,
   pendingSyncTimer: null,
   transactionSyncTimer: null,
@@ -100,6 +112,10 @@ const state = {
   gasAnalyticsLoading: false,
   gasAnalyticsError: '',
   gasAnalyticsTimer: null,
+  solanaNetwork: null,
+  solanaNetworkLoading: false,
+  solanaNetworkError: '',
+  solanaNetworkTimer: null,
   exchangeData: null,
   exchangeLoading: false,
   exchangeError: '',
@@ -165,6 +181,16 @@ const el = {
   networkWalletCount: document.querySelector('#networkWalletCount'),
   networkReadinessList: document.querySelector('#networkReadinessList'),
   feePlannerBody: document.querySelector('#feePlannerBody'),
+  solanaNetworkBadge: document.querySelector('#solanaNetworkBadge'),
+  solanaNetworkStatus: document.querySelector('#solanaNetworkStatus'),
+  solanaNetworkDetail: document.querySelector('#solanaNetworkDetail'),
+  refreshSolanaNetworkButton: document.querySelector('#refreshSolanaNetworkButton'),
+  solanaNetworkSlot: document.querySelector('#solanaNetworkSlot'),
+  solanaNetworkAge: document.querySelector('#solanaNetworkAge'),
+  solanaBlockHeight: document.querySelector('#solanaBlockHeight'),
+  solanaRpcLatency: document.querySelector('#solanaRpcLatency'),
+  solanaPriorityFee: document.querySelector('#solanaPriorityFee'),
+  solanaFeeBand: document.querySelector('#solanaFeeBand'),
   exchangeAccountStatus: document.querySelector('#exchangeAccountStatus'),
   exchangeAccountBody: document.querySelector('#exchangeAccountBody'),
   refreshExchangeButton: document.querySelector('#refreshExchangeButton'),
@@ -188,6 +214,7 @@ const el = {
   backendToken: document.querySelector('#backendTokenInput'),
   backendStatus: document.querySelector('#backendStatus'),
   addresses: document.querySelector('#addressesInput'),
+  solanaAddresses: document.querySelector('#solanaAddressesInput'),
   email: document.querySelector('#emailInput'),
   testEmailButton: document.querySelector('#testEmailButton'),
   testEmailStatus: document.querySelector('#testEmailStatus'),
@@ -211,6 +238,10 @@ const el = {
   gasAddress: document.querySelector('#gasAddressInput'),
   gasThreshold: document.querySelector('#gasThresholdInput'),
   gasInterval: document.querySelector('#gasIntervalInput'),
+  solanaGasName: document.querySelector('#solanaGasNameInput'),
+  solanaGasAddress: document.querySelector('#solanaGasAddressInput'),
+  solanaGasThreshold: document.querySelector('#solanaGasThresholdInput'),
+  solanaGasInterval: document.querySelector('#solanaGasIntervalInput'),
   balanceError: document.querySelector('#balanceDialogError'),
   gasError: document.querySelector('#gasDialogError'),
   notificationDialog: document.querySelector('#notificationSettingsDialog'),
@@ -274,6 +305,13 @@ function loadAddresses() {
   } catch { return []; }
 }
 
+function loadSolanaAddresses() {
+  try {
+    const stored = JSON.parse(Treasury.storage.getItem(SOLANA_ADDRESSES_KEY) || '[]');
+    return Array.isArray(stored) ? [...new Set(stored.filter(address => typeof address === 'string' && validSolanaAddress(address)))].slice(0, 50) : [];
+  } catch { return []; }
+}
+
 function loadTransactions() {
   try {
     const stored = JSON.parse(Treasury.storage.getItem(TX_KEY) || '[]');
@@ -298,6 +336,10 @@ function loadBalanceSettings() {
     gasAddress: '',
     gasThreshold: 0.1,
     gasInterval: 300000,
+    solanaGasName: 'Solana Gas Station',
+    solanaGasAddress: '',
+    solanaGasThreshold: 1,
+    solanaGasInterval: 300000,
   };
   try { return {...defaults, ...JSON.parse(Treasury.storage.getItem(BALANCE_SETTINGS_KEY) || '{}')}; }
   catch { return defaults; }
@@ -352,14 +394,15 @@ function saveTransactions() {
   Treasury.storage.setItem(TX_KEY, JSON.stringify(state.transactions));
 }
 
-function parseAddressLines(value) {
+function parseAddressLines(value, { lowercase = true } = {}) {
   const addresses = [];
   const labels = {};
   for (const line of value.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     const separator = trimmed.lastIndexOf('|');
-    const address = (separator >= 0 ? trimmed.slice(separator + 1) : trimmed).trim().toLowerCase();
+    const supplied = (separator >= 0 ? trimmed.slice(separator + 1) : trimmed).trim();
+    const address = lowercase ? supplied.toLowerCase() : supplied;
     const label = separator >= 0 ? trimmed.slice(0, separator).trim() : '';
     if (!addresses.includes(address)) addresses.push(address);
     if (label) labels[address] = label.slice(0, 60);
@@ -368,6 +411,20 @@ function parseAddressLines(value) {
 }
 
 function validAddress(value) { return /^0x[a-f0-9]{40}$/.test(value); }
+function validSolanaAddress(value) {
+  const text = String(value || '').trim();
+  if (text.length < 32 || text.length > 44) return false;
+  const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  let decoded = 0n;
+  for (const character of text) {
+    const digit = alphabet.indexOf(character);
+    if (digit < 0) return false;
+    decoded = decoded * 58n + BigInt(digit);
+  }
+  let bytes = decoded === 0n ? 0 : Math.ceil(decoded.toString(16).length / 2);
+  for (const character of text) { if (character === '1') bytes += 1; else break; }
+  return bytes === 32;
+}
 function validEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
 
 function setConnection(status, text) {
@@ -394,7 +451,7 @@ async function connect() {
     if (!el.dialog.open) openSettings();
     return;
   }
-  if (!state.addresses.length && !el.dialog.open) openSettings();
+  if (!state.addresses.length && !state.solanaAddresses.length && !el.dialog.open) openSettings();
   setConnection('', 'Connecting to Railway…');
   await syncServerTransactions();
   updateGasPrice();
@@ -1297,6 +1354,28 @@ async function updateWalletBalances() {
   }
 }
 
+async function updateSolanaWalletBalances() {
+  if (!backendConfigured() || !state.balanceSettings.enabled || !state.solanaAddresses.length || state.solanaBalanceLoading) return;
+  state.solanaBalanceLoading = true;
+  state.balanceLoadError = '';
+  renderBalances();
+  try {
+    const response = await fetch(`${normalizedBackendUrl()}/api/wallets/solana/balances`, {
+      method:'POST', headers:backendHeaders(), signal:AbortSignal.timeout(25_000),
+      body:JSON.stringify({addresses:state.solanaAddresses}),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || !Array.isArray(body.wallets)) throw new Error(body.error || 'Solana balance request failed');
+    state.solanaWalletBalances = Object.fromEntries(body.wallets.map(wallet => [wallet.address, {updatedAt:body.updatedAt, assets:wallet.assets || []}]));
+    Treasury.storage.setItem(SOLANA_WALLET_BALANCES_KEY, JSON.stringify(state.solanaWalletBalances));
+  } catch (error) {
+    state.balanceLoadError = error?.message || 'Solana balance update failed';
+  } finally {
+    state.solanaBalanceLoading = false;
+    renderBalances();
+  }
+}
+
 async function updateGasBalance() {
   const settings = state.balanceSettings;
   if (!backendConfigured() || !validAddress(settings.gasAddress) || state.gasLoading) return;
@@ -1321,16 +1400,53 @@ async function updateGasBalance() {
   }
 }
 
-async function sendGasAlert(currentBalance) {
-  const lastSent = Number(Treasury.storage.getItem(GAS_ALERT_KEY) || 0);
+async function updateSolanaGasBalance() {
+  const settings = state.balanceSettings;
+  if (!backendConfigured() || !validSolanaAddress(settings.solanaGasAddress) || state.solanaGasLoading) return;
+  state.solanaGasLoading = true;
+  state.gasLoadError = '';
+  renderBalances();
+  try {
+    const response = await fetch(`${normalizedBackendUrl()}/api/wallets/solana/balances`, {
+      method:'POST', headers:backendHeaders(), signal:AbortSignal.timeout(25_000),
+      body:JSON.stringify({addresses:[settings.solanaGasAddress]}),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || 'Solana Gas Station request failed');
+    const asset = body.wallets?.[0]?.assets?.find(item => item.symbol === 'SOL');
+    if (!asset) throw new Error('SOL balance was not returned');
+    const previousRaw = state.solanaGasBalance.raw;
+    const raw = String(asset.raw);
+    const changeRaw = previousRaw !== undefined && previousRaw !== null ? (BigInt(raw) - BigInt(previousRaw)).toString() : null;
+    state.solanaGasBalance = {raw, decimals:9, updatedAt:Number(body.updatedAt) || Date.now(), changeRaw};
+    Treasury.storage.setItem(SOLANA_GAS_BALANCE_KEY, JSON.stringify(state.solanaGasBalance));
+    const current = Number(formatTokenAmount(raw, 9).replace(/,/g, ''));
+    if (current < Number(settings.solanaGasThreshold)) await sendGasAlert(current, 'solana');
+    else Treasury.storage.removeItem(SOLANA_GAS_ALERT_KEY);
+  } catch (error) {
+    state.gasLoadError = error?.message || 'Solana Gas Station update failed';
+  } finally {
+    state.solanaGasLoading = false;
+    renderBalances();
+  }
+}
+
+async function sendGasAlert(currentBalance, network = 'ethereum') {
+  const solana = network === 'solana';
+  const alertKey = solana ? SOLANA_GAS_ALERT_KEY : GAS_ALERT_KEY;
+  const lastSent = Number(Treasury.storage.getItem(alertKey) || 0);
   const rule = notificationRule('gasLow');
   if (!rule.enabled || inQuietHours('gasLow') || !alertCanRepeat(lastSent, 'gasLow')) return;
   const channels = activeAlertChannels('gasLow');
   if (!channels.browser && !channels.email) return;
-  Treasury.storage.setItem(GAS_ALERT_KEY, String(Date.now()));
+  Treasury.storage.setItem(alertKey, String(Date.now()));
   const settings = state.balanceSettings;
-  const title = 'URGENT: Gas Station balance is low';
-  const bodyText = `${settings.gasName}: ${compactNumber(currentBalance, 6)} ETH. Minimum: ${compactNumber(settings.gasThreshold, 6)} ETH.`;
+  const symbol = solana ? 'SOL' : 'ETH';
+  const name = solana ? settings.solanaGasName : settings.gasName;
+  const threshold = solana ? settings.solanaGasThreshold : settings.gasThreshold;
+  const address = solana ? settings.solanaGasAddress : settings.gasAddress;
+  const title = `URGENT: ${symbol} Gas Station balance is low`;
+  const bodyText = `${name}: ${compactNumber(currentBalance, 6)} ${symbol}. Minimum: ${compactNumber(threshold, 6)} ${symbol}.`;
   let browserDelivered = false;
   if (channels.browser) {
     try { new Notification(title, {body:bodyText, tag:'gas-station-low', requireInteraction:true}); browserDelivered = true; }
@@ -1346,16 +1462,17 @@ async function sendGasAlert(currentBalance) {
         _template:'table',
         _captcha:'false',
         event:'gas_station_low_balance',
-        gas_station:settings.gasName,
-        address:settings.gasAddress,
-        current_balance:`${compactNumber(currentBalance, 6)} ETH`,
-        minimum_balance:`${compactNumber(settings.gasThreshold, 6)} ETH`,
+        network:solana ? 'Solana' : 'Ethereum',
+        gas_station:name,
+        address,
+        current_balance:`${compactNumber(currentBalance, 6)} ${symbol}`,
+        minimum_balance:`${compactNumber(threshold, 6)} ${symbol}`,
         checked_at:new Date().toISOString(),
       }),
     });
     if (!response.ok) throw new Error('Email failed');
   } catch {
-    if (!browserDelivered) Treasury.storage.removeItem(GAS_ALERT_KEY);
+    if (!browserDelivered) Treasury.storage.removeItem(alertKey);
   }
 }
 
@@ -1370,11 +1487,18 @@ function isRefreshDue(updatedAt, interval) {
 function scheduleBalanceRefresh(force = false) {
   clearInterval(state.balanceTimer);
   clearInterval(state.gasTimer);
+  clearInterval(state.solanaGasTimer);
   const settings = state.balanceSettings;
   if (settings.enabled) {
     if (Number(settings.balanceInterval) > 0) state.balanceTimer = setInterval(updateWalletBalances, Number(settings.balanceInterval));
     const latest = Math.max(0, ...Object.values(state.walletBalances).map(item => item?.updatedAt || 0));
     if (force || isRefreshDue(latest, settings.balanceInterval)) updateWalletBalances();
+    const solanaLatest = Math.max(0, ...Object.values(state.solanaWalletBalances).map(item => item?.updatedAt || 0));
+    if (state.solanaAddresses.length && (force || isRefreshDue(solanaLatest, settings.balanceInterval))) updateSolanaWalletBalances();
+  }
+  if (validSolanaAddress(settings.solanaGasAddress)) {
+    if (Number(settings.solanaGasInterval) > 0) state.solanaGasTimer = setInterval(updateSolanaGasBalance, Number(settings.solanaGasInterval));
+    if (force || isRefreshDue(state.solanaGasBalance.updatedAt, settings.solanaGasInterval)) updateSolanaGasBalance();
   }
   if (validAddress(settings.gasAddress)) {
     if (Number(settings.gasInterval) > 0) state.gasTimer = setInterval(updateGasBalance, Number(settings.gasInterval));
@@ -1738,6 +1862,51 @@ function scheduleGasAnalyticsRefresh() {
   updateGasAnalytics();
 }
 
+function renderSolanaNetwork() {
+  if (!el.solanaNetworkBadge) return;
+  const data = state.solanaNetwork;
+  const unavailable = Boolean(state.solanaNetworkError);
+  const healthy = data?.level === 'healthy' && !unavailable;
+  el.solanaNetworkBadge.className = `connection compact ${healthy ? 'live' : unavailable ? 'error' : ''}`;
+  el.solanaNetworkStatus.textContent = healthy ? 'Operational' : unavailable ? 'Unavailable' : 'Checking';
+  el.solanaNetworkDetail.textContent = unavailable ? state.solanaNetworkError : data ? `Alchemy RPC is healthy · confirmed commitment` : 'Checking Solana RPC health and priority fees…';
+  el.refreshSolanaNetworkButton.disabled = state.solanaNetworkLoading;
+  el.refreshSolanaNetworkButton.textContent = state.solanaNetworkLoading ? 'Refreshing…' : 'Refresh';
+  el.solanaNetworkSlot.textContent = Number.isFinite(data?.slot) ? data.slot.toLocaleString() : '—';
+  el.solanaNetworkAge.textContent = data?.sampledAt ? `Updated ${age(data.sampledAt)} ago` : 'Waiting for data';
+  el.solanaBlockHeight.textContent = Number.isFinite(data?.blockHeight) ? data.blockHeight.toLocaleString() : '—';
+  el.solanaRpcLatency.textContent = Number.isFinite(data?.rpcLatencyMs) ? `${data.rpcLatencyMs} ms` : '—';
+  const fee = data?.priorityFeeMicroLamports || {};
+  el.solanaPriorityFee.textContent = Number.isFinite(fee.median) ? compactNumber(fee.median, 0) : '—';
+  el.solanaFeeBand.innerHTML = Number.isFinite(fee.median)
+    ? `<article><span>Economy</span><strong>${compactNumber(fee.low, 0)}</strong><small>µ-lamports / CU</small></article><article class="solana-fee-primary"><span>Typical</span><strong>${compactNumber(fee.median, 0)}</strong><small>µ-lamports / CU</small></article><article><span>Priority</span><strong>${compactNumber(fee.high, 0)}</strong><small>µ-lamports / CU</small></article><article><span>Samples</span><strong>${Number(fee.samples || 0).toLocaleString()}</strong><small>recent fee observations</small></article>`
+    : `<div class="network-empty">${escapeHtml(state.solanaNetworkError || 'Waiting for Solana priority fee samples…')}</div>`;
+}
+
+async function updateSolanaNetwork() {
+  if (state.solanaNetworkLoading || !backendConfigured()) return;
+  state.solanaNetworkLoading = true;
+  state.solanaNetworkError = '';
+  renderSolanaNetwork();
+  try {
+    const response = await fetch(`${normalizedBackendUrl()}/api/networks/solana`, {headers:backendHeaders(), cache:'no-store', signal:AbortSignal.timeout(25_000)});
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || 'Solana network request failed');
+    state.solanaNetwork = body;
+  } catch (error) {
+    state.solanaNetworkError = error?.message || 'Solana network data is unavailable';
+  } finally {
+    state.solanaNetworkLoading = false;
+    renderSolanaNetwork();
+  }
+}
+
+function scheduleSolanaNetworkRefresh() {
+  clearInterval(state.solanaNetworkTimer);
+  state.solanaNetworkTimer = setInterval(updateSolanaNetwork, 30_000);
+  updateSolanaNetwork();
+}
+
 async function copyHash(hash) {
   try {
     if (navigator.clipboard?.writeText) {
@@ -1924,6 +2093,10 @@ function renderOverview() {
     const gasBalance = Number(formatTokenAmount(state.gasBalance.raw, 18).replace(/,/g, ''));
     if (gasBalance < Number(state.balanceSettings.gasThreshold)) attention.push({ label:'Gas Station balance is low', detail:`${compactNumber(gasBalance, 6)} ETH available; ${compactNumber(state.balanceSettings.gasThreshold, 6)} ETH required.`, level:'critical', href:'index.html?view=wallets' });
   }
+  if (validSolanaAddress(state.balanceSettings.solanaGasAddress) && (state.solanaGasBalance.raw || state.solanaGasBalance.raw === '0')) {
+    const solBalance = Number(formatTokenAmount(state.solanaGasBalance.raw, 9).replace(/,/g, ''));
+    if (solBalance < Number(state.balanceSettings.solanaGasThreshold)) attention.push({ label:'Solana Gas Station balance is low', detail:`${compactNumber(solBalance, 6)} SOL available; ${compactNumber(state.balanceSettings.solanaGasThreshold, 6)} SOL required.`, level:'critical', href:'index.html?view=wallets' });
+  }
   if (problems.length) attention.push({ label:`${problems.length} transaction issue${problems.length === 1 ? '' : 's'} in history`, detail:'Dropped, replaced or failed transactions require review.', level:'warning', href:'index.html?view=wallets' });
 
   el.overviewAttentionMetric.textContent = String(attention.length);
@@ -2105,16 +2278,17 @@ function openTransactionDetails(hash) {
 
 function renderBalances() {
   const settings = state.balanceSettings;
-  el.refreshBalancesButton.disabled = state.balanceLoading || !settings.enabled;
-  el.refreshBalancesButton.textContent = state.balanceLoading ? 'Refreshing…' : 'Refresh now';
+  const balancesLoading = state.balanceLoading || state.solanaBalanceLoading;
+  el.refreshBalancesButton.disabled = balancesLoading || !settings.enabled;
+  el.refreshBalancesButton.textContent = balancesLoading ? 'Refreshing…' : 'Refresh now';
 
   if (!settings.enabled) {
     el.walletBalanceMeta.textContent = 'Balance display is disabled';
     el.walletBalancesBody.innerHTML = '<div class="balance-empty">Enable wallet balances in Settings.</div>';
   } else {
-    const latest = Math.max(0, ...Object.values(state.walletBalances).map(item => item?.updatedAt || 0));
+    const latest = Math.max(0, ...Object.values(state.walletBalances).map(item => item?.updatedAt || 0), ...Object.values(state.solanaWalletBalances).map(item => item?.updatedAt || 0));
     el.walletBalanceMeta.textContent = state.balanceLoadError || `${latest ? `Updated ${age(latest)} ago` : 'Not updated yet'} · ${intervalLabel(settings.balanceInterval)}`;
-    el.walletBalancesBody.innerHTML = state.addresses.map(address => {
+    const ethereumRows = state.addresses.map(address => {
       const balance = state.walletBalances[address];
       const symbols = ['ETH', ...BALANCE_TOKENS.map(token => token.symbol)];
       const tokens = symbols.map(symbol => {
@@ -2124,35 +2298,39 @@ function renderBalances() {
       }).join('');
       return `<div class="wallet-balance-row"><div class="wallet-balance-title"><strong>${escapeHtml(walletLabel(address))}</strong><span>${shortAddress(address)}</span></div><div class="token-balances">${tokens}</div></div>`;
     }).join('');
+    const solanaRows = state.solanaAddresses.map(address => {
+      const balance = state.solanaWalletBalances[address];
+      const assets = Array.isArray(balance?.assets) ? balance.assets : [];
+      const tokens = assets.length ? assets.slice(0, 12).map(asset => `<div class="token-balance" title="${escapeHtml(asset.name || asset.mint || asset.symbol)}"><span>${escapeHtml(asset.symbol)}</span><strong>${escapeHtml(compactNumber(Number(asset.balance), 8))}</strong></div>`).join('') : '<div class="token-balance"><span>SOL</span><strong>—</strong></div>';
+      return `<div class="wallet-balance-row"><div class="wallet-balance-title"><strong>${escapeHtml(state.solanaLabels[address] || shortAddress(address))}</strong><span>${escapeHtml(shortAddress(address))}</span></div><div class="token-balances">${tokens}</div></div>`;
+    }).join('');
+    const groups = [];
+    if (state.addresses.length) groups.push(`<div class="wallet-network-label"><span class="network-mark ethereum">E</span><strong>Ethereum</strong><small>${state.addresses.length} wallet${state.addresses.length === 1 ? '' : 's'}</small></div>${ethereumRows}`);
+    if (state.solanaAddresses.length) groups.push(`<div class="wallet-network-label"><span class="network-mark solana">S</span><strong>Solana</strong><small>${state.solanaAddresses.length} wallet${state.solanaAddresses.length === 1 ? '' : 's'}</small></div>${solanaRows}`);
+    el.walletBalancesBody.innerHTML = groups.join('') || '<div class="balance-empty">Add an Ethereum or Solana wallet in Settings.</div>';
   }
 
-  if (!validAddress(settings.gasAddress)) {
+  const ethereumConfigured = validAddress(settings.gasAddress);
+  const solanaConfigured = validSolanaAddress(settings.solanaGasAddress);
+  if (!ethereumConfigured && !solanaConfigured) {
     el.gasBalanceMeta.textContent = 'Not configured';
-    el.gasBalanceBody.innerHTML = '<div class="balance-empty">Add a Gas Station address in Settings.</div>';
+    el.gasBalanceBody.innerHTML = '<div class="balance-empty">Add an Ethereum or Solana Gas Station address in Settings.</div>';
     return;
   }
-
-  el.gasBalanceMeta.textContent = state.gasLoadError || `${state.gasBalance.updatedAt ? `Updated ${age(state.gasBalance.updatedAt)} ago` : 'Not updated yet'} · ${intervalLabel(settings.gasInterval)}`;
-  if (!state.gasBalance.raw && state.gasBalance.raw !== '0') {
-    el.gasBalanceBody.innerHTML = `<div class="balance-empty">${state.gasLoading ? 'Refreshing ETH balance…' : 'No balance data yet.'}<br><button class="secondary gas-refresh" type="button" data-refresh-gas>Refresh now</button></div>`;
-    return;
-  }
-  const formatted = formatTokenAmount(state.gasBalance.raw, 18);
-  const current = Number(formatted.replace(/,/g, ''));
-  const low = current < Number(settings.gasThreshold);
-  const changeRaw = state.gasBalance.changeRaw;
-  const changeClass = changeRaw === null || changeRaw === undefined || BigInt(changeRaw) === 0n ? 'neutral' : BigInt(changeRaw) > 0n ? 'positive' : 'negative';
-  const changeText = changeRaw === null || changeRaw === undefined
-    ? 'Change will appear after the next refresh'
-    : BigInt(changeRaw) === 0n ? 'No change since last refresh' : `ETH ${formatSignedTokenAmount(changeRaw, 18)} since last refresh`;
-  el.gasBalanceBody.innerHTML = `
-    <div class="gas-name">${escapeHtml(settings.gasName || 'Gas Station')}</div>
-    <div class="gas-address">${escapeHtml(shortAddress(settings.gasAddress))}</div>
-    <div class="gas-amount">${escapeHtml(formatted)} ETH</div>
-    <div class="gas-change ${changeClass}">${escapeHtml(changeText)}</div>
-    <div class="gas-minimum">Minimum required: ${compactNumber(settings.gasThreshold, 6)} ETH</div>
-    <div class="gas-status ${low ? 'low' : ''}">${low ? 'Low balance · Refill required' : 'Balance is sufficient'}</div>
-    <button class="secondary gas-refresh" type="button" data-refresh-gas ${state.gasLoading ? 'disabled' : ''}>${state.gasLoading ? 'Refreshing…' : 'Refresh now'}</button>`;
+  const card = ({network,name,address,threshold,balance,decimals,symbol,loading,refresh}) => {
+    if (!address) return '';
+    if (!balance.raw && balance.raw !== '0') return `<section class="gas-station-card ${network}"><div class="gas-network">${network === 'solana' ? 'Solana' : 'Ethereum'}</div><div class="gas-name">${escapeHtml(name)}</div><div class="gas-address">${escapeHtml(shortAddress(address))}</div><div class="balance-empty">${loading ? `Refreshing ${symbol} balance…` : 'No balance data yet.'}</div><button class="secondary gas-refresh" type="button" ${refresh} ${loading ? 'disabled' : ''}>${loading ? 'Refreshing…' : 'Refresh now'}</button></section>`;
+    const formatted = formatTokenAmount(balance.raw, decimals);
+    const current = Number(formatted.replace(/,/g, ''));
+    const low = current < Number(threshold);
+    const changeRaw = balance.changeRaw;
+    const changeClass = changeRaw === null || changeRaw === undefined || BigInt(changeRaw) === 0n ? 'neutral' : BigInt(changeRaw) > 0n ? 'positive' : 'negative';
+    const changeText = changeRaw === null || changeRaw === undefined ? 'Change appears after the next refresh' : BigInt(changeRaw) === 0n ? 'No change since last refresh' : `${symbol} ${formatSignedTokenAmount(changeRaw, decimals)} since last refresh`;
+    return `<section class="gas-station-card ${network}"><div class="gas-network">${network === 'solana' ? 'Solana' : 'Ethereum'}</div><div class="gas-name">${escapeHtml(name)}</div><div class="gas-address">${escapeHtml(shortAddress(address))}</div><div class="gas-amount">${escapeHtml(formatted)} ${symbol}</div><div class="gas-change ${changeClass}">${escapeHtml(changeText)}</div><div class="gas-minimum">Minimum required: ${compactNumber(threshold, 6)} ${symbol}</div><div class="gas-status ${low ? 'low' : ''}">${low ? 'Low balance · Refill required' : 'Balance is sufficient'}</div><button class="secondary gas-refresh" type="button" ${refresh} ${loading ? 'disabled' : ''}>${loading ? 'Refreshing…' : 'Refresh now'}</button></section>`;
+  };
+  const latestGas = Math.max(Number(state.gasBalance.updatedAt) || 0, Number(state.solanaGasBalance.updatedAt) || 0);
+  el.gasBalanceMeta.textContent = state.gasLoadError || (latestGas ? `Updated ${age(latestGas)} ago` : 'Not updated yet');
+  el.gasBalanceBody.innerHTML = `<div class="gas-stations-grid">${card({network:'ethereum',name:settings.gasName || 'Ethereum Gas Station',address:ethereumConfigured ? settings.gasAddress : '',threshold:settings.gasThreshold,balance:state.gasBalance,decimals:18,symbol:'ETH',loading:state.gasLoading,refresh:'data-refresh-gas'})}${card({network:'solana',name:settings.solanaGasName || 'Solana Gas Station',address:solanaConfigured ? settings.solanaGasAddress : '',threshold:settings.solanaGasThreshold,balance:state.solanaGasBalance,decimals:9,symbol:'SOL',loading:state.solanaGasLoading,refresh:'data-refresh-solana-gas'})}</div>`;
 }
 
 function exchangeNumber(value, maximumFractionDigits = 8) {
@@ -2251,6 +2429,7 @@ function openSettings() {
   el.backendToken.value = state.backendToken;
   updateBackendStatus();
   el.addresses.value = state.addresses.map(address => state.addressLabels[address] ? `${state.addressLabels[address]} | ${address}` : address).join('\n');
+  el.solanaAddresses.value = state.solanaAddresses.map(address => state.solanaLabels[address] ? `${state.solanaLabels[address]} | ${address}` : address).join('\n');
   el.error.textContent = '';
   el.dialog.showModal();
 }
@@ -2275,6 +2454,8 @@ function serverSettingsPayload() {
   return {
     addresses: state.addresses,
     labels: state.addressLabels,
+    solanaAddresses: state.solanaAddresses,
+    solanaLabels: state.solanaLabels,
     email: state.email,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     notificationSettings: state.notificationSettings,
@@ -2390,6 +2571,10 @@ function openGasSettings() {
   el.gasAddress.value = settings.gasAddress || '';
   el.gasThreshold.value = settings.gasThreshold;
   el.gasInterval.value = String(settings.gasInterval);
+  el.solanaGasName.value = settings.solanaGasName || 'Solana Gas Station';
+  el.solanaGasAddress.value = settings.solanaGasAddress || '';
+  el.solanaGasThreshold.value = settings.solanaGasThreshold;
+  el.solanaGasInterval.value = String(settings.solanaGasInterval);
   el.gasError.textContent = '';
   el.gasDialog.showModal();
 }
@@ -2401,9 +2586,12 @@ async function refreshOverviewData() {
   const tasks = [
     updateExchangeAccount({ force:true }),
     updateGasAnalytics(),
+    updateSolanaNetwork(),
   ];
   if (state.balanceSettings.enabled) tasks.push(updateWalletBalances());
+  if (state.balanceSettings.enabled && state.solanaAddresses.length) tasks.push(updateSolanaWalletBalances());
   if (validAddress(state.balanceSettings.gasAddress)) tasks.push(updateGasBalance());
+  if (validSolanaAddress(state.balanceSettings.solanaGasAddress)) tasks.push(updateSolanaGasBalance());
   if (backendConfigured()) tasks.push(syncPendingState(false));
   if (backendConfigured()) tasks.push(syncServerTransactions({ force:true }));
   await Promise.allSettled(tasks);
@@ -2428,6 +2616,7 @@ el.refreshNewsButton.addEventListener('click', () => updateNews({ force: true })
 el.refreshNewsSideButton.addEventListener('click', () => updateNews({ force: true }));
 el.refreshGasAnalyticsButton.addEventListener('click', updateGasAnalytics);
 el.refreshNetworkHealthButton.addEventListener('click', updateGasAnalytics);
+el.refreshSolanaNetworkButton?.addEventListener('click', updateSolanaNetwork);
 el.refreshExchangeButton.addEventListener('click', () => updateExchangeAccount({ force: true }));
 el.pendingSyncButton.addEventListener('click', () => Promise.allSettled([syncPendingState(true), syncServerTransactions({ force:true })]));
 el.pendingSyncNoticeButton.addEventListener('click', () => Promise.allSettled([syncPendingState(true), syncServerTransactions({ force:true })]));
@@ -2440,9 +2629,14 @@ el.form.addEventListener('submit', async event => {
   const backendUrl = location.origin;
   const backendToken = '';
   const parsed = parseAddressLines(el.addresses.value);
+  const parsedSolana = parseAddressLines(el.solanaAddresses.value, {lowercase:false});
   const addresses = parsed.addresses;
   if (addresses.length > 50 || addresses.some(address => !validAddress(address))) {
     el.error.textContent = 'Enter 1–50 valid Ethereum addresses, one per line.';
+    return;
+  }
+  if (parsedSolana.addresses.length > 50 || parsedSolana.addresses.some(address => !validSolanaAddress(address))) {
+    el.error.textContent = 'Enter up to 50 valid Solana addresses, one per line.';
     return;
   }
   state.endpoint = ''; 
@@ -2450,6 +2644,8 @@ el.form.addEventListener('submit', async event => {
   state.backendToken = backendToken;
   state.addresses = addresses;
   state.addressLabels = parsed.labels;
+  state.solanaAddresses = parsedSolana.addresses;
+  state.solanaLabels = parsedSolana.labels;
   state.pendingDiagnostics = {};
   state.pendingSyncUpdatedAt = 0;
   state.pendingSyncError = '';
@@ -2461,6 +2657,8 @@ el.form.addEventListener('submit', async event => {
   if (backendToken) Treasury.storage.setItem(BACKEND_TOKEN_KEY, backendToken); else Treasury.storage.removeItem(BACKEND_TOKEN_KEY);
   Treasury.storage.setItem(ADDRESSES_KEY, JSON.stringify(addresses));
   Treasury.storage.setItem(LABELS_KEY, JSON.stringify(parsed.labels));
+  Treasury.storage.setItem(SOLANA_ADDRESSES_KEY, JSON.stringify(parsedSolana.addresses));
+  Treasury.storage.setItem(SOLANA_LABELS_KEY, JSON.stringify(parsedSolana.labels));
   if (backendConfigured() && !(await syncBackendSettings({ report: true }))) return;
   el.dialog.close();
   reconnect();
@@ -2527,7 +2725,9 @@ el.gasSettingsButton.addEventListener('click', openGasSettings);
 el.refreshBalancesButton.addEventListener('click', updateWalletBalances);
 el.gasBalanceBody.addEventListener('click', event => {
   if (event.target.closest('[data-refresh-gas]')) updateGasBalance();
+  if (event.target.closest('[data-refresh-solana-gas]')) updateSolanaGasBalance();
 });
+el.refreshBalancesButton.addEventListener('click', updateSolanaWalletBalances);
 el.balanceForm.addEventListener('submit', async event => {
   if (event.submitter?.value !== 'default') return;
   event.preventDefault();
@@ -2546,6 +2746,8 @@ el.gasForm.addEventListener('submit', async event => {
   event.preventDefault();
   const gasAddress = el.gasAddress.value.trim().toLowerCase();
   const gasThreshold = Number(el.gasThreshold.value);
+  const solanaGasAddress = el.solanaGasAddress.value.trim();
+  const solanaGasThreshold = Number(el.solanaGasThreshold.value);
   if (gasAddress && !validAddress(gasAddress)) {
     el.gasError.textContent = 'Enter a valid Gas Station Ethereum address or leave it empty.';
     return;
@@ -2554,18 +2756,36 @@ el.gasForm.addEventListener('submit', async event => {
     el.gasError.textContent = 'Minimum ETH balance must be zero or greater.';
     return;
   }
+  if (solanaGasAddress && !validSolanaAddress(solanaGasAddress)) {
+    el.gasError.textContent = 'Enter a valid Solana Gas Station address or leave it empty.';
+    return;
+  }
+  if (!Number.isFinite(solanaGasThreshold) || solanaGasThreshold < 0) {
+    el.gasError.textContent = 'Minimum SOL balance must be zero or greater.';
+    return;
+  }
   const gasChanged = gasAddress !== state.balanceSettings.gasAddress || gasThreshold !== Number(state.balanceSettings.gasThreshold);
+  const solanaGasChanged = solanaGasAddress !== state.balanceSettings.solanaGasAddress || solanaGasThreshold !== Number(state.balanceSettings.solanaGasThreshold);
   state.balanceSettings = {
     ...state.balanceSettings,
     gasName: el.gasName.value.trim() || 'Main Gas Station',
     gasAddress,
     gasThreshold,
     gasInterval: Number(el.gasInterval.value),
+    solanaGasName: el.solanaGasName.value.trim() || 'Solana Gas Station',
+    solanaGasAddress,
+    solanaGasThreshold,
+    solanaGasInterval: Number(el.solanaGasInterval.value),
   };
   if (gasChanged) {
     state.gasBalance = {};
     Treasury.storage.removeItem(GAS_BALANCE_KEY);
     Treasury.storage.removeItem(GAS_ALERT_KEY);
+  }
+  if (solanaGasChanged) {
+    state.solanaGasBalance = {};
+    Treasury.storage.removeItem(SOLANA_GAS_BALANCE_KEY);
+    Treasury.storage.removeItem(SOLANA_GAS_ALERT_KEY);
   }
   Treasury.storage.setItem(BALANCE_SETTINGS_KEY, JSON.stringify(state.balanceSettings));
   await syncBackendSettings();
@@ -2636,6 +2856,7 @@ if (['overview', 'wallets'].includes(CURRENT_VIEW)) {
 }
 if (CURRENT_VIEW === 'market') scheduleNewsRefresh(); else renderNews();
 if (['overview', 'networks'].includes(CURRENT_VIEW)) scheduleGasAnalyticsRefresh(); else renderGasAnalytics();
+if (CURRENT_VIEW === 'networks') scheduleSolanaNetworkRefresh(); else renderSolanaNetwork();
 if (CURRENT_VIEW === 'overview') scheduleExchangeRefresh(); else renderExchangeAccount();
 setInterval(render, 1000);
 if (CURRENT_VIEW === 'market') setInterval(renderNews, 60000);

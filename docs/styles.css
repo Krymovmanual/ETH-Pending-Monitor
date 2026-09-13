@@ -974,6 +974,24 @@ body.has-app-rail .hash,
 body.has-app-rail .panel-head a { color: #8db8ff; }
 body.has-app-rail dialog { border-color: #304039; border-radius: 12px; background: #0d1512; }
 
+.wallet-network-label { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid #22302a; color:#dce7e2; }
+.wallet-network-label small { margin-left:auto; color:#71837c; }
+.network-mark { display:grid; place-items:center; width:24px; height:24px; border-radius:8px; font:600 11px "IBM Plex Mono",monospace; }
+.network-mark.ethereum { color:#a9bdff; background:rgba(103,132,255,.14); }
+.network-mark.solana { color:#79f7c7; background:linear-gradient(135deg,rgba(153,69,255,.2),rgba(20,241,149,.16)); }
+.gas-stations-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; padding:12px; }
+.gas-station-card { min-width:0; padding:16px; border:1px solid #25332d; border-radius:12px; background:#101815; }
+.gas-station-card.solana { border-color:#30483f; background:linear-gradient(145deg,rgba(153,69,255,.07),rgba(20,241,149,.05)); }
+.gas-network { margin-bottom:10px; color:#7ee7b4; font:600 10px "IBM Plex Mono",monospace; letter-spacing:.12em; text-transform:uppercase; }
+.solana-network-panel { border-color:#30483f!important; }
+.solana-eyebrow { color:#79f7c7!important; }
+.solana-fee-band { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; margin:0 18px 18px; overflow:hidden; border:1px solid #25332d; border-radius:10px; background:#25332d; }
+.solana-fee-band article { padding:16px; background:#101815; }
+.solana-fee-band article span,.solana-fee-band article small { display:block; color:#71837c; font-size:.72rem; }
+.solana-fee-band article strong { display:block; margin:8px 0 3px; font:500 1.25rem "IBM Plex Mono",monospace; color:#eef7f3; }
+.solana-fee-band .solana-fee-primary { background:linear-gradient(135deg,rgba(153,69,255,.1),rgba(20,241,149,.08)); }
+.solana-fee-band .network-empty { grid-column:1/-1; padding:24px; }
+
 @media (max-width: 930px) {
   body.app-loading::after { left: 50%; }
   body.has-app-rail .app-rail { display: none; }
@@ -994,4 +1012,5 @@ body.has-app-rail dialog { border-color: #304039; border-radius: 12px; backgroun
   body.has-app-rail .transfer-layout { grid-template-columns: 1fr; }
   .gas-distribution-grid { grid-template-columns: 1fr; }
   .gas-svg-chart { padding-inline: 8px; }
+  .gas-stations-grid,.solana-fee-band { grid-template-columns:1fr; }
 }

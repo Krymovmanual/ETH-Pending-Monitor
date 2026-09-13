@@ -11,7 +11,7 @@ const { sendEmail, sendPush, hasPushConfiguration } = require('./notifier');
 const { proxyAlchemyRpc, fetchEtherscanPendingNonces, fetchCryptoCompareNews } = require('./providers');
 const { GasAnalyticsCollector, RETENTION_DAYS } = require('./gas-analytics');
 
-const { fetchWalletBalances, estimateEthereumTransfer } = require('./wallets');
+const { fetchWalletBalances, fetchSolanaWalletBalances, fetchSolanaNetworkStatus, validSolanaAddress, estimateEthereumTransfer } = require('./wallets');
 
 const app = express();
 const monitors = createMonitors(db.pool);
@@ -50,6 +50,16 @@ function sanitizeSettings(body) {
     const label = String(body.labels?.[address] || '').trim().slice(0, 80);
     if (label) labels[address] = label;
   }
+  const solanaAddresses = [...new Set((Array.isArray(body.solanaAddresses) ? body.solanaAddresses : [])
+    .map(value => String(value).trim()))];
+  if (solanaAddresses.length > 50 || solanaAddresses.some(value => !validSolanaAddress(value))) {
+    throw new Error('Enter up to 50 valid Solana addresses');
+  }
+  const solanaLabels = {};
+  for (const address of solanaAddresses) {
+    const label = String(body.solanaLabels?.[address] || '').trim().slice(0, 80);
+    if (label) solanaLabels[address] = label;
+  }
   const email = String(body.email || '').trim().slice(0, 254);
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid alert email');
   const sourceRules = body.notificationSettings?.rules || {};
@@ -64,9 +74,13 @@ function sanitizeSettings(body) {
   });
   const gasAddress = String(body.balanceSettings?.gasAddress || '').trim().toLowerCase();
   if (gasAddress && !validAddress(gasAddress)) throw new Error('Enter a valid Gas Station address');
+  const solanaGasAddress = String(body.balanceSettings?.solanaGasAddress || '').trim();
+  if (solanaGasAddress && !validSolanaAddress(solanaGasAddress)) throw new Error('Enter a valid Solana Gas Station address');
   return {
     addresses,
     labels,
+    solanaAddresses,
+    solanaLabels,
     email,
     timezone: safeTimezone(body.timezone),
     notificationSettings: {
@@ -83,11 +97,15 @@ function sanitizeSettings(body) {
     },
     balanceSettings: {
       enabled: body.balanceSettings?.enabled !== false,
-      balanceInterval: clamp(body.balanceSettings?.balanceInterval, 3600000, 60000, 86400000),
+      balanceInterval: refreshInterval(body.balanceSettings?.balanceInterval, 3600000),
       gasName: String(body.balanceSettings?.gasName || 'Main Gas Station').trim().slice(0, 80),
       gasAddress,
       gasThreshold: clamp(body.balanceSettings?.gasThreshold, 0.1, 0, 1_000_000),
-      gasInterval: clamp(body.balanceSettings?.gasInterval, 300000, 60000, 86400000),
+      gasInterval: refreshInterval(body.balanceSettings?.gasInterval, 300000),
+      solanaGasName: String(body.balanceSettings?.solanaGasName || 'Solana Gas Station').trim().slice(0, 80),
+      solanaGasAddress,
+      solanaGasThreshold: clamp(body.balanceSettings?.solanaGasThreshold, 1, 0, 1_000_000),
+      solanaGasInterval: refreshInterval(body.balanceSettings?.solanaGasInterval, 300000),
     },
   };
 }
@@ -95,6 +113,10 @@ function sanitizeSettings(body) {
 function clamp(value, fallback, minimum, maximum) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.min(maximum, Math.max(minimum, number)) : fallback;
+}
+
+function refreshInterval(value, fallback) {
+  return Number(value) === 0 ? 0 : clamp(value, fallback, 60000, 86400000);
 }
 
 function validTime(value) {
@@ -171,7 +193,7 @@ app.get('/health', (_req,res) => res.json({status:'ok',version:packageVersion,au
 app.use(express.static(path.join(__dirname,'../docs'),{index:'index.html',maxAge:0}));
 
 app.get('/api/public-config', (_req, res) => {
-  res.json({ pushEnabled: hasPushConfiguration(), vapidPublicKey: config.vapidPublicKey || null });
+  res.json({ pushEnabled: hasPushConfiguration(), vapidPublicKey: config.vapidPublicKey || null, solanaEnabled:Boolean(config.solanaRpcUrl) });
 });
 
 app.get('/api/settings', auth.requireUser, async (req, res, next) => {
@@ -276,6 +298,23 @@ app.post('/api/wallets/balances', auth.requireUser, async (req, res, next) => {
   } catch (error) {
     if (/Enter 1/.test(error.message)) return res.status(400).json({ error:error.message });
     next(error);
+  }
+});
+
+app.post('/api/wallets/solana/balances', auth.requireUser, async (req, res) => {
+  try {
+    res.json(await fetchSolanaWalletBalances(Array.isArray(req.body?.addresses) ? req.body.addresses : []));
+  } catch (error) {
+    const message = String(error?.message || 'Solana balance request failed').slice(0, 220);
+    res.status(/Enter 1/.test(message) ? 400 : /not configured/.test(message) ? 503 : 502).json({ error:message });
+  }
+});
+
+app.get('/api/networks/solana', auth.requireUser, async (_req, res) => {
+  try { res.json(await fetchSolanaNetworkStatus()); }
+  catch (error) {
+    const message = String(error?.message || 'Solana network request failed').slice(0, 220);
+    res.status(/not configured/.test(message) ? 503 : 502).json({ error:message });
   }
 });
 

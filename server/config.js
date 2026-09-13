@@ -8,6 +8,7 @@ const config = {
   port: Number(process.env.PORT) || 3000,
   databaseUrl: String(process.env.DATABASE_URL || '').trim(),
   alchemyWssUrl: String(process.env.ALCHEMY_WSS_URL || '').trim(),
+  solanaRpcUrl: String(process.env.SOLANA_RPC_URL || '').trim(),
   etherscanApiKey: String(process.env.ETHERSCAN_API_KEY || '').trim(),
   cryptoCompareApiKey: String(process.env.CRYPTOCOMPARE_API_KEY || '').trim(),
   bitgetApiKey: String(process.env.BITGET_API_KEY || '').trim(),

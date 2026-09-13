@@ -10,6 +10,26 @@ const TOKENS = [
 
 function validAddress(value) { return /^0x[a-fA-F0-9]{40}$/.test(String(value || '')); }
 
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const SOLANA_TOKENS = new Map([
+  ['EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', { symbol:'USDC', name:'USD Coin' }],
+  ['Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', { symbol:'USDT', name:'Tether USD' }],
+]);
+
+function validSolanaAddress(value) {
+  const text = String(value || '').trim();
+  if (text.length < 32 || text.length > 44) return false;
+  let decoded = 0n;
+  for (const character of text) {
+    const digit = BASE58_ALPHABET.indexOf(character);
+    if (digit < 0) return false;
+    decoded = decoded * 58n + BigInt(digit);
+  }
+  let bytes = decoded === 0n ? 0 : Math.ceil(decoded.toString(16).length / 2);
+  for (const character of text) { if (character === '1') bytes += 1; else break; }
+  return bytes === 32;
+}
+
 function formatUnits(value, decimals) {
   const integer = BigInt(value || 0);
   const negative = integer < 0n;
@@ -44,6 +64,103 @@ async function rpc(requests) {
   const failed = rows.find(row => row?.error);
   if (failed) throw new Error(String(failed.error?.message || 'Ethereum RPC request failed').slice(0, 180));
   return new Map(rows.map(row => [row.id, row.result]));
+}
+
+async function solanaRpc(requests) {
+  if (!/^https:\/\//.test(config.solanaRpcUrl)) throw new Error('Solana RPC provider is not configured');
+  const response = await fetch(config.solanaRpcUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requests),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body) throw new Error(`Solana RPC request failed (${response.status})`);
+  const rows = Array.isArray(body) ? body : [body];
+  const failed = rows.find(row => row?.error);
+  if (failed) throw new Error(String(failed.error?.message || 'Solana RPC request failed').slice(0, 180));
+  return new Map(rows.map(row => [row.id, row.result]));
+}
+
+async function fetchSolanaWalletBalances(addresses) {
+  const unique = [...new Set((addresses || []).map(value => String(value).trim()))];
+  if (!unique.length || unique.length > 50 || unique.some(value => !validSolanaAddress(value))) {
+    throw new Error('Enter 1–50 valid Solana addresses');
+  }
+  let id = 1;
+  const requests = [];
+  const fields = [];
+  for (const address of unique) {
+    requests.push({ jsonrpc:'2.0', id, method:'getBalance', params:[address, { commitment:'confirmed' }] });
+    fields.push({ id, address, kind:'native' });
+    id += 1;
+    requests.push({ jsonrpc:'2.0', id, method:'getTokenAccountsByOwner', params:[address, { programId:'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' }, { encoding:'jsonParsed', commitment:'confirmed' }] });
+    fields.push({ id, address, kind:'tokens' });
+    id += 1;
+    requests.push({ jsonrpc:'2.0', id, method:'getTokenAccountsByOwner', params:[address, { programId:'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb' }, { encoding:'jsonParsed', commitment:'confirmed' }] });
+    fields.push({ id, address, kind:'tokens' });
+    id += 1;
+  }
+  const results = await solanaRpc(requests);
+  const wallets = unique.map(address => ({ address, chainName:'Solana Mainnet', assets:[] }));
+  const byAddress = new Map(wallets.map(wallet => [wallet.address, wallet]));
+  const tokenTotals = new Map(wallets.map(wallet => [wallet.address, new Map()]));
+  for (const field of fields) {
+    const wallet = byAddress.get(field.address);
+    const result = results.get(field.id);
+    if (field.kind === 'native') {
+      const raw = BigInt(result?.value || 0);
+      wallet.assets.push({ symbol:'SOL', name:'Solana', mint:null, decimals:9, raw:raw.toString(), balance:formatUnits(raw, 9) });
+      continue;
+    }
+    for (const account of result?.value || []) {
+      const info = account?.account?.data?.parsed?.info;
+      const amount = info?.tokenAmount;
+      if (!info?.mint || !amount?.amount || BigInt(amount.amount) === 0n) continue;
+      const totals = tokenTotals.get(field.address);
+      const current = totals.get(info.mint) || { raw:0n, decimals:Number(amount.decimals) || 0 };
+      current.raw += BigInt(amount.amount);
+      totals.set(info.mint, current);
+    }
+  }
+  for (const wallet of wallets) {
+    for (const [mint, amount] of tokenTotals.get(wallet.address)) {
+      const known = SOLANA_TOKENS.get(mint);
+      wallet.assets.push({
+        symbol: known?.symbol || `${mint.slice(0, 4)}…${mint.slice(-4)}`,
+        name: known?.name || 'SPL Token',
+        mint,
+        decimals: amount.decimals,
+        raw: amount.raw.toString(),
+        balance: formatUnits(amount.raw, amount.decimals),
+      });
+    }
+  }
+  return { updatedAt:Date.now(), network:'solana-mainnet', wallets };
+}
+
+async function fetchSolanaNetworkStatus() {
+  const startedAt = Date.now();
+  const results = await solanaRpc([
+    { jsonrpc:'2.0', id:1, method:'getHealth', params:[] },
+    { jsonrpc:'2.0', id:2, method:'getSlot', params:[{ commitment:'confirmed' }] },
+    { jsonrpc:'2.0', id:3, method:'getBlockHeight', params:[{ commitment:'confirmed' }] },
+    { jsonrpc:'2.0', id:4, method:'getLatestBlockhash', params:[{ commitment:'confirmed' }] },
+    { jsonrpc:'2.0', id:5, method:'getRecentPrioritizationFees', params:[] },
+  ]);
+  const fees = (results.get(5) || []).map(row => Number(row.prioritizationFee)).filter(Number.isFinite).sort((a,b) => a-b);
+  const percentile = fraction => fees.length ? fees[Math.min(fees.length - 1, Math.floor((fees.length - 1) * fraction))] : null;
+  return {
+    network:'Solana Mainnet',
+    level:results.get(1) === 'ok' ? 'healthy' : 'degraded',
+    health:results.get(1) || 'unknown',
+    slot:Number(results.get(2)),
+    blockHeight:Number(results.get(3)),
+    lastValidBlockHeight:Number(results.get(4)?.value?.lastValidBlockHeight),
+    rpcLatencyMs:Date.now() - startedAt,
+    priorityFeeMicroLamports:{ low:percentile(.25), median:percentile(.5), high:percentile(.75), samples:fees.length },
+    sampledAt:Date.now(),
+  };
 }
 
 async function fetchWalletBalances(addresses) {
@@ -113,4 +230,4 @@ async function estimateEthereumTransfer({ from, to, symbol, amount }) {
   };
 }
 
-module.exports = { TOKENS, validAddress, formatUnits, parseUnits, fetchWalletBalances, estimateEthereumTransfer };
+module.exports = { TOKENS, validAddress, validSolanaAddress, formatUnits, parseUnits, fetchWalletBalances, fetchSolanaWalletBalances, fetchSolanaNetworkStatus, estimateEthereumTransfer };

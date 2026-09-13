@@ -4,6 +4,7 @@ async function fixture(){
   process.env.NODE_ENV='development';process.env.APP_ORIGIN='http://127.0.0.1';
   process.env.CREDENTIAL_ENCRYPTION_KEY=crypto.randomBytes(32).toString('base64');
   process.env.REGISTRATION_OPEN='true';process.env.DISABLE_MONITORS='true';process.env.RESEND_API_KEY='fixture';
+  process.env.SOLANA_RPC_URL='https://solana.test';
   const postgres=new PGlite();await postgres.waitReady;
   const db=require('../server/db');
   const query=async(sql,params)=>{
@@ -21,6 +22,21 @@ async function fixture(){
       if(value.includes('/info')&&denyClassicInfo)return Response.json({code:'40014',msg:'Permission denied'},{status:403});
       const data=value.includes('/info')?{authorities:unsafeKey?['trade']:['readonly']}:value.includes('/assets')?{accountEquity:'100',assets:[]}:value.includes('funding')?[]:{list:[]};
       return Response.json({code:'00000',data});
+    }
+    if(value==='https://solana.test'){
+      const source=JSON.parse(opts.body);const requests=Array.isArray(source)?source:[source];
+      const result=request=>{
+        if(request.method==='getHealth')return'ok';
+        if(request.method==='getSlot')return 345678901;
+        if(request.method==='getBlockHeight')return 321654987;
+        if(request.method==='getLatestBlockhash')return{context:{slot:345678901},value:{blockhash:'fixture-blockhash',lastValidBlockHeight:321655137}};
+        if(request.method==='getRecentPrioritizationFees')return[100,200,300,400].map((prioritizationFee,index)=>({slot:345678900-index,prioritizationFee}));
+        if(request.method==='getBalance')return{context:{slot:345678901},value:2500000000};
+        if(request.method==='getTokenAccountsByOwner')return{context:{slot:345678901},value:request.params?.[1]?.programId?.startsWith('Tokenkeg')?[{account:{data:{parsed:{info:{mint:'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',tokenAmount:{amount:'12500000',decimals:6,uiAmountString:'12.5'}}}}}}]:[]};
+        return null;
+      };
+      const rows=requests.map(request=>({jsonrpc:'2.0',id:request.id,result:result(request)}));
+      return Response.json(Array.isArray(source)?rows:rows[0]);
     }
     if(value.startsWith('https:'))throw Error('External requests disabled in tests');
     return nativeFetch(url,opts);

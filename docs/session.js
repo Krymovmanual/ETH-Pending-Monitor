@@ -66,6 +66,8 @@
     for(const [key,value] of Object.entries(prefs))if(preferenceKeys.includes(key))data.set(key,value);
     data.set('eth-pending-monitor-addresses',JSON.stringify(settings.addresses||[]));
     data.set('eth-pending-monitor-address-labels',JSON.stringify(settings.labels||{}));
+    data.set('paseqa-solana-addresses',JSON.stringify(settings.solanaAddresses||[]));
+    data.set('paseqa-solana-address-labels',JSON.stringify(settings.solanaLabels||{}));
     data.set('eth-pending-monitor-email',body.user.email);
     data.set('eth-pending-monitor-notification-settings',JSON.stringify(settings.notificationSettings||{}));
     data.set('eth-pending-monitor-balance-settings',JSON.stringify(settings.balanceSettings||{}));
@@ -78,7 +80,7 @@
     const status=document.createElement('span');status.id='sessionStatus';status.setAttribute('role','status');
     const logout=document.createElement('button');logout.type='button';logout.className='secondary';logout.textContent='Sign out';logout.onclick=()=>Treasury.logout();
     bar.append(email,link,status,logout);document.body.prepend(bar);requestAnimationFrame(()=>document.body.classList.remove('app-loading'));
-    const script=document.createElement('script');script.src=moduleName+'?v=15';document.body.append(script);
+    const script=document.createElement('script');script.src=moduleName+'?v=16';document.body.append(script);
   }
   start().catch(error=>{
     document.body.classList.remove('app-loading');

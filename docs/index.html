@@ -9,8 +9,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=15">
-<link rel="stylesheet" href="accounts.css?v=15"></head>
+  <link rel="stylesheet" href="styles.css?v=16">
+<link rel="stylesheet" href="accounts.css?v=16"></head>
 <body class="has-app-rail app-loading" data-view="overview">
   <section id="startupDiagnostic" role="alert" class="panel" style="margin:20px;padding:20px;border-color:#b98031" hidden>
     <h2>Application needs attention</h2><p></p><button id="retryStartup" type="button">Reload application</button>
@@ -141,7 +141,7 @@
       <article class="balance-panel">
         <div class="balance-head">
           <div>
-            <h2>Wallet balances</h2>
+            <h2>On-chain wallet balances</h2>
             <p id="walletBalanceMeta">Not updated yet</p>
           </div>
           <div class="balance-actions">
@@ -155,7 +155,7 @@
       <article class="balance-panel gas-panel">
         <div class="balance-head">
           <div>
-            <h2>Gas Station</h2>
+            <h2>Gas Stations</h2>
             <p id="gasBalanceMeta">Not configured</p>
           </div>
           <button class="secondary" id="gasSettingsButton" type="button">Settings</button>
@@ -177,11 +177,31 @@
       </div>
     </section>
 
+    <section class="panel network-health-panel view-networks solana-network-panel" aria-labelledby="solanaNetworkTitle">
+      <div class="panel-head network-health-head">
+        <div>
+          <span class="eyebrow solana-eyebrow">SOLANA MAINNET</span>
+          <h2 id="solanaNetworkTitle">Solana Network Control</h2>
+          <p id="solanaNetworkDetail">Checking Solana RPC health and priority fees…</p>
+        </div>
+        <div class="network-health-actions"><span class="connection compact" id="solanaNetworkBadge"><span class="dot"></span><span id="solanaNetworkStatus">Checking</span></span><button class="secondary" id="refreshSolanaNetworkButton" type="button">Refresh</button></div>
+      </div>
+      <div class="network-health-body">
+        <div class="network-kpis" aria-label="Solana network health">
+          <article><span>Confirmed slot</span><strong id="solanaNetworkSlot">—</strong><small id="solanaNetworkAge">Waiting for data</small></article>
+          <article><span>Block height</span><strong id="solanaBlockHeight">—</strong><small>Confirmed commitment</small></article>
+          <article><span>RPC latency</span><strong id="solanaRpcLatency">—</strong><small>Railway → Alchemy</small></article>
+          <article><span>Priority fee</span><strong id="solanaPriorityFee">—</strong><small>Median µ-lamports / CU</small></article>
+        </div>
+        <div class="solana-fee-band" id="solanaFeeBand"><div class="network-empty">Waiting for Solana fee data…</div></div>
+      </div>
+    </section>
+
     <section class="panel network-health-panel view-networks" aria-labelledby="networkHealthTitle">
       <div class="panel-head network-health-head">
         <div>
           <span class="eyebrow">ETHEREUM MAINNET</span>
-          <h2 id="networkHealthTitle">Network Control</h2>
+          <h2 id="networkHealthTitle">Ethereum Network Control</h2>
           <p id="networkHealthDetail">Checking block delivery, RPC and transaction streams…</p>
         </div>
         <div class="network-health-actions"><span class="connection compact" id="networkHealthBadge"><span class="dot"></span><span id="networkHealthStatus">Checking</span></span><button class="secondary" id="refreshNetworkHealthButton" type="button">Refresh</button></div>
@@ -500,6 +520,18 @@
       </div>
       <p class="hint">A browser and email alert is sent when the ETH balance falls below the minimum.</p>
 
+      <div class="settings-section"><h3>Solana Gas Station</h3><p class="hint">Native SOL reserve used for transaction fees and account rent.</p></div>
+      <label for="solanaGasNameInput">Name</label>
+      <input id="solanaGasNameInput" type="text" maxlength="60" placeholder="Solana Gas Station">
+      <label for="solanaGasAddressInput">Solana address</label>
+      <input id="solanaGasAddressInput" type="text" spellcheck="false" autocomplete="off" placeholder="7xKX…p9Qs">
+      <div class="split-fields">
+        <div><label for="solanaGasThresholdInput">Minimum SOL</label><input id="solanaGasThresholdInput" type="number" min="0" step="0.000001" placeholder="1"></div>
+        <div><label for="solanaGasIntervalInput">Refresh</label><select id="solanaGasIntervalInput" class="dialog-select">
+          <option value="300000">Every 5 minutes</option><option value="900000">Every 15 minutes</option><option value="1800000">Every 30 minutes</option><option value="3600000">Every 1 hour</option><option value="21600000">Every 6 hours</option><option value="0">Manual only</option>
+        </select></div>
+      </div>
+
       <div class="dialog-error" id="gasDialogError" role="alert"></div>
       <div class="dialog-actions">
         <button class="secondary" value="cancel" type="submit">Cancel</button>
@@ -523,6 +555,9 @@
       <label for="addressesInput">Ethereum addresses</label>
       <textarea id="addressesInput" spellcheck="false" placeholder="Fireblocks ETH | 0x1234…"></textarea>
       <p class="hint">Add up to 50 addresses. Use “Wallet name | 0x address”, one per line. The name is optional.</p>
+      <label for="solanaAddressesInput">Solana addresses</label>
+      <textarea id="solanaAddressesInput" spellcheck="false" placeholder="Treasury SOL | 7xKX…p9Qs"></textarea>
+      <p class="hint">Add public Solana addresses only. Private keys and seed phrases are never required.</p>
 
       <div class="dialog-error" id="dialogError" role="alert"></div>
       <div class="dialog-actions">
@@ -532,7 +567,7 @@
     </form>
   </dialog>
 
-  <script src="overview-data.js?v=15"></script>
-  <script src="session.js?v=15" data-module="app.js"></script>
+  <script src="overview-data.js?v=16"></script>
+  <script src="session.js?v=16" data-module="app.js"></script>
 </body>
 </html>
