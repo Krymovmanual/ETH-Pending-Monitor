@@ -12,14 +12,21 @@ test('multi-user authentication, credentials and isolation integration',async t=
   });
   await t.test('wallet settings, transaction rows and preferences are isolated',async()=>{
     const address='0x'+'a'.repeat(40);
-    assert.equal((await alice.client.call('/api/settings','PUT',{addresses:[address]})).status,200);
+    assert.equal((await alice.client.call('/api/settings','PUT',{addresses:[address],telegramChatId:'-1001234567890',notificationSettings:{rules:{pending:{telegram:true}}}})).status,200);
     assert.deepEqual((await bob.client.call('/api/settings')).data.addresses,[]);
+    assert.equal((await bob.client.call('/api/settings')).data.telegramChatId,'');
     await forUser(alice.id,()=>f.db.upsertTransaction({hash:'0x'+'1'.repeat(64),from:address,to:null,nonce:1}));
     assert.equal((await alice.client.call('/api/transactions')).data.items.length,1);
     assert.equal((await bob.client.call('/api/transactions')).data.items.length,0);
     await alice.client.call('/api/preferences','PUT',{'treasury-transfer-drafts':'["private"]'});
     assert.deepEqual((await bob.client.call('/api/preferences')).data,{});
     await assert.rejects(async()=>f.db.recentTransactions(),/context is required/);
+  });
+  await t.test('Telegram group connection is tested without exposing the bot token',async()=>{
+    const r=await alice.client.call('/api/test-telegram','POST',{chatId:'-1001234567890'});
+    assert.equal(r.status,200);assert.equal(f.telegramMessages.at(-1).chat_id,'-1001234567890');
+    assert.ok(!JSON.stringify(r.data).includes('fixture-telegram-token'));
+    assert.equal((await alice.client.call('/api/test-telegram','POST',{chatId:'invalid'})).status,400);
   });
   let secret,codes,connection;
   await t.test('background monitor remains bound to its owner across async calls',async()=>{

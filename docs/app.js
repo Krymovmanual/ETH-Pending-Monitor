@@ -3,6 +3,7 @@ const ENDPOINT_KEY = 'eth-pending-monitor-endpoint';
 const ADDRESSES_KEY = 'eth-pending-monitor-addresses';
 const LABELS_KEY = 'eth-pending-monitor-address-labels';
 const EMAIL_KEY = 'eth-pending-monitor-email';
+const TELEGRAM_CHAT_KEY = 'paseqa-telegram-chat-id';
 const TX_KEY = 'eth-pending-monitor-transactions';
 const TOKEN_CACHE_KEY = 'eth-pending-monitor-token-cache';
 const BALANCE_SETTINGS_KEY = 'eth-pending-monitor-balance-settings';
@@ -73,6 +74,7 @@ const state = {
   bitcoinAddresses: loadBitcoinAddresses(),
   bitcoinLabels: loadStoredObject(BITCOIN_LABELS_KEY),
   email: Treasury.storage.getItem(EMAIL_KEY) || '',
+  telegramChatId: Treasury.storage.getItem(TELEGRAM_CHAT_KEY) || '',
   notificationSettings: loadNotificationSettings(),
   summaryAlerts: loadStoredObject(SUMMARY_ALERTS_KEY),
   transactions: loadTransactions(),
@@ -243,6 +245,9 @@ const el = {
   email: document.querySelector('#emailInput'),
   testEmailButton: document.querySelector('#testEmailButton'),
   testEmailStatus: document.querySelector('#testEmailStatus'),
+  telegramChatId: document.querySelector('#telegramChatIdInput'),
+  testTelegramButton: document.querySelector('#testTelegramButton'),
+  testTelegramStatus: document.querySelector('#testTelegramStatus'),
   notificationButton: document.querySelector('#notificationButton'),
   notificationStatus: document.querySelector('#notificationStatus'),
   error: document.querySelector('#dialogError'),
@@ -274,22 +279,27 @@ const el = {
   pendingAlerts: document.querySelector('#pendingAlertsInput'),
   pendingBrowser: document.querySelector('#pendingBrowserInput'),
   pendingEmail: document.querySelector('#pendingEmailInput'),
+  pendingTelegram: document.querySelector('#pendingTelegramInput'),
   blockerAlerts: document.querySelector('#blockerAlertsInput'),
   blockerBrowser: document.querySelector('#blockerBrowserInput'),
   blockerEmail: document.querySelector('#blockerEmailInput'),
+  blockerTelegram: document.querySelector('#blockerTelegramInput'),
   blockerIgnoreQuiet: document.querySelector('#blockerIgnoreQuietInput'),
   blockerMinutes: document.querySelector('#blockerMinutesInput'),
   blockerRepeat: document.querySelector('#blockerRepeatInput'),
   droppedAlerts: document.querySelector('#droppedAlertsInput'),
   droppedBrowser: document.querySelector('#droppedBrowserInput'),
   droppedEmail: document.querySelector('#droppedEmailInput'),
+  droppedTelegram: document.querySelector('#droppedTelegramInput'),
   droppedMinutes: document.querySelector('#droppedMinutesInput'),
   replacedAlerts: document.querySelector('#replacedAlertsInput'),
   replacedBrowser: document.querySelector('#replacedBrowserInput'),
   replacedEmail: document.querySelector('#replacedEmailInput'),
+  replacedTelegram: document.querySelector('#replacedTelegramInput'),
   gasAlerts: document.querySelector('#gasAlertsInput'),
   gasBrowser: document.querySelector('#gasBrowserInput'),
   gasEmail: document.querySelector('#gasEmailInput'),
+  gasTelegram: document.querySelector('#gasTelegramInput'),
   gasIgnoreQuiet: document.querySelector('#gasIgnoreQuietInput'),
   gasRepeat: document.querySelector('#gasRepeatInput'),
   pendingMinutes: document.querySelector('#pendingMinutesInput'),
@@ -379,11 +389,11 @@ function loadBalanceSettings() {
 
 function loadNotificationSettings() {
   const defaultRules = {
-    pending: {enabled:true, browser:true, email:true, afterMinutes:15, repeatMinutes:30},
-    blocker: {enabled:true, browser:true, email:true, afterMinutes:15, repeatMinutes:30, ignoreQuiet:true},
-    dropped: {enabled:true, browser:true, email:true, afterMinutes:30, repeatMinutes:0},
-    replaced: {enabled:true, browser:true, email:true, afterMinutes:0, repeatMinutes:0},
-    gasLow: {enabled:true, browser:true, email:true, afterMinutes:0, repeatMinutes:60, ignoreQuiet:true},
+    pending: {enabled:true, browser:true, email:true, telegram:true, afterMinutes:15, repeatMinutes:30},
+    blocker: {enabled:true, browser:true, email:true, telegram:true, afterMinutes:15, repeatMinutes:30, ignoreQuiet:true},
+    dropped: {enabled:true, browser:true, email:true, telegram:false, afterMinutes:30, repeatMinutes:0},
+    replaced: {enabled:true, browser:true, email:true, telegram:false, afterMinutes:0, repeatMinutes:0},
+    gasLow: {enabled:true, browser:true, email:true, telegram:false, afterMinutes:0, repeatMinutes:60, ignoreQuiet:true},
   };
   const defaults = {
     rules: defaultRules,
@@ -1127,7 +1137,7 @@ function ruleNameForKind(kind) {
 }
 
 function notificationRule(kind) {
-  return state.notificationSettings.rules[ruleNameForKind(kind)] || {enabled:false, browser:false, email:false, afterMinutes:0, repeatMinutes:0};
+  return state.notificationSettings.rules[ruleNameForKind(kind)] || {enabled:false, browser:false, email:false, telegram:false, afterMinutes:0, repeatMinutes:0};
 }
 
 function inQuietHours(kind) {
@@ -1276,6 +1286,35 @@ async function sendTestEmail() {
     showTestStatus(error.message || 'Could not send the test email.', true);
   } finally {
     el.testEmailButton.disabled = false;
+  }
+}
+
+function showTelegramTestStatus(message, isError = false) {
+  el.testTelegramStatus.textContent = message;
+  el.testTelegramStatus.classList.toggle('error', isError);
+}
+
+async function sendTestTelegram() {
+  const chatId = el.telegramChatId.value.trim();
+  if (!/^-?\d{5,20}$/.test(chatId)) {
+    showTelegramTestStatus('Enter the numeric group chat ID, for example -1001234567890.', true);
+    return;
+  }
+  el.testTelegramButton.disabled = true;
+  showTelegramTestStatus('Sending…');
+  try {
+    const response = await fetch(`${normalizedBackendUrl()}/api/test-telegram`, {
+      method: 'POST', headers: backendHeaders(), body: JSON.stringify({chatId}),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || 'Telegram test failed');
+    state.telegramChatId = chatId;
+    Treasury.storage.setItem(TELEGRAM_CHAT_KEY, chatId);
+    showTelegramTestStatus('Sent. The group is connected.');
+  } catch (error) {
+    showTelegramTestStatus(error.message || 'Could not send the Telegram test.', true);
+  } finally {
+    el.testTelegramButton.disabled = false;
   }
 }
 
@@ -2600,6 +2639,7 @@ function serverSettingsPayload() {
     bitcoinAddresses: state.bitcoinAddresses,
     bitcoinLabels: state.bitcoinLabels,
     email: state.email,
+    telegramChatId: state.telegramChatId,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     notificationSettings: state.notificationSettings,
     balanceSettings: state.balanceSettings,
@@ -2662,24 +2702,29 @@ function openNotificationSettings() {
   el.pendingAlerts.checked = Boolean(pending.enabled);
   el.pendingBrowser.checked = Boolean(pending.browser);
   el.pendingEmail.checked = Boolean(pending.email);
+  el.pendingTelegram.checked = Boolean(pending.telegram);
   el.pendingMinutes.value = pending.afterMinutes;
   el.pendingRepeat.value = String(pending.repeatMinutes);
   el.blockerAlerts.checked = Boolean(blocker.enabled);
   el.blockerBrowser.checked = Boolean(blocker.browser);
   el.blockerEmail.checked = Boolean(blocker.email);
+  el.blockerTelegram.checked = Boolean(blocker.telegram);
   el.blockerIgnoreQuiet.checked = Boolean(blocker.ignoreQuiet);
   el.blockerMinutes.value = blocker.afterMinutes;
   el.blockerRepeat.value = String(blocker.repeatMinutes);
   el.droppedAlerts.checked = Boolean(dropped.enabled);
   el.droppedBrowser.checked = Boolean(dropped.browser);
   el.droppedEmail.checked = Boolean(dropped.email);
+  el.droppedTelegram.checked = Boolean(dropped.telegram);
   el.droppedMinutes.value = dropped.afterMinutes;
   el.replacedAlerts.checked = Boolean(replaced.enabled);
   el.replacedBrowser.checked = Boolean(replaced.browser);
   el.replacedEmail.checked = Boolean(replaced.email);
+  el.replacedTelegram.checked = Boolean(replaced.telegram);
   el.gasAlerts.checked = Boolean(gasLow.enabled);
   el.gasBrowser.checked = Boolean(gasLow.browser);
   el.gasEmail.checked = Boolean(gasLow.email);
+  el.gasTelegram.checked = Boolean(gasLow.telegram);
   el.gasIgnoreQuiet.checked = Boolean(gasLow.ignoreQuiet);
   el.gasRepeat.value = String(gasLow.repeatMinutes);
   el.alertCheckInterval.value = String(settings.checkIntervalSeconds);
@@ -2687,8 +2732,10 @@ function openNotificationSettings() {
   el.quietStart.value = settings.quietStart;
   el.quietEnd.value = settings.quietEnd;
   el.email.value = state.email;
+  el.telegramChatId.value = state.telegramChatId;
   el.notificationError.textContent = '';
   showTestStatus('');
+  showTelegramTestStatus('');
   updateNotificationStatus();
   el.notificationDialog.showModal();
 }
@@ -2768,6 +2815,7 @@ el.refreshExchangeButton.addEventListener('click', () => updateExchangeAccount({
 el.pendingSyncButton.addEventListener('click', () => Promise.allSettled([syncPendingState(true), syncServerTransactions({ force:true })]));
 el.pendingSyncNoticeButton.addEventListener('click', () => Promise.allSettled([syncPendingState(true), syncServerTransactions({ force:true })]));
 el.testEmailButton.addEventListener('click', sendTestEmail);
+el.testTelegramButton.addEventListener('click', sendTestTelegram);
 el.notificationButton.addEventListener('click', enableNotifications);
 el.form.addEventListener('submit', async event => {
   if (event.submitter?.value !== 'default') return;
@@ -2829,6 +2877,7 @@ el.notificationForm.addEventListener('submit', async event => {
   if (event.submitter?.value !== 'default') return;
   event.preventDefault();
   const email = el.email.value.trim();
+  const telegramChatId = el.telegramChatId.value.trim();
   const pendingMinutes = Number(el.pendingMinutes.value);
   const blockerMinutes = Number(el.blockerMinutes.value);
   const droppedMinutes = Number(el.droppedMinutes.value);
@@ -2841,6 +2890,17 @@ el.notificationForm.addEventListener('submit', async event => {
   ].some(Boolean);
   if (emailRequired && !validEmail(email)) {
     el.notificationError.textContent = 'Enter a valid alert email or disable Email for every active rule.';
+    return;
+  }
+  const telegramRequired = [
+    el.pendingAlerts.checked && el.pendingTelegram.checked,
+    el.blockerAlerts.checked && el.blockerTelegram.checked,
+    el.droppedAlerts.checked && el.droppedTelegram.checked,
+    el.replacedAlerts.checked && el.replacedTelegram.checked,
+    el.gasAlerts.checked && el.gasTelegram.checked,
+  ].some(Boolean);
+  if (telegramRequired && !/^-?\d{5,20}$/.test(telegramChatId)) {
+    el.notificationError.textContent = 'Enter a valid numeric Telegram chat ID or disable Telegram for every active rule.';
     return;
   }
   if (!Number.isFinite(pendingMinutes) || pendingMinutes < 1 || pendingMinutes > 1440) {
@@ -2856,13 +2916,14 @@ el.notificationForm.addEventListener('submit', async event => {
     return;
   }
   state.email = email;
+  state.telegramChatId = telegramChatId;
   state.notificationSettings = {
     rules: {
-      pending: {enabled:el.pendingAlerts.checked, browser:el.pendingBrowser.checked, email:el.pendingEmail.checked, afterMinutes:pendingMinutes, repeatMinutes:Number(el.pendingRepeat.value)},
-      blocker: {enabled:el.blockerAlerts.checked, browser:el.blockerBrowser.checked, email:el.blockerEmail.checked, afterMinutes:blockerMinutes, repeatMinutes:Number(el.blockerRepeat.value), ignoreQuiet:el.blockerIgnoreQuiet.checked},
-      dropped: {enabled:el.droppedAlerts.checked, browser:el.droppedBrowser.checked, email:el.droppedEmail.checked, afterMinutes:droppedMinutes, repeatMinutes:0},
-      replaced: {enabled:el.replacedAlerts.checked, browser:el.replacedBrowser.checked, email:el.replacedEmail.checked, afterMinutes:0, repeatMinutes:0},
-      gasLow: {enabled:el.gasAlerts.checked, browser:el.gasBrowser.checked, email:el.gasEmail.checked, afterMinutes:0, repeatMinutes:Number(el.gasRepeat.value), ignoreQuiet:el.gasIgnoreQuiet.checked},
+      pending: {enabled:el.pendingAlerts.checked, browser:el.pendingBrowser.checked, email:el.pendingEmail.checked, telegram:el.pendingTelegram.checked, afterMinutes:pendingMinutes, repeatMinutes:Number(el.pendingRepeat.value)},
+      blocker: {enabled:el.blockerAlerts.checked, browser:el.blockerBrowser.checked, email:el.blockerEmail.checked, telegram:el.blockerTelegram.checked, afterMinutes:blockerMinutes, repeatMinutes:Number(el.blockerRepeat.value), ignoreQuiet:el.blockerIgnoreQuiet.checked},
+      dropped: {enabled:el.droppedAlerts.checked, browser:el.droppedBrowser.checked, email:el.droppedEmail.checked, telegram:el.droppedTelegram.checked, afterMinutes:droppedMinutes, repeatMinutes:0},
+      replaced: {enabled:el.replacedAlerts.checked, browser:el.replacedBrowser.checked, email:el.replacedEmail.checked, telegram:el.replacedTelegram.checked, afterMinutes:0, repeatMinutes:0},
+      gasLow: {enabled:el.gasAlerts.checked, browser:el.gasBrowser.checked, email:el.gasEmail.checked, telegram:el.gasTelegram.checked, afterMinutes:0, repeatMinutes:Number(el.gasRepeat.value), ignoreQuiet:el.gasIgnoreQuiet.checked},
     },
     checkIntervalSeconds: Number(el.alertCheckInterval.value),
     quietHoursEnabled: el.quietHours.checked,
@@ -2870,6 +2931,7 @@ el.notificationForm.addEventListener('submit', async event => {
     quietEnd: el.quietEnd.value || '08:00',
   };
   if (email) Treasury.storage.setItem(EMAIL_KEY, email); else Treasury.storage.removeItem(EMAIL_KEY);
+  if (telegramChatId) Treasury.storage.setItem(TELEGRAM_CHAT_KEY, telegramChatId); else Treasury.storage.removeItem(TELEGRAM_CHAT_KEY);
   Treasury.storage.setItem(NOTIFICATION_SETTINGS_KEY, JSON.stringify(state.notificationSettings));
   await syncBackendSettings();
   el.notificationDialog.close();

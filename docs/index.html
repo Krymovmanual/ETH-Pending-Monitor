@@ -9,8 +9,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=17">
-<link rel="stylesheet" href="accounts.css?v=17"></head>
+  <link rel="stylesheet" href="styles.css?v=18">
+<link rel="stylesheet" href="accounts.css?v=18"></head>
 <body class="has-app-rail app-loading" data-view="overview">
   <section id="startupDiagnostic" role="alert" class="panel" style="margin:20px;padding:20px;border-color:#b98031" hidden>
     <h2>Application needs attention</h2><p></p><button id="retryStartup" type="button">Reload application</button>
@@ -434,37 +434,45 @@
           <button class="secondary" id="testEmailButton" type="button">Send test</button>
         </div>
         <div class="test-status" id="testEmailStatus" role="status"></div>
-        <p class="hint">The first test may require FormSubmit activation from your inbox.</p>
+        <p class="hint">Email is sent through the configured server provider.</p>
+
+        <label for="telegramChatIdInput">Telegram group chat ID</label>
+        <div class="inline-field">
+          <input id="telegramChatIdInput" inputmode="numeric" autocomplete="off" placeholder="-1001234567890">
+          <button class="secondary" id="testTelegramButton" type="button">Send test</button>
+        </div>
+        <div class="test-status" id="testTelegramStatus" role="status"></div>
+        <p class="hint">Create the bot with @BotFather, add it to the group, then paste the numeric group ID. The bot token stays only in Railway.</p>
       </div>
 
       <div class="settings-section">
         <h3>Alert rules</h3>
         <div class="alert-rule">
-          <div class="alert-rule-head"><label class="check-label" for="pendingAlertsInput"><input id="pendingAlertsInput" type="checkbox"><span><strong>Pending transactions + boost analysis</strong><small>Sent only after the configured pending time. The email contains full TX hashes.</small></span></label></div>
-          <div class="rule-channels"><label class="check-label" for="pendingBrowserInput"><input id="pendingBrowserInput" type="checkbox"><span>Browser</span></label><label class="check-label" for="pendingEmailInput"><input id="pendingEmailInput" type="checkbox"><span>Email</span></label></div>
+          <div class="alert-rule-head"><label class="check-label" for="pendingAlertsInput"><input id="pendingAlertsInput" type="checkbox"><span><strong>Pending transactions + boost analysis</strong><small>Sent only after the configured pending time. Alerts contain the full TX hash.</small></span></label></div>
+          <div class="rule-channels"><label class="check-label" for="pendingBrowserInput"><input id="pendingBrowserInput" type="checkbox"><span>Browser</span></label><label class="check-label" for="pendingEmailInput"><input id="pendingEmailInput" type="checkbox"><span>Email</span></label><label class="check-label" for="pendingTelegramInput"><input id="pendingTelegramInput" type="checkbox"><span>Telegram</span></label></div>
           <div class="rule-fields"><div><label for="pendingMinutesInput">Send after</label><div class="number-suffix"><input id="pendingMinutesInput" type="number" min="1" max="1440" step="1"><span>min</span></div></div><div><label for="pendingRepeatInput">Repeat</label><select id="pendingRepeatInput" class="dialog-select"><option value="0">Never</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="180">3 hours</option></select></div></div>
         </div>
 
         <div class="alert-rule urgent-rule">
           <div class="alert-rule-head"><label class="check-label" for="blockerAlertsInput"><input id="blockerAlertsInput" type="checkbox"><span><strong>Nonce queue blocked</strong><small>Rechecks the blocker and higher nonces on-chain immediately before delivery.</small></span></label></div>
-          <div class="rule-channels"><label class="check-label" for="blockerBrowserInput"><input id="blockerBrowserInput" type="checkbox"><span>Browser</span></label><label class="check-label" for="blockerEmailInput"><input id="blockerEmailInput" type="checkbox"><span>Email</span></label><label class="check-label" for="blockerIgnoreQuietInput"><input id="blockerIgnoreQuietInput" type="checkbox"><span>Ignore quiet hours</span></label></div>
+          <div class="rule-channels"><label class="check-label" for="blockerBrowserInput"><input id="blockerBrowserInput" type="checkbox"><span>Browser</span></label><label class="check-label" for="blockerEmailInput"><input id="blockerEmailInput" type="checkbox"><span>Email</span></label><label class="check-label" for="blockerTelegramInput"><input id="blockerTelegramInput" type="checkbox"><span>Telegram</span></label><label class="check-label" for="blockerIgnoreQuietInput"><input id="blockerIgnoreQuietInput" type="checkbox"><span>Ignore quiet hours</span></label></div>
           <div class="rule-fields"><div><label for="blockerMinutesInput">Send after</label><div class="number-suffix"><input id="blockerMinutesInput" type="number" min="1" max="1440" step="1"><span>min</span></div></div><div><label for="blockerRepeatInput">Repeat</label><select id="blockerRepeatInput" class="dialog-select"><option value="0">Never</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option></select></div></div>
         </div>
 
         <div class="alert-rule">
           <div class="alert-rule-head"><label class="check-label" for="droppedAlertsInput"><input id="droppedAlertsInput" type="checkbox"><span><strong>Dropped transaction</strong><small>Sent once when the transaction is no longer found.</small></span></label></div>
-          <div class="rule-channels"><label class="check-label" for="droppedBrowserInput"><input id="droppedBrowserInput" type="checkbox"><span>Browser</span></label><label class="check-label" for="droppedEmailInput"><input id="droppedEmailInput" type="checkbox"><span>Email</span></label></div>
+          <div class="rule-channels"><label class="check-label" for="droppedBrowserInput"><input id="droppedBrowserInput" type="checkbox"><span>Browser</span></label><label class="check-label" for="droppedEmailInput"><input id="droppedEmailInput" type="checkbox"><span>Email</span></label><label class="check-label" for="droppedTelegramInput"><input id="droppedTelegramInput" type="checkbox"><span>Telegram</span></label></div>
           <div class="rule-fields single-rule-field"><div><label for="droppedMinutesInput">Check as dropped after</label><div class="number-suffix"><input id="droppedMinutesInput" type="number" min="1" max="1440" step="1"><span>min</span></div></div></div>
         </div>
 
         <div class="alert-rule">
           <div class="alert-rule-head"><label class="check-label" for="replacedAlertsInput"><input id="replacedAlertsInput" type="checkbox"><span><strong>Replaced transaction</strong><small>Sent once immediately when another TX uses the same sender and nonce.</small></span></label></div>
-          <div class="rule-channels"><label class="check-label" for="replacedBrowserInput"><input id="replacedBrowserInput" type="checkbox"><span>Browser</span></label><label class="check-label" for="replacedEmailInput"><input id="replacedEmailInput" type="checkbox"><span>Email</span></label></div>
+          <div class="rule-channels"><label class="check-label" for="replacedBrowserInput"><input id="replacedBrowserInput" type="checkbox"><span>Browser</span></label><label class="check-label" for="replacedEmailInput"><input id="replacedEmailInput" type="checkbox"><span>Email</span></label><label class="check-label" for="replacedTelegramInput"><input id="replacedTelegramInput" type="checkbox"><span>Telegram</span></label></div>
         </div>
 
         <div class="alert-rule">
           <div class="alert-rule-head"><label class="check-label" for="gasAlertsInput"><input id="gasAlertsInput" type="checkbox"><span><strong>Low Gas Station balance</strong><small>Uses the ETH minimum configured in Gas Station settings.</small></span></label></div>
-          <div class="rule-channels"><label class="check-label" for="gasBrowserInput"><input id="gasBrowserInput" type="checkbox"><span>Browser</span></label><label class="check-label" for="gasEmailInput"><input id="gasEmailInput" type="checkbox"><span>Email</span></label><label class="check-label" for="gasIgnoreQuietInput"><input id="gasIgnoreQuietInput" type="checkbox"><span>Ignore quiet hours</span></label></div>
+          <div class="rule-channels"><label class="check-label" for="gasBrowserInput"><input id="gasBrowserInput" type="checkbox"><span>Browser</span></label><label class="check-label" for="gasEmailInput"><input id="gasEmailInput" type="checkbox"><span>Email</span></label><label class="check-label" for="gasTelegramInput"><input id="gasTelegramInput" type="checkbox"><span>Telegram</span></label><label class="check-label" for="gasIgnoreQuietInput"><input id="gasIgnoreQuietInput" type="checkbox"><span>Ignore quiet hours</span></label></div>
           <div class="rule-fields single-rule-field"><div><label for="gasRepeatInput">Repeat</label><select id="gasRepeatInput" class="dialog-select"><option value="0">Never</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="180">3 hours</option></select></div></div>
         </div>
       </div>
@@ -608,7 +616,7 @@
     </form>
   </dialog>
 
-  <script src="overview-data.js?v=17"></script>
-  <script src="session.js?v=17" data-module="app.js"></script>
+  <script src="overview-data.js?v=18"></script>
+  <script src="session.js?v=18" data-module="app.js"></script>
 </body>
 </html>

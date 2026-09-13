@@ -23,6 +23,7 @@ const config = {
     .filter(Boolean),
   resendApiKey: String(process.env.RESEND_API_KEY || '').trim(),
   emailFrom: String(process.env.EMAIL_FROM || 'ETH Pending Monitor <onboarding@resend.dev>').trim(),
+  telegramBotToken: String(process.env.TELEGRAM_BOT_TOKEN || '').trim(),
   vapidPublicKey: String(process.env.VAPID_PUBLIC_KEY || '').trim(),
   vapidPrivateKey: String(process.env.VAPID_PRIVATE_KEY || '').trim(),
   vapidSubject: String(process.env.VAPID_SUBJECT || 'mailto:admin@example.com').trim(),

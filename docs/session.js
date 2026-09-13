@@ -71,6 +71,7 @@
     data.set('paseqa-bitcoin-addresses',JSON.stringify(settings.bitcoinAddresses||[]));
     data.set('paseqa-bitcoin-address-labels',JSON.stringify(settings.bitcoinLabels||{}));
     data.set('eth-pending-monitor-email',body.user.email);
+    data.set('paseqa-telegram-chat-id',settings.telegramChatId||'');
     data.set('eth-pending-monitor-notification-settings',JSON.stringify(settings.notificationSettings||{}));
     data.set('eth-pending-monitor-balance-settings',JSON.stringify(settings.balanceSettings||{}));
     // Remove obsolete shared admin credentials from this origin.
@@ -82,7 +83,7 @@
     const status=document.createElement('span');status.id='sessionStatus';status.setAttribute('role','status');
     const logout=document.createElement('button');logout.type='button';logout.className='secondary';logout.textContent='Sign out';logout.onclick=()=>Treasury.logout();
     bar.append(email,link,status,logout);document.body.prepend(bar);requestAnimationFrame(()=>document.body.classList.remove('app-loading'));
-    const script=document.createElement('script');script.src=moduleName+'?v=17';document.body.append(script);
+    const script=document.createElement('script');script.src=moduleName+'?v=18';document.body.append(script);
   }
   start().catch(error=>{
     document.body.classList.remove('app-loading');

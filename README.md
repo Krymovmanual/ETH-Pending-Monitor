@@ -36,6 +36,8 @@ The interface is split into focused workspaces: **Overview** for operational KPI
 
 Email alerts use Resend when `RESEND_API_KEY` and `EMAIL_FROM` are configured. Without Resend, the service uses the already activated FormSubmit recipient. Web Push requires `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT`.
 
+Telegram alerts require one Railway secret, `TELEGRAM_BOT_TOKEN`, created with `@BotFather`. Each user stores their own numeric group chat ID in **Notification settings**; the platform bot token is never returned to the browser. Pending and nonce-blocker Telegram alerts are enabled by default once a group is configured, use the existing 15-minute threshold, recheck the transaction on-chain before delivery, and share the PostgreSQL repeat/deduplication policy with email and Web Push.
+
 The browser talks to Railway for Etherscan diagnostics and CryptoCompare news, so those provider keys are never exposed in GitHub Pages or browser storage. Both integrations require the Railway backend.
 
 Gas Analytics uses an independent Alchemy connection on Railway to sample every Ethereum block. It stores one aggregated row per minute, keeps 30 days, and removes older rows automatically. A Gas Analytics failure does not stop pending-transaction monitoring.

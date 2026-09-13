@@ -17,14 +17,15 @@ const defaultSettings = {
   bitcoinAddresses: [],
   bitcoinLabels: {},
   email: '',
+  telegramChatId: '',
   timezone: 'UTC',
   notificationSettings: {
     rules: {
-      pending: { enabled: true, browser: true, email: true, afterMinutes: 15, repeatMinutes: 30 },
-      blocker: { enabled: true, browser: true, email: true, afterMinutes: 15, repeatMinutes: 30, ignoreQuiet: true },
-      dropped: { enabled: true, browser: true, email: true, afterMinutes: 30, repeatMinutes: 0 },
-      replaced: { enabled: true, browser: true, email: true, afterMinutes: 0, repeatMinutes: 0 },
-      gasLow: { enabled: true, browser: true, email: true, afterMinutes: 0, repeatMinutes: 60, ignoreQuiet: true }
+      pending: { enabled: true, browser: true, email: true, telegram: true, afterMinutes: 15, repeatMinutes: 30 },
+      blocker: { enabled: true, browser: true, email: true, telegram: true, afterMinutes: 15, repeatMinutes: 30, ignoreQuiet: true },
+      dropped: { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 30, repeatMinutes: 0 },
+      replaced: { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 0, repeatMinutes: 0 },
+      gasLow: { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 0, repeatMinutes: 60, ignoreQuiet: true }
     },
     quietHoursEnabled: false,
     quietStart: '22:00',

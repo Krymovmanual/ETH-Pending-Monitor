@@ -6,6 +6,7 @@ async function fixture(){
   process.env.REGISTRATION_OPEN='true';process.env.DISABLE_MONITORS='true';process.env.RESEND_API_KEY='fixture';
   process.env.SOLANA_RPC_URL='https://solana.test';
   process.env.BITCOIN_RPC_URL='https://bitcoin.test';process.env.BITCOIN_INDEXER_URL='https://mempool.test/api';
+  process.env.TELEGRAM_BOT_TOKEN='fixture-telegram-token';
   const postgres=new PGlite();await postgres.waitReady;
   const db=require('../server/db');
   const query=async(sql,params)=>{
@@ -14,11 +15,12 @@ async function fixture(){
   };
   db.pool.query=query;db.pool.connect=async()=>({query,release(){}});
   db.pool.end=()=>postgres.close();
-  const nativeFetch=global.fetch;const mails=[];
+  const nativeFetch=global.fetch;const mails=[],telegramMessages=[];
   let unsafeKey=false,denyClassicInfo=false;
   global.fetch=async(url,opts)=>{
     const value=String(url);
     if(value.startsWith('https://api.resend.com/')){mails.push(JSON.parse(opts.body));return new Response('{}',{status:200});}
+    if(value.startsWith('https://api.telegram.org/')){telegramMessages.push(JSON.parse(opts.body));return Response.json({ok:true,result:{message_id:1}});}
     if(value.startsWith('https://api.bitget.com')){
       if(value.includes('/info')&&denyClassicInfo)return Response.json({code:'40014',msg:'Permission denied'},{status:403});
       const data=value.includes('/info')?{authorities:unsafeKey?['trade']:['readonly']}:value.includes('/assets')?{accountEquity:'100',assets:[]}:value.includes('funding')?[]:{list:[]};
@@ -78,6 +80,6 @@ async function fixture(){
     r=await user.call('/api/auth/verify','POST',{token:mailToken(email,'verify')});if(r.status!==200)throw Error(JSON.stringify(r));
     await user.call('/api/auth/login','POST',{email,password});const me=await user.call('/api/auth/me');return {client:user,id:me.data.user.id,email,password};
   }
-  return {origin,db,auth,postgres,client,register,mailToken,mails,unsafe(value){unsafeKey=value;},denyClassicInfo(value){denyClassicInfo=value;},async close(){await new Promise(resolve=>server.close(resolve));global.fetch=nativeFetch;await postgres.close();}};
+  return {origin,db,auth,postgres,client,register,mailToken,mails,telegramMessages,unsafe(value){unsafeKey=value;},denyClassicInfo(value){denyClassicInfo=value;},async close(){await new Promise(resolve=>server.close(resolve));global.fetch=nativeFetch;await postgres.close();}};
 }
 module.exports={fixture};

@@ -10,6 +10,38 @@ function hasPushConfiguration() {
   return Boolean(config.vapidPublicKey && config.vapidPrivateKey);
 }
 
+function hasTelegramConfiguration() {
+  return Boolean(config.telegramBotToken);
+}
+
+function validTelegramChatId(value) {
+  return /^-?\d{5,20}$/.test(String(value || '').trim());
+}
+
+async function sendTelegram(chatId, title, body, url) {
+  if (!hasTelegramConfiguration()) throw new Error('Telegram bot is not configured');
+  if (!validTelegramChatId(chatId)) throw new Error('Enter a valid numeric Telegram chat ID');
+  const text = `<b>${escapeHtml(title)}</b>\n\n${escapeHtml(body)}\n\n<i>Checked ${escapeHtml(new Date().toISOString())}</i>`;
+  const payload = {
+    chat_id: String(chatId).trim(),
+    text,
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+  };
+  if (url) payload.reply_markup = { inline_keyboard: [[{ text: 'Open on Etherscan', url }]] };
+  const response = await fetch(`https://api.telegram.org/bot${config.telegramBotToken}/sendMessage`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(15000),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.ok === false) {
+    const description = String(result.description || `HTTP ${response.status}`).slice(0, 180);
+    throw new Error(`Telegram rejected the message: ${description}`);
+  }
+}
+
 async function sendEmail(recipient, subject, fields) {
   if (!recipient) throw new Error('Alert email is not configured');
   if (config.resendApiKey) {
@@ -78,20 +110,36 @@ async function deliverAlert({ kind, scopeKey, title, body, tx, settings, rule, e
     delivered = (await sendPush(title, body, url, `${kind}-${scopeKey}`, urgent)) > 0 || delivered;
   }
   if (rule.email && settings.email) {
-    await sendEmail(settings.email, title, {
-      event: kind,
-      wallet: tx ? walletLabel(settings, tx.from_address) : extra.wallet || '—',
-      transaction_hash: tx?.hash || extra.transactionHash || '—',
-      nonce: tx?.nonce ?? extra.nonce ?? '—',
-      status: tx?.status || extra.status || '—',
-      max_fee: tx?.tx_data?.maxFeePerGasGwei ? `${tx.tx_data.maxFeePerGasGwei} Gwei` : '—',
-      current_network_gas: extra.currentGasGwei ? `${extra.currentGasGwei} Gwei` : '—',
-      blocking_transactions: extra.blockedCount ?? '—',
-      details: body,
-      etherscan: url || '—',
-      checked_at: new Date().toISOString(),
-    });
-    delivered = true;
+    try {
+      await sendEmail(settings.email, title, {
+        event: kind,
+        wallet: tx ? walletLabel(settings, tx.from_address) : extra.wallet || '—',
+        transaction_hash: tx?.hash || extra.transactionHash || '—',
+        nonce: tx?.nonce ?? extra.nonce ?? '—',
+        status: tx?.status || extra.status || '—',
+        max_fee: tx?.tx_data?.maxFeePerGasGwei ? `${tx.tx_data.maxFeePerGasGwei} Gwei` : '—',
+        current_network_gas: extra.currentGasGwei ? `${extra.currentGasGwei} Gwei` : '—',
+        blocking_transactions: extra.blockedCount ?? '—',
+        details: body,
+        etherscan: url || '—',
+        checked_at: new Date().toISOString(),
+      });
+      delivered = true;
+    } catch (error) { console.error('Email alert delivery failed:', error.message); }
+  }
+  if (rule.telegram && settings.telegramChatId) {
+    const details = [
+      tx ? `Wallet: ${walletLabel(settings, tx.from_address)}` : extra.wallet ? `Wallet: ${extra.wallet}` : '',
+      tx?.hash ? `TX: ${tx.hash}` : '',
+      tx?.nonce != null ? `Nonce: ${tx.nonce}` : '',
+      tx?.tx_data?.maxFeePerGasGwei ? `Max fee: ${tx.tx_data.maxFeePerGasGwei} Gwei` : '',
+      extra.currentGasGwei ? `Network gas: ${extra.currentGasGwei} Gwei` : '',
+      body,
+    ].filter(Boolean).join('\n');
+    try {
+      await sendTelegram(settings.telegramChatId, title, details, url);
+      delivered = true;
+    } catch (error) { console.error('Telegram alert delivery failed:', error.message); }
   }
   if (delivered) await db.recordAlert(kind, scopeKey);
   return delivered;
@@ -120,4 +168,4 @@ function inQuietHours(settings, rule) {
   return start <= end ? now >= start && now < end : now >= start || now < end;
 }
 
-module.exports = { sendEmail, sendPush, deliverAlert, hasPushConfiguration };
+module.exports = { sendEmail, sendPush, sendTelegram, deliverAlert, hasPushConfiguration, hasTelegramConfiguration, validTelegramChatId };

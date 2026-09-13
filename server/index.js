@@ -7,7 +7,7 @@ const {createMonitors}=require('./monitors');
 const { config, tokenMatches, validateEnvironment, normalizeOrigin } = require('./config');
 const db = require('./db');
 
-const { sendEmail, sendPush, hasPushConfiguration } = require('./notifier');
+const { sendEmail, sendPush, sendTelegram, hasPushConfiguration, hasTelegramConfiguration, validTelegramChatId } = require('./notifier');
 const { proxyAlchemyRpc, fetchEtherscanPendingNonces, fetchCryptoCompareNews } = require('./providers');
 const { GasAnalyticsCollector, RETENTION_DAYS } = require('./gas-analytics');
 
@@ -73,12 +73,15 @@ function sanitizeSettings(body) {
   }
   const email = String(body.email || '').trim().slice(0, 254);
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid alert email');
+  const telegramChatId = String(body.telegramChatId || '').trim();
+  if (telegramChatId && !validTelegramChatId(telegramChatId)) throw new Error('Enter a valid numeric Telegram chat ID');
   const sourceRules = body.notificationSettings?.rules || {};
   const rule = (name, defaults) => ({
     ...defaults,
     enabled: sourceRules[name]?.enabled !== false,
     browser: sourceRules[name]?.browser !== false,
     email: sourceRules[name]?.email !== false,
+    telegram: sourceRules[name]?.telegram === undefined ? Boolean(defaults.telegram) : Boolean(sourceRules[name].telegram),
     afterMinutes: clamp(sourceRules[name]?.afterMinutes, defaults.afterMinutes, 0, 1440),
     repeatMinutes: clamp(sourceRules[name]?.repeatMinutes, defaults.repeatMinutes, 0, 1440),
     ignoreQuiet: Boolean(sourceRules[name]?.ignoreQuiet),
@@ -95,14 +98,15 @@ function sanitizeSettings(body) {
     bitcoinAddresses,
     bitcoinLabels,
     email,
+    telegramChatId,
     timezone: safeTimezone(body.timezone),
     notificationSettings: {
       rules: {
-        pending: rule('pending', { enabled: true, browser: true, email: true, afterMinutes: 15, repeatMinutes: 30 }),
-        blocker: rule('blocker', { enabled: true, browser: true, email: true, afterMinutes: 15, repeatMinutes: 30, ignoreQuiet: true }),
-        dropped: rule('dropped', { enabled: true, browser: true, email: true, afterMinutes: 30, repeatMinutes: 0 }),
-        replaced: rule('replaced', { enabled: true, browser: true, email: true, afterMinutes: 0, repeatMinutes: 0 }),
-        gasLow: rule('gasLow', { enabled: true, browser: true, email: true, afterMinutes: 0, repeatMinutes: 60, ignoreQuiet: true }),
+        pending: rule('pending', { enabled: true, browser: true, email: true, telegram: true, afterMinutes: 15, repeatMinutes: 30 }),
+        blocker: rule('blocker', { enabled: true, browser: true, email: true, telegram: true, afterMinutes: 15, repeatMinutes: 30, ignoreQuiet: true }),
+        dropped: rule('dropped', { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 30, repeatMinutes: 0 }),
+        replaced: rule('replaced', { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 0, repeatMinutes: 0 }),
+        gasLow: rule('gasLow', { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 0, repeatMinutes: 60, ignoreQuiet: true }),
       },
       quietHoursEnabled: Boolean(body.notificationSettings?.quietHoursEnabled),
       quietStart: validTime(body.notificationSettings?.quietStart) ? body.notificationSettings.quietStart : '22:00',
@@ -206,7 +210,7 @@ app.get('/health', (_req,res) => res.json({status:'ok',version:packageVersion,au
 app.use(express.static(path.join(__dirname,'../docs'),{index:'index.html',maxAge:0}));
 
 app.get('/api/public-config', (_req, res) => {
-  res.json({ pushEnabled: hasPushConfiguration(), vapidPublicKey: config.vapidPublicKey || null, solanaEnabled:Boolean(config.solanaRpcUrl), bitcoinEnabled:Boolean(config.bitcoinRpcUrl) });
+  res.json({ pushEnabled: hasPushConfiguration(), vapidPublicKey: config.vapidPublicKey || null, telegramEnabled:hasTelegramConfiguration(), solanaEnabled:Boolean(config.solanaRpcUrl), bitcoinEnabled:Boolean(config.bitcoinRpcUrl) });
 });
 
 app.get('/api/settings', auth.requireUser, async (req, res, next) => {
@@ -398,6 +402,17 @@ app.post('/api/test-email', auth.requireUser, async (req, res, next) => {
       status: 'Server-side alerts are active',
       checked_at: new Date().toISOString(),
     });
+    res.json({ success: true });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/test-telegram', auth.requireUser, async (req, res, next) => {
+  try {
+    if (!hasTelegramConfiguration()) return res.status(503).json({ error: 'Telegram bot is not configured on the server' });
+    const chatId = String(req.body?.chatId || '').trim();
+    if (!validTelegramChatId(chatId)) return res.status(400).json({ error: 'Enter a valid numeric Telegram chat ID' });
+    await auth.limit(`telegram-test:${req.user.id}`, 5, 300);
+    await sendTelegram(chatId, 'Paseqa test alert', 'Telegram notifications are connected. Ethereum pending alerts will arrive here.', config.frontendOrigins[0]);
     res.json({ success: true });
   } catch (error) { next(error); }
 });

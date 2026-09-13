@@ -13,7 +13,7 @@ Digital asset operations dashboard. The current network module monitors live pen
 - Show an `Etherscan detects additional pending transactions` warning and a direct link to the affected wallet's Etherscan pending page when Etherscan sees a higher pending nonce than Alchemy.
 - Show a visible warning when Alchemy reports a pending nonce gap but does not expose the missing transaction hashes in its mempool.
 - Browser and optional email alerts for long-pending transactions, blocked nonce queues, dropped/replaced transactions, and low Gas Station balance.
-- Every alert rule has its own enable switch, Browser/Email channels, delay where applicable, repeat interval where applicable, and urgent quiet-hours override.
+- Every alert rule has its own enable switch, Browser/Email/Telegram channels, delay where applicable, repeat interval where applicable, and urgent quiet-hours override.
 - Long-pending transactions are grouped into one wallet summary instead of sending a separate message for every transaction.
 - Gas boost analysis starts only after the configured Pending threshold. Emails show the full actionable TX hash first, followed by nonce, fee, network gas, and queue details.
 - Urgent queue alerts identify the blocking TX hash, nonce, and number of transactions behind it. Immediately before delivery, the monitor rechecks receipts and current transaction state for both the blocker and the higher-nonce transactions; if either side of the queue is no longer pending, no urgent alert is sent.
@@ -48,7 +48,7 @@ Digital asset operations dashboard. The current network module monitors live pen
 - Display the complete filtered news feed in the dedicated Market workspace, with a three-story market pulse on Overview.
 - Keep the Etherscan and CryptoCompare API keys exclusively in Railway environment variables.
 - Local browser storage for the Alchemy URL, addresses, alert email, and transaction history.
-- Optional Railway backend for continuous monitoring, PostgreSQL transaction state, server-side email alerts, and Web Push while the dashboard is closed.
+- Optional Railway backend for continuous monitoring, PostgreSQL transaction state, server-side email and Telegram alerts, and Web Push while the dashboard is closed.
 
 ## Publishing with Visual Studio
 
@@ -76,7 +76,7 @@ After publishing, open the GitHub Pages URL and click **Connection settings**:
 
 Use **Wallet balances → Settings** to enable wallet balances and select their refresh interval. Use the separate **Gas Station → Settings** dialog to configure its address, minimum ETH balance, and independent refresh interval. Use **Refresh now** at any time without changing either schedule.
 
-Without a Railway backend, monitoring and alerts run only while the page remains open. With the backend configured, server-side email and Web Push alerts continue while the dashboard is closed. Email delivery uses Resend when configured and otherwise falls back to the activated FormSubmit recipient. The gas boost indicator is a recommendation based on the current network price, not a guarantee that a transaction is stuck.
+Without a Railway backend, monitoring and alerts run only while the page remains open. With the backend configured, server-side email, Telegram and Web Push alerts continue while the dashboard is closed. Telegram requires `TELEGRAM_BOT_TOKEN` in Railway and a per-user numeric group chat ID in Notification settings. Email delivery uses Resend when configured and otherwise falls back to the activated FormSubmit recipient. The gas boost indicator is a recommendation based on the current network price, not a guarantee that a transaction is stuck.
 
 Pending synchronization is best-effort. Ethereum JSON-RPC can reveal a difference between the confirmed and pending account nonce, but it cannot always return every transaction hash from another provider's mempool. The dashboard reports such missing transactions instead of silently showing zero.
 
