@@ -7,6 +7,7 @@ test('browser: login, 2FA, add account, all tabs, logout and other user',async t
   const browser=await chromium.launch({executablePath:await binary.executablePath(),args:binary.args.filter(arg=>!arg.includes("disable-web-security")&&!arg.includes("disable-site-isolation")&&!arg.includes("IsolateOrigins")),headless:true});t.after(()=>browser.close());
   const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(f.origin+'/index.html');await page.waitForURL('**/auth.html');
+  await page.screenshot({path:require('node:path').join(__dirname,'../auth-preview.png'),fullPage:true});
   await page.locator('#email').fill('browser@example.test');await page.locator('#password').fill('long-test-password-123');await page.locator('#submitAuth').click();
   await page.waitForURL('**/index.html');await page.waitForFunction(()=>window.treasuryBootComplete===true);
   await page.goto(f.origin+'/security.html');await page.waitForFunction(()=>window.treasurySecurityReady);await page.locator('#setupFactor input').fill('long-test-password-123');await page.locator('#setupFactor button').click();
@@ -24,8 +25,10 @@ test('browser: login, 2FA, add account, all tabs, logout and other user',async t
   await page.getByRole('link',{name:'Add account',exact:true}).click();await page.locator('#addExchangeDialog').waitFor({state:'visible'});await page.locator('#closeAddExchange').click();
   for(const path of ['exchanges.html','transfers.html','index.html?view=networks','index.html?view=market','index.html?view=wallets']){
     await page.goto(f.origin+'/'+path);await page.locator('.session-bar').waitFor();
-    await page.waitForFunction(()=>document.querySelector('script[src$="?v=13"]')&&window.Treasury?.user);
-    await page.waitForTimeout(250);
+    await page.waitForFunction(()=>document.querySelector('script[src$="?v=14"]')&&window.Treasury?.user);
+    await page.locator('.app-rail a[aria-current="page"]').waitFor();
+    await page.waitForTimeout(250);await page.screenshot({path:require('node:path').join(__dirname,`../${path.split('?')[0].replace('.html','')}${path.includes('view=')?'-'+path.split('view=')[1]:''}-preview.png`),fullPage:true});
+    await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth),true,`${path} has no document-level mobile overflow`);await page.setViewportSize({width:1440,height:1000});
   }
   await page.goto(f.origin+'/security.html');await page.locator('#connections').getByText('Personal Bitget',{exact:true}).waitFor();
   await page.screenshot({path:require('node:path').join(__dirname,'../security-preview.png'),fullPage:true});
