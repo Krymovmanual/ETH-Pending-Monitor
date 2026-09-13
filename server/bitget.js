@@ -3,9 +3,15 @@ const crypto = require('node:crypto');
 function inspectAuthorities(values) {
   if (!Array.isArray(values)) return { confirmedReadOnly: false, unsafe: [] };
   const permissions = values.map(value => String(value || '').trim().toLowerCase()).filter(Boolean);
-  const unsafe = permissions.filter(permission => /trade|write|withdraw|transfer/.test(permission));
+  const confirmedReadOnly = permissions.some(permission => /^read[\s_-]*only$/.test(permission));
+  // Bitget may return both "trade" and "readonly" for a read-only key that is
+  // allowed to query positions and orders. "trade" is unsafe only when the
+  // read-only marker is absent; withdrawal/transfer access is always rejected.
+  const unsafe = permissions.filter(permission =>
+    /withdraw|transfer|write/.test(permission) || (!confirmedReadOnly && /^trade$/.test(permission))
+  );
   return {
-    confirmedReadOnly: permissions.some(permission => /^read[\s_-]*only$/.test(permission)),
+    confirmedReadOnly,
     unsafe,
   };
 }
@@ -63,7 +69,10 @@ async function request(path, query = {}) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok || body?.code !== '00000') {
     const message = String(body?.msg || body?.message || `HTTP ${response.status}`).slice(0, 180);
-    throw new Error(`Bitget request failed: ${message}`);
+    const error = new Error(`Bitget request failed: ${message}`);
+    error.status = response.status;
+    error.providerCode = body?.code;
+    throw error;
   }
   return body.data;
 }
@@ -257,10 +266,20 @@ return { fetchBitgetAccount, fetchBitgetAccounts, toExchangeAccounts, normalizeA
     // validate the endpoint the application actually needs first.
     await request('/api/v3/account/assets');
     try {
+      // This read request requires the UTA "Trade" data scope even when the
+      // API key itself is globally Read-only.
+      await request('/api/v3/position/current-position', { category:'USDT-FUTURES' });
+    } catch (error) {
+      const permissionError = new Error('Position access is missing. Keep the API key Read-only and enable Unified account > Trade together with Manage.');
+      permissionError.code = 'BITGET_POSITION_PERMISSION_REQUIRED';
+      permissionError.cause = error;
+      throw permissionError;
+    }
+    try {
       const info = await request('/api/v2/spot/account/info');
       const inspection = inspectAuthorities(info?.authorities);
       if (inspection.unsafe.length) {
-        const error = new Error('This API key includes trading or transfer permissions. Create a Read-only key with Unified account > Manage only.');
+        const error = new Error('This API key is not confirmed as Read-only or includes transfer permissions. Use Read-only with Unified account > Manage and Trade data access.');
         error.code = 'BITGET_UNSAFE_PERMISSIONS';
         throw error;
       }

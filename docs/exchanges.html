@@ -33,10 +33,10 @@
       <aside class="account-sidebar" aria-label="Exchange account selection">
         <div class="account-sidebar-head">
           <div><span class="eyebrow">ACCOUNTS</span><h2>Sources</h2></div>
-          <button class="text-button" id="selectAllAccounts" type="button">Select all</button>
+          <div class="account-sidebar-actions"><button class="text-button" id="selectAllAccounts" type="button">Select all</button><button class="add-account-button" id="openAddExchange" type="button">+ Add new</button></div>
         </div>
         <div class="account-tree" id="accountTree"><div class="tree-loading">Loading connected accounts…</div></div>
-        <p class="account-sidebar-note">Connected exchanges and their subaccounts appear here automatically.</p>
+        <p class="account-sidebar-note">Connected exchanges and their subaccounts appear here automatically. <a href="security.html#exchange-accounts">Manage accounts</a></p>
       </aside>
 
       <section class="exchange-content" aria-label="Selected exchange accounts">
@@ -54,6 +54,7 @@
 
         <button class="pending-exchange-update" id="pendingExchangeUpdate" type="button" hidden>New data available · Apply update</button>
         <div class="exchange-page-error" id="exchangePageError" hidden></div>
+        <div class="exchange-page-warning" id="exchangePageWarning" hidden></div>
 
         <section class="exchange-kpis" aria-label="Exchange summary">
           <article><span>Total equity</span><strong id="totalExchangeEquity">—</strong><small>Known USD values</small></article>
@@ -83,6 +84,21 @@
       </section>
     </div>
   </main>
+  <dialog class="exchange-add-dialog" id="addExchangeDialog">
+    <form id="addExchangeForm" method="post">
+      <div class="dialog-head"><div><span class="eyebrow">NEW CONNECTION</span><h2>Add exchange account</h2></div><button class="icon-button" id="closeAddExchange" type="button" aria-label="Close">×</button></div>
+      <label>Exchange<select class="dialog-select" name="exchange" disabled><option>Bitget</option></select></label>
+      <label>Account name<input name="name" placeholder="Bitget Main" maxlength="80" required></label>
+      <label>API key<input name="apiKey" type="password" autocomplete="off" required></label>
+      <label>API secret<input name="secret" type="password" autocomplete="off" required></label>
+      <label>Passphrase<input name="passphrase" type="password" autocomplete="off" required></label>
+      <label class="exchange-permission-confirm"><input name="readOnlyConfirmed" type="checkbox" value="yes" required><span>API key is <strong>Read-only</strong>; Unified account → <strong>Manage</strong> and <strong>Trade</strong> are enabled; transfers and withdrawals are disabled.</span></label>
+      <label>Fresh authenticator or recovery code<input name="code" autocomplete="one-time-code" required></label>
+      <p class="dialog-note">Credentials are encrypted on the server and are never returned to the browser.</p>
+      <p class="dialog-error" id="addExchangeError" role="alert"></p>
+      <div class="dialog-actions"><button class="secondary" id="cancelAddExchange" type="button">Cancel</button><button id="submitAddExchange" type="submit">Verify and add</button></div>
+    </form>
+  </dialog>
   <script src="session.js?v=11" data-module="exchanges.js"></script>
 </body>
 </html>

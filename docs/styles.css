@@ -265,6 +265,9 @@ a.overview-list-item:hover { background: #111824; }
 .account-sidebar { position: sticky; top: 20px; min-height: 520px; padding: 17px; border: 1px solid var(--border); border-radius: 16px; background: rgba(13,17,24,.94); }
 .account-sidebar-head { min-height: 56px; padding-bottom: 15px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .account-sidebar-head h2 { margin-top: 4px; font-size: 1rem; }
+.account-sidebar-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
+.add-account-button { min-height: 30px; padding: 0 9px; border-color: rgba(98,126,234,.38); color: #c3ccff; background: rgba(98,126,234,.1); font-size: .7rem; }
+.add-account-button:hover { border-color: rgba(98,126,234,.65); background: rgba(98,126,234,.18); }
 .text-button { min-height: 30px; padding: 0; border: 0; background: transparent; color: #91a6ff; font-size: .75rem; }
 .text-button:hover { color: #bdc8ff; }
 .account-tree { padding: 12px 0; }
@@ -285,6 +288,7 @@ a.overview-list-item:hover { background: #111824; }
 .tree-spacer { width: 2px; height: 28px; margin-right: 2px; background: #202938; }
 .tree-loading { padding: 30px 8px; color: var(--muted); font-size: .76rem; text-align: center; }
 .account-sidebar-note { margin: 14px 0 0; padding-top: 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: .7rem; line-height: 1.45; }
+.account-sidebar-note a { color: #91a6ff; }
 .exchange-content { min-width: 0; }
 .exchange-commandbar { min-height: 80px; padding: 15px 18px; border: 1px solid var(--border); border-radius: 16px; background: linear-gradient(120deg, var(--surface-2), var(--surface)); display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .exchange-commandbar strong, .exchange-commandbar small { display: block; }
@@ -295,6 +299,16 @@ a.overview-list-item:hover { background: #111824; }
 .view-switch button.active { color: var(--text); background: #1a2331; box-shadow: 0 0 0 1px #29364a inset; }
 .pending-exchange-update { width: 100%; min-height: 38px; margin-top: 10px; border-color: rgba(98,126,234,.38); color: #bac5ff; background: rgba(98,126,234,.1); font-size: .78rem; }
 .exchange-page-error { margin-top: 10px; padding: 12px 14px; border: 1px solid rgba(255,107,117,.3); border-radius: 11px; color: var(--red); background: rgba(255,107,117,.07); font-size: .78rem; }
+.exchange-page-warning { margin-top: 10px; padding: 12px 14px; border: 1px solid rgba(245,189,88,.3); border-radius: 11px; color: #d7b96f; background: rgba(245,189,88,.07); font-size: .78rem; }
+.exchange-page-warning strong, .exchange-page-warning span { display: block; }
+.exchange-page-warning span { margin-top: 4px; color: #b9aa86; }
+.exchange-page-warning details { margin-top: 8px; color: var(--muted); }
+.exchange-page-warning summary { cursor: pointer; }
+.exchange-page-warning ul { margin: 8px 0 0; padding-left: 18px; }
+.exchange-add-dialog { width: min(610px, calc(100% - 32px)); }
+.exchange-add-dialog .dialog-note { margin-top: 16px; color: var(--muted); font-size: .74rem; line-height: 1.5; }
+.exchange-permission-confirm { margin-top: 20px; padding: 12px; border: 1px solid var(--border); border-radius: 11px; display: flex; align-items: flex-start; gap: 10px; color: #b9c4d3; font-weight: 500; line-height: 1.45; }
+.exchange-permission-confirm input { width: 16px; height: 16px; margin-top: 2px; flex: 0 0 auto; accent-color: var(--blue); }
 .exchange-kpis { margin: 14px 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .exchange-kpis article { min-width: 0; min-height: 116px; padding: 16px 17px; border: 1px solid var(--border); border-radius: 14px; background: linear-gradient(145deg, #111824, #0c1119); display: flex; flex-direction: column; }
 .exchange-kpis span, .exchange-kpis small { color: var(--muted); font-size: .74rem; }

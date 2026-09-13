@@ -29,6 +29,7 @@ const el = {
   updatedAt: document.querySelector('#exchangeUpdatedAt'),
   pendingUpdate: document.querySelector('#pendingExchangeUpdate'),
   error: document.querySelector('#exchangePageError'),
+  warning: document.querySelector('#exchangePageWarning'),
   equity: document.querySelector('#totalExchangeEquity'),
   pnl: document.querySelector('#totalExchangePnl'),
   positions: document.querySelector('#totalOpenPositions'),
@@ -41,6 +42,10 @@ const el = {
   body: document.querySelector('#exchangeTableBody'),
   search: document.querySelector('#exchangeSearch'),
   hideZero: document.querySelector('#hideZeroAssets'),
+  addDialog: document.querySelector('#addExchangeDialog'),
+  addForm: document.querySelector('#addExchangeForm'),
+  addError: document.querySelector('#addExchangeError'),
+  addSubmit: document.querySelector('#submitAddExchange'),
 };
 
 function loadJson(key, fallback) {
@@ -213,6 +218,17 @@ function renderPositions(accounts) {
   }
 }
 
+function renderWarnings() {
+  const warnings = Array.isArray(state.data?.warnings) ? state.data.warnings.filter(Boolean) : [];
+  el.warning.hidden = !warnings.length;
+  if (!warnings.length) {
+    el.warning.replaceChildren();
+    return;
+  }
+  const positionAccess = warnings.some(warning => /position|uta trade/i.test(warning));
+  el.warning.innerHTML = `${positionAccess ? '<strong>Some position data is unavailable</strong><span>Keep the Bitget API key Read-only and enable Unified account → Trade, then refresh.</span>' : '<strong>Some exchange data is unavailable</strong>'}<details><summary>Technical details</summary><ul>${warnings.map(warning => `<li>${escapeHtml(warning)}</li>`).join('')}</ul></details>`;
+}
+
 function render({ preserveScroll = true } = {}) {
   const scrollY = window.scrollY;
   const table = document.querySelector('.exchange-page-table-wrap');
@@ -232,6 +248,7 @@ function render({ preserveScroll = true } = {}) {
   el.updatedAt.textContent = state.data?.updatedAt ? `Updated ${age(state.data.updatedAt)} · auto-refresh every 30 seconds` : 'Waiting for data';
   el.error.hidden = !state.error;
   el.error.textContent = state.error;
+  renderWarnings();
   el.pendingUpdate.hidden = !state.pendingData;
   el.connection.classList.toggle('live', Boolean(state.data) && !state.error);
   el.connection.classList.toggle('error', Boolean(state.error));
@@ -324,6 +341,50 @@ el.search.addEventListener('input', () => { state.search = el.search.value.trim(
 el.hideZero.addEventListener('change', () => { state.hideZero = el.hideZero.checked; render(); });
 el.refresh.addEventListener('click', () => loadData({ force:true }));
 el.pendingUpdate.addEventListener('click', () => state.pendingData && applyData(state.pendingData));
+
+document.querySelector('#openAddExchange').addEventListener('click', () => {
+  el.addError.textContent = '';
+  el.addDialog.showModal();
+  el.addForm.elements.name.focus();
+});
+
+function closeAddExchange() {
+  if (el.addSubmit.disabled) return;
+  el.addError.textContent = '';
+  el.addDialog.close();
+}
+
+document.querySelector('#closeAddExchange').addEventListener('click', closeAddExchange);
+document.querySelector('#cancelAddExchange').addEventListener('click', closeAddExchange);
+el.addDialog.addEventListener('click', event => {
+  if (event.target === el.addDialog) closeAddExchange();
+});
+
+el.addForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!el.addForm.reportValidity()) return;
+  el.addSubmit.disabled = true;
+  el.addSubmit.textContent = 'Verifying…';
+  el.addError.textContent = '';
+  try {
+    const body = Object.fromEntries(new FormData(el.addForm));
+    const response = await fetch('/api/connections', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body:JSON.stringify(body),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `Connection service returned ${response.status}`);
+    el.addForm.reset();
+    el.addDialog.close();
+    await loadData({ force:true });
+  } catch (error) {
+    el.addError.textContent = error?.message || 'Could not add this exchange account.';
+  } finally {
+    el.addSubmit.disabled = false;
+    el.addSubmit.textContent = 'Verify and add';
+  }
+});
 
 for (const eventName of ['wheel', 'touchmove', 'pointerdown', 'keydown']) {
   document.addEventListener(eventName, () => { state.lastInteractionAt = Date.now(); queueApplyAfterInteraction(); }, { passive:true });

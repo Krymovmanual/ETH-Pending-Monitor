@@ -24,8 +24,8 @@ function createAccounts(pool,auth){
             assets:account.assets.map(a=>({...a,id:`${id}:${a.coin}`,accountId:id})),
             positions:account.positions.map(p=>({...p,id:`${id}:${p.id}`,accountId:id}))});
         }
-        if(data.warnings?.length)warnings.push(`${row.name}: some balances or positions are unavailable`);
-      }catch(_){cache.delete(row.id);warnings.push(`${row.name}: connection failed. Check its key and permissions.`);await pool.query("UPDATE exchange_connections SET status='error' WHERE user_id=$1 AND id=$2",[row.user_id,row.id]);}
+        if(data.warnings?.length)warnings.push(...data.warnings.map(warning=>`${row.name}: ${String(warning).slice(0,240)}`));
+      }catch(error){cache.delete(row.id);warnings.push(`${row.name}: ${String(error?.message||'connection failed').slice(0,240)}`);await pool.query("UPDATE exchange_connections SET status='error' WHERE user_id=$1 AND id=$2",[row.user_id,row.id]);}
     }
     return {version:2,updatedAt:Date.now(),accounts,exchanges:rows.length?[{id:'bitget',name:'Bitget',status:warnings.length?'partial':'connected',accountIds:accounts.map(a=>a.id)}]:[],warnings};
   }
@@ -43,7 +43,7 @@ function createAccounts(pool,auth){
       const name=String(req.body?.name||'').trim();
       const credentials={apiKey:String(req.body?.apiKey||'').trim(),secret:String(req.body?.secret||'').trim(),passphrase:String(req.body?.passphrase||'').trim()};
       if(!name||name.length>80||Object.values(credentials).some(v=>!v||v.length>512))throw fail(400,'Enter an account name, API key, secret and passphrase');
-      if(req.body?.readOnlyConfirmed!=='yes')throw fail(400,'Confirm that this Bitget API key is Read-only with Unified account > Manage only');
+      if(req.body?.readOnlyConfirmed!=='yes')throw fail(400,'Confirm that this Bitget API key is Read-only with Unified account > Manage and Trade data access');
       try{await createBitgetClient(credentials).validateReadOnly();}catch(error){
         const message=String(error?.message||'Bitget validation failed').replace(/^Bitget request failed:\s*/,'').slice(0,180);
         throw fail(400,`Bitget connection failed: ${message}`);

@@ -14,9 +14,10 @@ test('browser: login, 2FA, add account, all tabs, logout and other user',async t
   await page.locator('#enableFactor input').fill(totp(secret));await page.locator('#enableFactor button').click();
   await page.locator('#recoveryValue').waitFor({state:'visible'});const codes=(await page.locator('#recoveryValue').textContent()).split('\n');
   await page.locator('#savedCodes').click();
-  const form=page.locator('#addConnection');for(const [name,value]of Object.entries({name:'Personal Bitget',apiKey:'fixture-key',secret:'fixture-secret',passphrase:'fixture-passphrase',code:codes[0]}))await form.locator(`[name="${name}"]`).fill(value);
+  await page.goto(f.origin+'/exchanges.html');await page.waitForFunction(()=>window.Treasury?.user);await page.locator('#openAddExchange').click();
+  const form=page.locator('#addExchangeForm');for(const [name,value]of Object.entries({name:'Personal Bitget',apiKey:'fixture-key',secret:'fixture-secret',passphrase:'fixture-passphrase',code:codes[0]}))await form.locator(`[name="${name}"]`).fill(value);
   await form.locator('[name="readOnlyConfirmed"]').check();
-  await form.locator('button').click();await page.getByText('Personal Bitget',{exact:true}).waitFor();
+  await form.locator('#submitAddExchange').click();await page.getByText('Personal Bitget · Unified',{exact:true}).waitFor();
   for(const path of ['exchanges.html','transfers.html','index.html?view=networks','index.html?view=market','index.html?view=wallets']){
     await page.goto(f.origin+'/'+path);await page.locator('.session-bar').waitFor();
     await page.waitForFunction(()=>document.querySelector('script[src$="?v=11"]')&&window.Treasury?.user);

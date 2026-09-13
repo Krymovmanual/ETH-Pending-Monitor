@@ -1,6 +1,6 @@
 {
   "name": "eth-pending-monitor-server",
-  "version": "11.0.1",
+  "version": "11.0.2",
   "private": true,
   "description": "Treasury Operations Center with isolated user accounts",
   "main": "server/index.js",
