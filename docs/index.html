@@ -9,8 +9,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=13">
-<link rel="stylesheet" href="accounts.css?v=11"></head>
+  <link rel="stylesheet" href="styles.css?v=14">
+<link rel="stylesheet" href="accounts.css?v=14"></head>
 <body data-view="overview">
   <section id="startupDiagnostic" role="alert" class="panel" style="margin:20px;padding:20px;border-color:#b98031" hidden>
     <h2>Application needs attention</h2><p></p><button id="retryStartup" type="button">Reload application</button>
@@ -57,8 +57,8 @@
   <main class="shell">
     <header class="topbar">
       <div>
-        <div class="eyebrow">DIGITAL ASSET OPERATIONS</div>
-        <h1>Treasury Operations Center</h1>
+        <div class="eyebrow" id="pageEyebrow">DIGITAL ASSET OPERATIONS</div>
+        <h1 id="pageTitle">Treasury Operations Center</h1>
         <nav class="product-nav" aria-label="Treasury sections">
           <a data-nav-view="overview" href="index.html">Overview</a>
           <a data-nav-view="wallets" href="index.html?view=wallets">Wallets</a>
@@ -518,7 +518,7 @@
     </form>
   </dialog>
 
-  <script src="overview-data.js?v=13"></script>
-  <script src="session.js?v=13" data-module="app.js"></script>
+  <script src="overview-data.js?v=14"></script>
+  <script src="session.js?v=14" data-module="app.js"></script>
 </body>
 </html>

@@ -848,3 +848,123 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
   .toggle-grid, .event-grid { grid-template-columns: 1fr; }
   .rule-fields { grid-template-columns: 1fr; }
 }
+
+/* v14 — shared institutional application shell */
+body.has-app-rail {
+  background: radial-gradient(circle at 76% -18%, rgba(43,115,83,.11), transparent 34%), #070b0a;
+}
+body.has-app-rail .app-rail {
+  position: fixed; inset: 0 auto 0 0; z-index: 20; width: 204px; padding: 24px 14px 18px;
+  border-right: 1px solid #202c28; background: rgba(8,13,11,.98); display: flex; flex-direction: column;
+}
+body.has-app-rail > .session-bar {
+  min-height: 54px; padding: 8px 28px 8px 232px; border-color: #202c28; background: rgba(7,11,10,.94);
+}
+body.has-app-rail > .session-bar span:first-child { color: #8fa29b; font-size: .76rem; }
+body.has-app-rail > .session-bar a { color: #aabbb5; font-size: .74rem; }
+body.has-app-rail > .session-bar button { min-height: 34px; padding: 0 12px; border-radius: 8px; font-size: .72rem; }
+body.has-app-rail .shell,
+body.has-app-rail .exchange-shell,
+body.has-app-rail .transfer-shell,
+body.has-app-rail .account-shell {
+  width: min(1480px, calc(100% - 252px)); max-width: none; margin: 0 24px 0 228px; padding: 30px 0 64px;
+}
+body.has-app-rail .topbar { min-height: 84px; margin: 0 0 22px; padding-bottom: 19px; border-bottom: 1px solid #202c28; }
+body.has-app-rail .topbar h1 { margin-top: 5px; font-size: clamp(1.8rem,3vw,2.35rem); font-weight: 500; letter-spacing: -.05em; }
+body.has-app-rail .topbar .product-nav { display: none; }
+body.has-app-rail .eyebrow { color: #67e6aa; font-size: .66rem; font-weight: 600; letter-spacing: .14em; }
+body.has-app-rail .panel,
+body.has-app-rail .exchange-data-panel,
+body.has-app-rail .account-sidebar,
+body.has-app-rail .transfer-form-panel,
+body.has-app-rail .transfer-preview-panel,
+body.has-app-rail .wallet-sources-panel,
+body.has-app-rail .transfer-drafts-panel { border-color: #23302c; border-radius: 12px; background: #0c1311; box-shadow: none; }
+body.has-app-rail button,
+body.has-app-rail select,
+body.has-app-rail input { border-color: #2a3732; border-radius: 8px; background: #101815; }
+body.has-app-rail button:hover,
+body.has-app-rail select:hover { border-color: #42564e; }
+body.has-app-rail .primary { color: #06100c; border-color: #67e6aa; background: #67e6aa; }
+body.has-app-rail .primary:hover { background: #7af0b8; }
+body.has-app-rail .connection { border-color: #293831; background: #0d1612; }
+
+/* Accounts */
+body.has-app-rail .exchange-workspace { grid-template-columns: 250px minmax(0,1fr); gap: 14px; }
+body.has-app-rail .account-sidebar { top: 16px; min-height: calc(100vh - 116px); padding: 16px; }
+body.has-app-rail .account-sidebar-head { border-color: #25322d; }
+body.has-app-rail .account-sidebar-actions { align-items: stretch; }
+body.has-app-rail .add-account-button { color: #07110d; border-color: #67e6aa; background: #67e6aa; font-weight: 600; }
+body.has-app-rail .account-tree { font-size: .78rem; }
+body.has-app-rail .exchange-commandbar { min-height: 70px; padding: 13px 16px; border-color: #23302c; border-radius: 12px; background: #0c1311; }
+body.has-app-rail .exchange-commandbar strong { font-size: .84rem; font-weight: 500; }
+body.has-app-rail .exchange-kpis { margin: 14px 0; gap: 0; border-top: 1px solid #202c28; border-bottom: 1px solid #202c28; }
+body.has-app-rail .exchange-kpis article { min-height: 108px; padding: 17px; border: 0; border-radius: 0; background: transparent; }
+body.has-app-rail .exchange-kpis article + article { border-left: 1px solid #202c28; }
+body.has-app-rail .exchange-kpis strong { font-family: "IBM Plex Mono",ui-monospace,monospace; font-size: 1.42rem; font-weight: 500; }
+body.has-app-rail .exchange-data-head { border-color: #23302c; }
+body.has-app-rail .exchange-tabs button.active { color: #eaf2ee; background: #17231f; }
+body.has-app-rail .exchange-page-table th { color: #71837c; background: #0b110f; }
+body.has-app-rail .exchange-page-table td { border-color: #1d2824; font-family: "IBM Plex Mono",ui-monospace,monospace; font-size: .72rem; }
+
+/* Transfers */
+body.has-app-rail .transfer-mode-switch { margin-bottom: 14px; border-color: #26332e; border-radius: 10px; background: #0a100e; }
+body.has-app-rail .transfer-mode-switch button.active { color: #eef6f2; background: #15221d; box-shadow: 0 0 0 1px #2d4038 inset; }
+body.has-app-rail .transfer-layout { grid-template-columns: minmax(0,1.15fr) minmax(330px,.75fr); }
+body.has-app-rail .transfer-section-head { min-height: 66px; border-color: #23302c; }
+body.has-app-rail .transfer-section-head h2 { font-size: .94rem; }
+body.has-app-rail .transfer-form-body label { color: #9baca5; font-size: .72rem; }
+body.has-app-rail .transfer-form-body input,
+body.has-app-rail .transfer-form-body select { min-height: 45px; }
+body.has-app-rail .transfer-summary div { border-color: #1e2a25; }
+body.has-app-rail .transfer-summary dd { font-family: "IBM Plex Mono",ui-monospace,monospace; font-size: .74rem; }
+body.has-app-rail .draft-only-badge,
+body.has-app-rail .preview-status { border-color: #35483f; background: #132019; }
+
+/* Wallets, networks and market data surfaces */
+body.has-app-rail .address-card,
+body.has-app-rail .balance-panel,
+body.has-app-rail .network-subcard,
+body.has-app-rail .gas-history-card,
+body.has-app-rail .news-card { border-color: #23302c; border-radius: 12px; background: #0c1311; }
+body.has-app-rail .stats article,
+body.has-app-rail .network-kpis article,
+body.has-app-rail .gas-live-grid article { border-color: #25332d; border-radius: 10px; background: #101815; }
+body.has-app-rail .network-kpis strong,
+body.has-app-rail .gas-live-grid strong,
+body.has-app-rail .gas-amount,
+body.has-app-rail .stats strong { font-family: "IBM Plex Mono",ui-monospace,monospace; font-weight: 500; }
+body.has-app-rail .network-subhead,
+body.has-app-rail .network-readiness-item,
+body.has-app-rail .gas-subhead,
+body.has-app-rail .balance-head,
+body.has-app-rail .panel-head { border-color: #22302a; }
+body.has-app-rail .gas-live-grid article.gas-live-primary { border-color: #3a5c4d; background: #12201a; }
+body.has-app-rail .gas-history-card table th,
+body.has-app-rail .table-wrap table th { color: #71837c; background: #0a100e; box-shadow: 0 1px 0 #22302a; }
+body.has-app-rail .table-wrap table td,
+body.has-app-rail .gas-history-card table td { border-color: #1d2824; }
+body.has-app-rail .news-tag { color: #7ee7b4; background: rgba(103,230,170,.09); }
+body.has-app-rail .news-read,
+body.has-app-rail .hash,
+body.has-app-rail .panel-head a { color: #8db8ff; }
+body.has-app-rail dialog { border-color: #304039; border-radius: 12px; background: #0d1512; }
+
+@media (max-width: 930px) {
+  body.has-app-rail .app-rail { display: none; }
+  body.has-app-rail > .session-bar { padding: 8px 14px; }
+  body.has-app-rail .shell,
+  body.has-app-rail .exchange-shell,
+  body.has-app-rail .transfer-shell,
+  body.has-app-rail .account-shell { width: min(100% - 24px,900px); margin: 0 auto; padding-top: 24px; }
+  body.has-app-rail .topbar .product-nav { display: flex; }
+  body.has-app-rail .exchange-workspace { grid-template-columns: 1fr; }
+  body.has-app-rail .account-sidebar { position: static; min-height: 0; }
+}
+@media (max-width: 620px) {
+  body.has-app-rail > .session-bar span:first-child { width: 100%; text-align: right; }
+  body.has-app-rail .exchange-kpis { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  body.has-app-rail .exchange-kpis article:nth-child(3) { border-left: 0; border-top: 1px solid #202c28; }
+  body.has-app-rail .exchange-kpis article:nth-child(4) { border-top: 1px solid #202c28; }
+  body.has-app-rail .transfer-layout { grid-template-columns: 1fr; }
+}

@@ -23,7 +23,16 @@ const REQUESTED_VIEW = new URLSearchParams(window.location.search).get('view');
 const CURRENT_VIEW = ['wallets', 'networks', 'market'].includes(REQUESTED_VIEW) ? REQUESTED_VIEW : 'overview';
 
 document.body.dataset.view = CURRENT_VIEW;
-document.title = `${({overview:'Overview', wallets:'Wallets', networks:'Networks', market:'Market'})[CURRENT_VIEW]} · Treasury Operations Center`;
+const VIEW_META={
+  overview:{title:'Operations overview',eyebrow:'TREASURY CONTROL PLANE'},
+  wallets:{title:'Wallets & transactions',eyebrow:'ON-CHAIN OPERATIONS'},
+  networks:{title:'Network operations',eyebrow:'CHAIN INTELLIGENCE'},
+  market:{title:'Market intelligence',eyebrow:'DIGITAL ASSET MARKETS'}
+};
+document.title = `${VIEW_META[CURRENT_VIEW].title} · Treasury Operations Center`;
+const pageTitle=document.querySelector('#pageTitle'),pageEyebrow=document.querySelector('#pageEyebrow');
+if(pageTitle)pageTitle.textContent=VIEW_META[CURRENT_VIEW].title;
+if(pageEyebrow)pageEyebrow.textContent=VIEW_META[CURRENT_VIEW].eyebrow;
 document.querySelectorAll('[data-nav-view]').forEach(link => {
   const active = link.dataset.navView === CURRENT_VIEW;
   link.classList.toggle('active', active);

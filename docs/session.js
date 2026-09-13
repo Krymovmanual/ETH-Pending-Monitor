@@ -25,6 +25,33 @@
     catch(_){const status=document.querySelector('#sessionStatus');if(status)status.textContent='Changes could not be saved. Keep this page open and retry.';}
   },350);}
   const storage={getItem:key=>data.get(key)??null,setItem(key,value){data.set(key,String(value));if(preferenceKeys.includes(key))savePrefs();},removeItem(key){data.delete(key);if(preferenceKeys.includes(key))savePrefs();}};
+  function currentSection(){
+    if(location.pathname.endsWith('/exchanges.html'))return'exchanges';
+    if(location.pathname.endsWith('/transfers.html'))return'transfers';
+    if(location.pathname.endsWith('/security.html'))return'security';
+    const view=new URLSearchParams(location.search).get('view');
+    return ['wallets','networks','market'].includes(view)?view:'overview';
+  }
+  function mountAppRail(){
+    const section=currentSection();
+    const routes=[
+      ['overview','Overview','index.html'],['exchanges','Accounts','exchanges.html'],
+      ['wallets','Wallets','index.html?view=wallets'],['transfers','Transfers','transfers.html'],
+      ['networks','Networks','index.html?view=networks'],['market','Market','index.html?view=market'],
+      ['security','Security','security.html']
+    ];
+    let rail=document.querySelector('.overview-rail');
+    if(!rail){rail=document.createElement('aside');document.body.prepend(rail);}
+    rail.className='overview-rail app-rail';rail.setAttribute('aria-label','Treasury navigation');
+    rail.replaceChildren();
+    const brand=document.createElement('a');brand.className='overview-brand';brand.href='index.html';brand.innerHTML='<span aria-hidden="true">T</span><strong>Treasury</strong>';
+    const nav=document.createElement('nav');
+    routes.forEach(([id,label,href])=>{const link=document.createElement('a');link.href=href;link.textContent=label;if(id===section){link.className='active';link.setAttribute('aria-current','page');}nav.append(link);});
+    const railStatus=document.createElement('div');railStatus.className='overview-rail-status';
+    const badge=document.createElement('span');badge.className='connection compact';badge.id='overviewSystemBadge';badge.innerHTML='<span class="dot"></span><span id="overviewSystemLabel">Workspace protected</span>';
+    const detail=document.createElement('small');detail.id='overviewUpdatedAt';detail.textContent='Encrypted session active';
+    railStatus.append(badge,detail);rail.append(brand,nav,railStatus);document.body.classList.add('has-app-rail');
+  }
   async function start(){
     const response=await nativeFetch('/api/auth/me',{credentials:'same-origin',cache:'no-store'});
     if(response.status===401){location.replace('auth.html');return;}
@@ -44,13 +71,14 @@
     data.set('eth-pending-monitor-balance-settings',JSON.stringify(settings.balanceSettings||{}));
     // Remove obsolete shared admin credentials from this origin.
     localStorage.removeItem('eth-pending-monitor-backend-token');
+    mountAppRail();
     const bar=document.createElement('div');bar.className='session-bar';
     const email=document.createElement('span');email.textContent=body.user.email;
     const link=document.createElement('a');link.href='security.html';link.textContent='Security & accounts';
     const status=document.createElement('span');status.id='sessionStatus';status.setAttribute('role','status');
     const logout=document.createElement('button');logout.type='button';logout.className='secondary';logout.textContent='Sign out';logout.onclick=()=>Treasury.logout();
     bar.append(email,link,status,logout);document.body.prepend(bar);
-    const script=document.createElement('script');script.src=moduleName+'?v=13';document.body.append(script);
+    const script=document.createElement('script');script.src=moduleName+'?v=14';document.body.append(script);
   }
   start().catch(error=>{
     const panel=document.createElement('div');panel.className='panel';panel.style.padding='24px';panel.textContent=error.message;document.body.prepend(panel);

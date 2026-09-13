@@ -6,6 +6,7 @@
   history.replaceState(null,'',location.pathname);
   function render(){
     $('authTitle').textContent=({login:'Sign in',register:'Create account',forgot:'Reset password',verify:'Confirm email',reset:'Set a new password',mfa:'Verify your identity'})[mode];
+    document.querySelectorAll('[data-mode]').forEach(button=>{const active=button.dataset.mode===mode;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));});
     $('submitAuth').textContent=$('authTitle').textContent;
     $('emailLabel').hidden=['verify','reset','mfa'].includes(mode);$('email').required=!$('emailLabel').hidden;
     $('passwordLabel').hidden=['forgot','verify','mfa'].includes(mode);$('password').required=!$('passwordLabel').hidden;
