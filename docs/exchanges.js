@@ -8,7 +8,7 @@ const state = {
   data: null,
   pendingData: null,
   selected: new Set(loadJson(SELECTION_KEY, [])),
-  expanded: new Set(['bitget']),
+  expanded: new Set(['bitget','bybit','gate','okx','binance']),
   view: Treasury.storage.getItem(VIEW_KEY) === 'account' ? 'account' : 'consolidated',
   tab: 'assets',
   search: '',
@@ -225,8 +225,8 @@ function renderWarnings() {
     el.warning.replaceChildren();
     return;
   }
-  const positionAccess = warnings.some(warning => /position|uta trade/i.test(warning));
-  el.warning.innerHTML = `${positionAccess ? '<strong>Some position data is unavailable</strong><span>Keep the Bitget API key Read-only and enable Unified account → Trade, then refresh.</span>' : '<strong>Some exchange data is unavailable</strong>'}<details><summary>Technical details</summary><ul>${warnings.map(warning => `<li>${escapeHtml(warning)}</li>`).join('')}</ul></details>`;
+  const bitgetPositionAccess = warnings.some(warning => /bitget.*(position|uta trade)/i.test(warning));
+  el.warning.innerHTML = `${bitgetPositionAccess ? '<strong>Some Bitget position data is unavailable</strong><span>Keep the key globally Read-only and enable Unified account → Trade data access, then refresh.</span>' : '<strong>Some exchange data is unavailable</strong><span>Available accounts remain visible; review the affected key permissions below.</span>'}<details><summary>Technical details</summary><ul>${warnings.map(warning => `<li>${escapeHtml(warning)}</li>`).join('')}</ul></details>`;
 }
 
 function render({ preserveScroll = true } = {}) {
@@ -348,6 +348,23 @@ document.querySelector('#openAddExchange').addEventListener('click', () => {
   el.addForm.elements.name.focus();
 });
 
+const exchangeFormOptions = {
+  bitget:{name:'Bitget Main',passphrase:true,text:'API key is <strong>Read-only</strong>; Unified account → <strong>Manage</strong> and <strong>Trade</strong> data access are enabled; transfers and withdrawals are disabled.'},
+  bybit:{name:'Bybit Main',passphrase:false,text:'API key is <strong>Read-only</strong> and has Account, Wallet and Position query access. Trading, transfers and withdrawals are disabled.'},
+  gate:{name:'Gate.io Main',passphrase:false,text:'Every Gate.io permission is <strong>Read-only</strong>. Spot, wallet and futures queries are enabled; trading and withdrawals are disabled.'},
+  okx:{name:'OKX Main',passphrase:true,text:'API key has the <strong>Read</strong> permission only. The Trade and Withdraw permissions are disabled.'},
+  binance:{name:'Binance Main',passphrase:false,text:'API key is <strong>read-only</strong>. Spot & Margin Trading, Futures trading, withdrawals and universal transfers are disabled.'},
+};
+function updateExchangeForm(){
+  const id=el.addForm.elements.exchange.value,option=exchangeFormOptions[id]||exchangeFormOptions.bitget;
+  const passphrase=el.addForm.elements.passphrase,wrapper=document.querySelector('#newExchangePassphrase');
+  wrapper.hidden=!option.passphrase;passphrase.required=option.passphrase;if(!option.passphrase)passphrase.value='';
+  document.querySelector('#newExchangeName').placeholder=option.name;
+  document.querySelector('#newExchangePermission').innerHTML=option.text;
+}
+el.addForm.elements.exchange.addEventListener('change',updateExchangeForm);
+updateExchangeForm();
+
 function closeAddExchange() {
   if (el.addSubmit.disabled) return;
   el.addError.textContent = '';
@@ -376,6 +393,7 @@ el.addForm.addEventListener('submit', async event => {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || `Connection service returned ${response.status}`);
     el.addForm.reset();
+    updateExchangeForm();
     el.addDialog.close();
     await loadData({ force:true });
   } catch (error) {

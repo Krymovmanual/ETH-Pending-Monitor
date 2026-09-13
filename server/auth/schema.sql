@@ -29,12 +29,20 @@ CREATE TABLE IF NOT EXISTS request_limits (
 );
 CREATE TABLE IF NOT EXISTS exchange_connections (
  id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
- exchange TEXT NOT NULL CHECK(exchange='bitget'), name TEXT NOT NULL,
+ exchange TEXT NOT NULL, name TEXT NOT NULL,
  key_hint TEXT NOT NULL, credentials TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  last_checked TIMESTAMPTZ, status TEXT NOT NULL DEFAULT 'connected',
  UNIQUE(user_id,name)
 );
 CREATE INDEX IF NOT EXISTS exchange_connections_user ON exchange_connections(user_id);
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='exchange_connections_exchange_check') THEN
+    ALTER TABLE exchange_connections DROP CONSTRAINT exchange_connections_exchange_check;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='exchange_connections_supported') THEN
+    ALTER TABLE exchange_connections ADD CONSTRAINT exchange_connections_supported CHECK(exchange IN ('bitget','bybit','gate','okx','binance'));
+  END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS user_settings (
  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, settings JSONB NOT NULL,
  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

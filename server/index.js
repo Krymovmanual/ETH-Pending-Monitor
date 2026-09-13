@@ -261,7 +261,7 @@ app.get('/api/providers/bitget/account', auth.requireUser, async (req, res, next
 
 app.get('/api/exchanges/accounts', auth.requireUser, async (req, res) => {
   try {
-    res.json(await accounts.all());
+    res.json(await accounts.all({force:req.query.refresh==='1'}));
   } catch (error) {
     if (/not configured/.test(error.message)) return res.status(503).json({ error: error.message });
     console.error('Request failed', error.code || error.status || 'upstream_error');
