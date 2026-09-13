@@ -43,7 +43,11 @@ function createAccounts(pool,auth){
       const name=String(req.body?.name||'').trim();
       const credentials={apiKey:String(req.body?.apiKey||'').trim(),secret:String(req.body?.secret||'').trim(),passphrase:String(req.body?.passphrase||'').trim()};
       if(!name||name.length>80||Object.values(credentials).some(v=>!v||v.length>512))throw fail(400,'Enter an account name, API key, secret and passphrase');
-      try{await createBitgetClient(credentials).validateReadOnly();}catch(_){throw fail(400,'Bitget did not confirm read-only Unified Account access. Check the credentials, permissions and IP allowlist.');}
+      if(req.body?.readOnlyConfirmed!=='yes')throw fail(400,'Confirm that this Bitget API key is Read-only with Unified account > Manage only');
+      try{await createBitgetClient(credentials).validateReadOnly();}catch(error){
+        const message=String(error?.message||'Bitget validation failed').replace(/^Bitget request failed:\s*/,'').slice(0,180);
+        throw fail(400,`Bitget connection failed: ${message}`);
+      }
       const id=crypto.randomUUID();
       await auth.tx(async client=>{
         await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE',[req.user.id]);

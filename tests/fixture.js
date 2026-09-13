@@ -13,11 +13,12 @@ async function fixture(){
   db.pool.query=query;db.pool.connect=async()=>({query,release(){}});
   db.pool.end=()=>postgres.close();
   const nativeFetch=global.fetch;const mails=[];
-  let unsafeKey=false;
+  let unsafeKey=false,denyClassicInfo=false;
   global.fetch=async(url,opts)=>{
     const value=String(url);
     if(value.startsWith('https://api.resend.com/')){mails.push(JSON.parse(opts.body));return new Response('{}',{status:200});}
     if(value.startsWith('https://api.bitget.com')){
+      if(value.includes('/info')&&denyClassicInfo)return Response.json({code:'40014',msg:'Permission denied'},{status:403});
       const data=value.includes('/info')?{authorities:unsafeKey?['trade']:['readonly']}:value.includes('/assets')?{accountEquity:'100',assets:[]}:value.includes('funding')?[]:{list:[]};
       return Response.json({code:'00000',data});
     }
@@ -43,6 +44,6 @@ async function fixture(){
     r=await user.call('/api/auth/verify','POST',{token:mailToken(email,'verify')});if(r.status!==200)throw Error(JSON.stringify(r));
     await user.call('/api/auth/login','POST',{email,password});const me=await user.call('/api/auth/me');return {client:user,id:me.data.user.id,email,password};
   }
-  return {origin,db,auth,postgres,client,register,mailToken,mails,unsafe(value){unsafeKey=value;},async close(){await new Promise(resolve=>server.close(resolve));global.fetch=nativeFetch;await postgres.close();}};
+  return {origin,db,auth,postgres,client,register,mailToken,mails,unsafe(value){unsafeKey=value;},denyClassicInfo(value){denyClassicInfo=value;},async close(){await new Promise(resolve=>server.close(resolve));global.fetch=nativeFetch;await postgres.close();}};
 }
 module.exports={fixture};

@@ -40,7 +40,7 @@ test('multi-user authentication, credentials and isolation integration',async t=
     const row=(await f.db.pool.query('SELECT totp_secret FROM users WHERE id=$1',[alice.id])).rows[0];assert.ok(!row.totp_secret.includes(secret));
   });
   await t.test('only read-only keys accepted, encrypted keys never returned',async()=>{
-    const credentials={name:'Main',apiKey:'fixture-api-key',secret:'fixture-private-secret',passphrase:'fixture-passphrase'};
+    const credentials={name:'Main',apiKey:'fixture-api-key',secret:'fixture-private-secret',passphrase:'fixture-passphrase',readOnlyConfirmed:'yes'};
     f.unsafe(true);assert.equal((await alice.client.call('/api/connections','POST',{...credentials,code:codes.shift()})).status,400);f.unsafe(false);
     const r=await alice.client.call('/api/connections','POST',{...credentials,code:codes.shift()});assert.equal(r.status,201);connection=r.data.id;
     const rows=await alice.client.call('/api/connections');assert.equal(rows.data.items.length,1);assert.ok(!JSON.stringify(rows.data).includes(credentials.secret));
@@ -50,6 +50,13 @@ test('multi-user authentication, credentials and isolation integration',async t=
     assert.equal((await bob.client.call('/api/connections')).data.items.length,0);
     assert.equal((await bob.client.call('/api/exchanges/accounts')).data.accounts.length,0);
     assert.equal((await alice.client.call('/api/exchanges/accounts')).data.accounts.length,1);
+  });
+  await t.test('UTA-only read access works when classic Spot permission metadata is unavailable',async()=>{
+    f.denyClassicInfo(true);
+    const r=await alice.client.call('/api/connections','POST',{name:'UTA only',apiKey:'uta-key',secret:'uta-secret',passphrase:'uta-passphrase',readOnlyConfirmed:'yes',code:codes.shift()});
+    f.denyClassicInfo(false);
+    assert.equal(r.status,201);
+    assert.equal((await alice.client.call('/api/connections')).data.items.length,2);
   });
   await t.test('recovery code is single-use; pending MFA session cannot read data',async()=>{
     const other=f.client();assert.equal((await other.call('/api/auth/login','POST',{email:alice.email,password:alice.password})).data.twoFactorRequired,true);

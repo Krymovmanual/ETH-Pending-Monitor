@@ -1,5 +1,14 @@
 const crypto = require('node:crypto');
 
+function inspectAuthorities(values) {
+  if (!Array.isArray(values)) return { confirmedReadOnly: false, unsafe: [] };
+  const permissions = values.map(value => String(value || '').trim().toLowerCase()).filter(Boolean);
+  const unsafe = permissions.filter(permission => /trade|write|withdraw|transfer/.test(permission));
+  return {
+    confirmedReadOnly: permissions.some(permission => /^read[\s_-]*only$/.test(permission)),
+    unsafe,
+  };
+}
 
 function createBitgetClient(credentials) {
 const config = {bitgetApiKey:credentials.apiKey,bitgetApiSecret:credentials.secret,bitgetApiPassphrase:credentials.passphrase};
@@ -243,13 +252,28 @@ async function fetchBitgetAccounts(options = {}) {
 
 return { fetchBitgetAccount, fetchBitgetAccounts, toExchangeAccounts, normalizeAsset, normalizePosition, signedHeaders,
   async validateReadOnly() {
-    const info = await request('/api/v2/spot/account/info');
-    const permissions = info?.authorities;
-    if (!Array.isArray(permissions) || !permissions.length || permissions.some(p => !['readonly', 'read-only', 'read_only'].includes(String(p).toLowerCase()))) {
-      throw new Error('Use an API key with read-only permission. The exchange did not confirm read-only access.');
-    }
+    // UTA keys can be scoped only to "Unified account > Manage". Such keys may
+    // not be allowed to call the classic Spot account-info endpoint at all, so
+    // validate the endpoint the application actually needs first.
     await request('/api/v3/account/assets');
+    try {
+      const info = await request('/api/v2/spot/account/info');
+      const inspection = inspectAuthorities(info?.authorities);
+      if (inspection.unsafe.length) {
+        const error = new Error('This API key includes trading or transfer permissions. Create a Read-only key with Unified account > Manage only.');
+        error.code = 'BITGET_UNSAFE_PERMISSIONS';
+        throw error;
+      }
+      return { unifiedAccess: true, permissionsConfirmed: inspection.confirmedReadOnly };
+    } catch (error) {
+      if (error.code === 'BITGET_UNSAFE_PERMISSIONS') throw error;
+      // A successful UTA assets query already confirms the required read
+      // access. Bitget does not expose the classic permission metadata to all
+      // UTA-only keys, therefore the user must additionally attest that the
+      // key was created as Read-only.
+      return { unifiedAccess: true, permissionsConfirmed: false };
+    }
   }
 };
 }
-module.exports = {createBitgetClient};
+module.exports = {createBitgetClient, inspectAuthorities};
