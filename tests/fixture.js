@@ -5,6 +5,7 @@ async function fixture(){
   process.env.CREDENTIAL_ENCRYPTION_KEY=crypto.randomBytes(32).toString('base64');
   process.env.REGISTRATION_OPEN='true';process.env.DISABLE_MONITORS='true';process.env.RESEND_API_KEY='fixture';
   process.env.SOLANA_RPC_URL='https://solana.test';
+  process.env.BITCOIN_RPC_URL='https://bitcoin.test';process.env.BITCOIN_INDEXER_URL='https://mempool.test/api';
   const postgres=new PGlite();await postgres.waitReady;
   const db=require('../server/db');
   const query=async(sql,params)=>{
@@ -38,6 +39,23 @@ async function fixture(){
       const rows=requests.map(request=>({jsonrpc:'2.0',id:request.id,result:result(request)}));
       return Response.json(Array.isArray(source)?rows:rows[0]);
     }
+    if(value==='https://bitcoin.test'){
+      const source=JSON.parse(opts.body);const requests=Array.isArray(source)?source:[source];
+      const result=request=>{
+        if(request.method==='getblockchaininfo')return{chain:'main',blocks:865432,headers:865432,bestblockhash:'000000000000000000fixture',difficulty:95000000000000,verificationprogress:1};
+        if(request.method==='getmempoolinfo')return{size:45231,vsize:123456789,bytes:130000000,total_fee:4.25};
+        if(request.method==='estimatesmartfee'){const target=Number(request.params?.[0]);return{feerate:target===1?.00025:target===3?.00012:.00006,blocks:target};}
+        if(request.method==='getnetworkhashps')return 650000000000000000000;
+        return null;
+      };
+      const rows=requests.map(request=>({jsonrpc:'2.0',id:request.id,result:result(request)}));
+      return Response.json(Array.isArray(source)?rows:rows[0]);
+    }
+    if(value.startsWith('https://mempool.test/api/address/'))return Response.json([
+      {txid:'a'.repeat(64),vout:0,value:2500000,status:{confirmed:true,block_height:865400}},
+      {txid:'b'.repeat(64),vout:1,value:500,status:{confirmed:true,block_height:865410}},
+      {txid:'c'.repeat(64),vout:0,value:125000,status:{confirmed:false}},
+    ]);
     if(value.startsWith('https:'))throw Error('External requests disabled in tests');
     return nativeFetch(url,opts);
   };

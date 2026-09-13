@@ -14,6 +14,8 @@ const defaultSettings = {
   labels: {},
   solanaAddresses: [],
   solanaLabels: {},
+  bitcoinAddresses: [],
+  bitcoinLabels: {},
   email: '',
   timezone: 'UTC',
   notificationSettings: {

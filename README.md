@@ -21,6 +21,8 @@ The interface is split into focused workspaces: **Overview** for operational KPI
    - `DATABASE_URL` — reference `Postgres.DATABASE_URL` from the PostgreSQL service.
    - `ALCHEMY_WSS_URL` — the Ethereum Mainnet Alchemy WebSocket URL.
    - `SOLANA_RPC_URL` — the Solana Mainnet Alchemy HTTPS RPC URL used for watch-only balances, SOL Gas Station and network health.
+   - `BITCOIN_RPC_URL` — the Bitcoin Mainnet Alchemy HTTPS RPC URL used for chain, mempool and fee health.
+   - `BITCOIN_INDEXER_URL` — an Esplora-compatible API used for address UTXOs; defaults to `https://mempool.space/api`.
    - `ADMIN_TOKEN` — a random value containing at least 24 characters.
    - `FRONTEND_ORIGIN` — `https://krymovmanual.github.io`.
    - `ETHERSCAN_API_KEY` — enables server-side pending-nonce cross-checks.
@@ -39,6 +41,8 @@ The browser talks to Railway for Etherscan diagnostics and CryptoCompare news, s
 Gas Analytics uses an independent Alchemy connection on Railway to sample every Ethereum block. It stores one aggregated row per minute, keeps 30 days, and removes older rows automatically. A Gas Analytics failure does not stop pending-transaction monitoring.
 
 Solana support is server-only and optional. When `SOLANA_RPC_URL` is configured, each user can save public Solana addresses, view SOL and SPL token balances, configure an independent SOL Gas Station reserve, and inspect Solana RPC health and priority fees. See [SOLANA-v16.md](SOLANA-v16.md).
+
+Bitcoin support is watch-only. Each user can save up to 25 public mainnet addresses, view BTC balances and UTXO fragmentation, estimate consolidation cost, and inspect chain synchronization, mempool and fee targets. The Networks workspace defaults to Ethereum and switches cleanly between Ethereum, Solana and Bitcoin without stacking all analytics on one page. See [BITCOIN-v17.md](BITCOIN-v17.md).
 
 The Railway monitor also scans confirmed Ethereum blocks and stores a persistent block checkpoint. The browser merges `/api/transactions` into its local cache every 15 seconds, so transactions observed while the page was closed or missed by the browser WebSocket still appear after reopening the dashboard.
 

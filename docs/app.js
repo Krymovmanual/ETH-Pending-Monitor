@@ -14,6 +14,9 @@ const SOLANA_LABELS_KEY = 'paseqa-solana-address-labels';
 const SOLANA_WALLET_BALANCES_KEY = 'paseqa-solana-wallet-balances';
 const SOLANA_GAS_BALANCE_KEY = 'paseqa-solana-gas-balance';
 const SOLANA_GAS_ALERT_KEY = 'paseqa-solana-gas-alert-sent';
+const BITCOIN_ADDRESSES_KEY = 'paseqa-bitcoin-addresses';
+const BITCOIN_LABELS_KEY = 'paseqa-bitcoin-address-labels';
+const BITCOIN_WALLET_BALANCES_KEY = 'paseqa-bitcoin-wallet-balances';
 const PAGE_SIZE_KEY = 'eth-pending-monitor-page-size';
 const NOTIFICATION_SETTINGS_KEY = 'eth-pending-monitor-notification-settings';
 const SUMMARY_ALERTS_KEY = 'eth-pending-monitor-summary-alerts';
@@ -67,6 +70,8 @@ const state = {
   addressLabels: loadAddressLabels(),
   solanaAddresses: loadSolanaAddresses(),
   solanaLabels: loadStoredObject(SOLANA_LABELS_KEY),
+  bitcoinAddresses: loadBitcoinAddresses(),
+  bitcoinLabels: loadStoredObject(BITCOIN_LABELS_KEY),
   email: Treasury.storage.getItem(EMAIL_KEY) || '',
   notificationSettings: loadNotificationSettings(),
   summaryAlerts: loadStoredObject(SUMMARY_ALERTS_KEY),
@@ -77,6 +82,7 @@ const state = {
   gasBalance: loadStoredObject(GAS_BALANCE_KEY),
   solanaWalletBalances: loadStoredObject(SOLANA_WALLET_BALANCES_KEY),
   solanaGasBalance: loadStoredObject(SOLANA_GAS_BALANCE_KEY),
+  bitcoinWalletBalances: loadStoredObject(BITCOIN_WALLET_BALANCES_KEY),
   balanceLoading: false,
   gasLoading: false,
   balanceLoadError: '',
@@ -86,6 +92,7 @@ const state = {
   solanaBalanceLoading: false,
   solanaGasLoading: false,
   solanaGasTimer: null,
+  bitcoinBalanceLoading: false,
   alertTimer: null,
   pendingSyncTimer: null,
   transactionSyncTimer: null,
@@ -116,6 +123,11 @@ const state = {
   solanaNetworkLoading: false,
   solanaNetworkError: '',
   solanaNetworkTimer: null,
+  bitcoinNetwork: null,
+  bitcoinNetworkLoading: false,
+  bitcoinNetworkError: '',
+  bitcoinNetworkTimer: null,
+  activeNetwork: 'ethereum',
   exchangeData: null,
   exchangeLoading: false,
   exchangeError: '',
@@ -191,6 +203,18 @@ const el = {
   solanaRpcLatency: document.querySelector('#solanaRpcLatency'),
   solanaPriorityFee: document.querySelector('#solanaPriorityFee'),
   solanaFeeBand: document.querySelector('#solanaFeeBand'),
+  bitcoinNetworkBadge: document.querySelector('#bitcoinNetworkBadge'),
+  bitcoinNetworkStatus: document.querySelector('#bitcoinNetworkStatus'),
+  bitcoinNetworkDetail: document.querySelector('#bitcoinNetworkDetail'),
+  refreshBitcoinNetworkButton: document.querySelector('#refreshBitcoinNetworkButton'),
+  bitcoinBlockHeight: document.querySelector('#bitcoinBlockHeight'),
+  bitcoinNetworkAge: document.querySelector('#bitcoinNetworkAge'),
+  bitcoinMempoolCount: document.querySelector('#bitcoinMempoolCount'),
+  bitcoinMempoolSize: document.querySelector('#bitcoinMempoolSize'),
+  bitcoinStandardFee: document.querySelector('#bitcoinStandardFee'),
+  bitcoinRpcLatency: document.querySelector('#bitcoinRpcLatency'),
+  bitcoinFeeBand: document.querySelector('#bitcoinFeeBand'),
+  bitcoinUtxoHealth: document.querySelector('#bitcoinUtxoHealth'),
   exchangeAccountStatus: document.querySelector('#exchangeAccountStatus'),
   exchangeAccountBody: document.querySelector('#exchangeAccountBody'),
   refreshExchangeButton: document.querySelector('#refreshExchangeButton'),
@@ -215,6 +239,7 @@ const el = {
   backendStatus: document.querySelector('#backendStatus'),
   addresses: document.querySelector('#addressesInput'),
   solanaAddresses: document.querySelector('#solanaAddressesInput'),
+  bitcoinAddresses: document.querySelector('#bitcoinAddressesInput'),
   email: document.querySelector('#emailInput'),
   testEmailButton: document.querySelector('#testEmailButton'),
   testEmailStatus: document.querySelector('#testEmailStatus'),
@@ -309,6 +334,13 @@ function loadSolanaAddresses() {
   try {
     const stored = JSON.parse(Treasury.storage.getItem(SOLANA_ADDRESSES_KEY) || '[]');
     return Array.isArray(stored) ? [...new Set(stored.filter(address => typeof address === 'string' && validSolanaAddress(address)))].slice(0, 50) : [];
+  } catch { return []; }
+}
+
+function loadBitcoinAddresses() {
+  try {
+    const stored = JSON.parse(Treasury.storage.getItem(BITCOIN_ADDRESSES_KEY) || '[]');
+    return Array.isArray(stored) ? [...new Set(stored.filter(address => typeof address === 'string' && validBitcoinAddress(address)))].slice(0, 25) : [];
   } catch { return []; }
 }
 
@@ -425,6 +457,10 @@ function validSolanaAddress(value) {
   for (const character of text) { if (character === '1') bytes += 1; else break; }
   return bytes === 32;
 }
+function validBitcoinAddress(value) {
+  const text = String(value || '').trim();
+  return /^(?:[13][1-9A-HJ-NP-Za-km-z]{25,34}|bc1[ac-hj-np-z02-9]{11,87})$/i.test(text) && !(text !== text.toLowerCase() && text !== text.toUpperCase() && /^bc1/i.test(text));
+}
 function validEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
 
 function setConnection(status, text) {
@@ -451,7 +487,7 @@ async function connect() {
     if (!el.dialog.open) openSettings();
     return;
   }
-  if (!state.addresses.length && !state.solanaAddresses.length && !el.dialog.open) openSettings();
+  if (!state.addresses.length && !state.solanaAddresses.length && !state.bitcoinAddresses.length && !el.dialog.open) openSettings();
   setConnection('', 'Connecting to Railway…');
   await syncServerTransactions();
   updateGasPrice();
@@ -1376,6 +1412,29 @@ async function updateSolanaWalletBalances() {
   }
 }
 
+async function updateBitcoinWalletBalances() {
+  if (!backendConfigured() || !state.balanceSettings.enabled || !state.bitcoinAddresses.length || state.bitcoinBalanceLoading) return;
+  state.bitcoinBalanceLoading = true;
+  state.balanceLoadError = '';
+  renderBalances();
+  try {
+    const response = await fetch(`${normalizedBackendUrl()}/api/wallets/bitcoin/balances`, {
+      method:'POST', headers:backendHeaders(), signal:AbortSignal.timeout(30_000),
+      body:JSON.stringify({addresses:state.bitcoinAddresses}),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || !Array.isArray(body.wallets)) throw new Error(body.error || 'Bitcoin balance request failed');
+    state.bitcoinWalletBalances = Object.fromEntries(body.wallets.map(wallet => [wallet.address, {updatedAt:body.updatedAt, balance:wallet.balance, utxos:wallet.utxos || []}]));
+    Treasury.storage.setItem(BITCOIN_WALLET_BALANCES_KEY, JSON.stringify(state.bitcoinWalletBalances));
+  } catch (error) {
+    state.balanceLoadError = error?.message || 'Bitcoin balance update failed';
+  } finally {
+    state.bitcoinBalanceLoading = false;
+    renderBalances();
+    renderBitcoinNetwork();
+  }
+}
+
 async function updateGasBalance() {
   const settings = state.balanceSettings;
   if (!backendConfigured() || !validAddress(settings.gasAddress) || state.gasLoading) return;
@@ -1490,11 +1549,17 @@ function scheduleBalanceRefresh(force = false) {
   clearInterval(state.solanaGasTimer);
   const settings = state.balanceSettings;
   if (settings.enabled) {
-    if (Number(settings.balanceInterval) > 0) state.balanceTimer = setInterval(updateWalletBalances, Number(settings.balanceInterval));
+    if (Number(settings.balanceInterval) > 0) state.balanceTimer = setInterval(() => {
+      updateWalletBalances();
+      updateSolanaWalletBalances();
+      updateBitcoinWalletBalances();
+    }, Number(settings.balanceInterval));
     const latest = Math.max(0, ...Object.values(state.walletBalances).map(item => item?.updatedAt || 0));
     if (force || isRefreshDue(latest, settings.balanceInterval)) updateWalletBalances();
     const solanaLatest = Math.max(0, ...Object.values(state.solanaWalletBalances).map(item => item?.updatedAt || 0));
     if (state.solanaAddresses.length && (force || isRefreshDue(solanaLatest, settings.balanceInterval))) updateSolanaWalletBalances();
+    const bitcoinLatest = Math.max(0, ...Object.values(state.bitcoinWalletBalances).map(item => item?.updatedAt || 0));
+    if (state.bitcoinAddresses.length && (force || isRefreshDue(bitcoinLatest, settings.balanceInterval))) updateBitcoinWalletBalances();
   }
   if (validSolanaAddress(settings.solanaGasAddress)) {
     if (Number(settings.solanaGasInterval) > 0) state.solanaGasTimer = setInterval(updateSolanaGasBalance, Number(settings.solanaGasInterval));
@@ -1903,8 +1968,74 @@ async function updateSolanaNetwork() {
 
 function scheduleSolanaNetworkRefresh() {
   clearInterval(state.solanaNetworkTimer);
-  state.solanaNetworkTimer = setInterval(updateSolanaNetwork, 30_000);
-  updateSolanaNetwork();
+  state.solanaNetworkTimer = setInterval(() => { if (state.activeNetwork === 'solana') updateSolanaNetwork(); }, 30_000);
+  renderSolanaNetwork();
+}
+
+function renderBitcoinNetwork() {
+  if (!el.bitcoinNetworkBadge) return;
+  const data = state.bitcoinNetwork;
+  const unavailable = Boolean(state.bitcoinNetworkError);
+  const healthy = data?.level === 'healthy' && !unavailable;
+  el.bitcoinNetworkBadge.className = `connection compact ${healthy ? 'live' : unavailable ? 'error' : ''}`;
+  el.bitcoinNetworkStatus.textContent = healthy ? 'Operational' : unavailable ? 'Unavailable' : data ? 'Degraded' : 'Checking';
+  el.bitcoinNetworkDetail.textContent = unavailable ? state.bitcoinNetworkError : data ? 'Alchemy RPC · chain, mempool and fee market' : 'Checking chain synchronization, mempool and fee estimates…';
+  el.refreshBitcoinNetworkButton.disabled = state.bitcoinNetworkLoading;
+  el.refreshBitcoinNetworkButton.textContent = state.bitcoinNetworkLoading ? 'Refreshing…' : 'Refresh';
+  el.bitcoinBlockHeight.textContent = Number.isFinite(data?.blocks) ? data.blocks.toLocaleString() : '—';
+  el.bitcoinNetworkAge.textContent = data?.sampledAt ? `Updated ${age(data.sampledAt)} ago` : 'Waiting for data';
+  el.bitcoinMempoolCount.textContent = Number.isFinite(data?.mempool?.transactions) ? data.mempool.transactions.toLocaleString() : '—';
+  el.bitcoinMempoolSize.textContent = Number.isFinite(data?.mempool?.vsize) ? `${compactNumber(data.mempool.vsize / 1_000_000, 2)} MvB queued` : 'Unconfirmed transactions';
+  el.bitcoinStandardFee.textContent = Number.isFinite(data?.feeSatVbyte?.standard) ? compactNumber(data.feeSatVbyte.standard, 2) : '—';
+  el.bitcoinRpcLatency.textContent = Number.isFinite(data?.rpcLatencyMs) ? `${data.rpcLatencyMs} ms` : '—';
+  const fees = data?.feeSatVbyte || {};
+  el.bitcoinFeeBand.innerHTML = ['economy','standard','priority'].map((key, index) => `<article class="${key === 'standard' ? 'bitcoin-fee-primary' : ''}"><span>${['Economy · 6 blocks','Standard · 3 blocks','Priority · next block'][index]}</span><strong>${Number.isFinite(fees[key]) ? compactNumber(fees[key], 2) : '—'}</strong><small>sat/vB</small></article>`).join('');
+  const rows = state.bitcoinAddresses.map(address => {
+    const health = state.bitcoinWalletBalances[address]?.balance;
+    if (!health) return `<div class="utxo-health-row"><span class="utxo-orb"></span><span><strong>${escapeHtml(state.bitcoinLabels[address] || shortAddress(address))}</strong><small>${escapeHtml(shortAddress(address))}</small></span><span class="utxo-health-value">Waiting</span></div>`;
+    const fee = health.estimatedConsolidation?.feeSats;
+    return `<div class="utxo-health-row"><span class="utxo-orb ${escapeHtml(health.level)}"></span><span><strong>${escapeHtml(state.bitcoinLabels[address] || shortAddress(address))}</strong><small>${health.count} UTXOs · ${health.dust} dust · ${escapeHtml(health.totalBtc)} BTC</small></span><span class="utxo-health-value ${escapeHtml(health.level)}"><strong>${escapeHtml(health.recommendation)}</strong><small>${Number.isFinite(fee) ? `Consolidation ≈ ${fee.toLocaleString()} sats` : 'Fee estimate unavailable'}</small></span></div>`;
+  }).join('');
+  el.bitcoinUtxoHealth.innerHTML = rows || '<div class="network-empty">Add a public Bitcoin address in Wallet settings to inspect its UTXO fragmentation.</div>';
+}
+
+async function updateBitcoinNetwork() {
+  if (state.bitcoinNetworkLoading || !backendConfigured()) return;
+  state.bitcoinNetworkLoading = true;
+  state.bitcoinNetworkError = '';
+  renderBitcoinNetwork();
+  try {
+    const response = await fetch(`${normalizedBackendUrl()}/api/networks/bitcoin`, {headers:backendHeaders(), cache:'no-store', signal:AbortSignal.timeout(25_000)});
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || 'Bitcoin network request failed');
+    state.bitcoinNetwork = body;
+  } catch (error) {
+    state.bitcoinNetworkError = error?.message || 'Bitcoin network data is unavailable';
+  } finally {
+    state.bitcoinNetworkLoading = false;
+    renderBitcoinNetwork();
+  }
+}
+
+function setActiveNetwork(network) {
+  state.activeNetwork = ['ethereum','solana','bitcoin'].includes(network) ? network : 'ethereum';
+  document.querySelectorAll('[data-network-view]').forEach(button => {
+    const active = button.dataset.networkView === state.activeNetwork;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+  document.querySelectorAll('[data-network-panel]').forEach(panel => { panel.hidden = panel.dataset.networkPanel !== state.activeNetwork; });
+  if (state.activeNetwork === 'solana' && !state.solanaNetwork) updateSolanaNetwork();
+  if (state.activeNetwork === 'bitcoin') {
+    if (!state.bitcoinNetwork) updateBitcoinNetwork();
+    if (state.bitcoinAddresses.length && !Object.keys(state.bitcoinWalletBalances).length) updateBitcoinWalletBalances();
+  }
+}
+
+function scheduleBitcoinNetworkRefresh() {
+  clearInterval(state.bitcoinNetworkTimer);
+  state.bitcoinNetworkTimer = setInterval(() => { if (state.activeNetwork === 'bitcoin') updateBitcoinNetwork(); }, 30_000);
+  renderBitcoinNetwork();
 }
 
 async function copyHash(hash) {
@@ -2278,7 +2409,7 @@ function openTransactionDetails(hash) {
 
 function renderBalances() {
   const settings = state.balanceSettings;
-  const balancesLoading = state.balanceLoading || state.solanaBalanceLoading;
+  const balancesLoading = state.balanceLoading || state.solanaBalanceLoading || state.bitcoinBalanceLoading;
   el.refreshBalancesButton.disabled = balancesLoading || !settings.enabled;
   el.refreshBalancesButton.textContent = balancesLoading ? 'Refreshing…' : 'Refresh now';
 
@@ -2286,7 +2417,7 @@ function renderBalances() {
     el.walletBalanceMeta.textContent = 'Balance display is disabled';
     el.walletBalancesBody.innerHTML = '<div class="balance-empty">Enable wallet balances in Settings.</div>';
   } else {
-    const latest = Math.max(0, ...Object.values(state.walletBalances).map(item => item?.updatedAt || 0), ...Object.values(state.solanaWalletBalances).map(item => item?.updatedAt || 0));
+    const latest = Math.max(0, ...Object.values(state.walletBalances).map(item => item?.updatedAt || 0), ...Object.values(state.solanaWalletBalances).map(item => item?.updatedAt || 0), ...Object.values(state.bitcoinWalletBalances).map(item => item?.updatedAt || 0));
     el.walletBalanceMeta.textContent = state.balanceLoadError || `${latest ? `Updated ${age(latest)} ago` : 'Not updated yet'} · ${intervalLabel(settings.balanceInterval)}`;
     const ethereumRows = state.addresses.map(address => {
       const balance = state.walletBalances[address];
@@ -2304,10 +2435,19 @@ function renderBalances() {
       const tokens = assets.length ? assets.slice(0, 12).map(asset => `<div class="token-balance" title="${escapeHtml(asset.name || asset.mint || asset.symbol)}"><span>${escapeHtml(asset.symbol)}</span><strong>${escapeHtml(compactNumber(Number(asset.balance), 8))}</strong></div>`).join('') : '<div class="token-balance"><span>SOL</span><strong>—</strong></div>';
       return `<div class="wallet-balance-row"><div class="wallet-balance-title"><strong>${escapeHtml(state.solanaLabels[address] || shortAddress(address))}</strong><span>${escapeHtml(shortAddress(address))}</span></div><div class="token-balances">${tokens}</div></div>`;
     }).join('');
+    const bitcoinRows = state.bitcoinAddresses.map(address => {
+      const wallet = state.bitcoinWalletBalances[address];
+      const health = wallet?.balance;
+      const healthLabel = health?.level === 'attention' ? 'Consolidate' : health?.level === 'watch' ? 'Monitor' : health ? 'Healthy' : 'Waiting';
+      const fee = health?.estimatedConsolidation?.feeSats;
+      const tokens = `<div class="token-balance"><span>BTC</span><strong>${health ? escapeHtml(health.totalBtc) : '—'}</strong></div><div class="token-balance"><span>UTXOs</span><strong>${health ? Number(health.count).toLocaleString() : '—'}</strong></div><div class="token-balance"><span>Dust</span><strong>${health ? Number(health.dust).toLocaleString() : '—'}</strong></div><div class="token-balance"><span>Health</span><strong class="utxo-state ${escapeHtml(health?.level || '')}">${healthLabel}</strong></div><div class="token-balance"><span>Consolidation</span><strong>${Number.isFinite(fee) ? `${fee.toLocaleString()} sats` : '—'}</strong></div>`;
+      return `<div class="wallet-balance-row"><div class="wallet-balance-title"><strong>${escapeHtml(state.bitcoinLabels[address] || shortAddress(address))}</strong><span>${escapeHtml(shortAddress(address))}</span></div><div class="token-balances bitcoin-balances">${tokens}</div></div>`;
+    }).join('');
     const groups = [];
     if (state.addresses.length) groups.push(`<div class="wallet-network-label"><span class="network-mark ethereum">E</span><strong>Ethereum</strong><small>${state.addresses.length} wallet${state.addresses.length === 1 ? '' : 's'}</small></div>${ethereumRows}`);
     if (state.solanaAddresses.length) groups.push(`<div class="wallet-network-label"><span class="network-mark solana">S</span><strong>Solana</strong><small>${state.solanaAddresses.length} wallet${state.solanaAddresses.length === 1 ? '' : 's'}</small></div>${solanaRows}`);
-    el.walletBalancesBody.innerHTML = groups.join('') || '<div class="balance-empty">Add an Ethereum or Solana wallet in Settings.</div>';
+    if (state.bitcoinAddresses.length) groups.push(`<div class="wallet-network-label"><span class="network-mark bitcoin">₿</span><strong>Bitcoin</strong><small>${state.bitcoinAddresses.length} wallet${state.bitcoinAddresses.length === 1 ? '' : 's'} · UTXO Health</small></div>${bitcoinRows}`);
+    el.walletBalancesBody.innerHTML = groups.join('') || '<div class="balance-empty">Add an Ethereum, Solana or Bitcoin wallet in Settings.</div>';
   }
 
   const ethereumConfigured = validAddress(settings.gasAddress);
@@ -2430,6 +2570,7 @@ function openSettings() {
   updateBackendStatus();
   el.addresses.value = state.addresses.map(address => state.addressLabels[address] ? `${state.addressLabels[address]} | ${address}` : address).join('\n');
   el.solanaAddresses.value = state.solanaAddresses.map(address => state.solanaLabels[address] ? `${state.solanaLabels[address]} | ${address}` : address).join('\n');
+  el.bitcoinAddresses.value = state.bitcoinAddresses.map(address => state.bitcoinLabels[address] ? `${state.bitcoinLabels[address]} | ${address}` : address).join('\n');
   el.error.textContent = '';
   el.dialog.showModal();
 }
@@ -2456,6 +2597,8 @@ function serverSettingsPayload() {
     labels: state.addressLabels,
     solanaAddresses: state.solanaAddresses,
     solanaLabels: state.solanaLabels,
+    bitcoinAddresses: state.bitcoinAddresses,
+    bitcoinLabels: state.bitcoinLabels,
     email: state.email,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     notificationSettings: state.notificationSettings,
@@ -2587,9 +2730,11 @@ async function refreshOverviewData() {
     updateExchangeAccount({ force:true }),
     updateGasAnalytics(),
     updateSolanaNetwork(),
+    updateBitcoinNetwork(),
   ];
   if (state.balanceSettings.enabled) tasks.push(updateWalletBalances());
   if (state.balanceSettings.enabled && state.solanaAddresses.length) tasks.push(updateSolanaWalletBalances());
+  if (state.balanceSettings.enabled && state.bitcoinAddresses.length) tasks.push(updateBitcoinWalletBalances());
   if (validAddress(state.balanceSettings.gasAddress)) tasks.push(updateGasBalance());
   if (validSolanaAddress(state.balanceSettings.solanaGasAddress)) tasks.push(updateSolanaGasBalance());
   if (backendConfigured()) tasks.push(syncPendingState(false));
@@ -2617,6 +2762,8 @@ el.refreshNewsSideButton.addEventListener('click', () => updateNews({ force: tru
 el.refreshGasAnalyticsButton.addEventListener('click', updateGasAnalytics);
 el.refreshNetworkHealthButton.addEventListener('click', updateGasAnalytics);
 el.refreshSolanaNetworkButton?.addEventListener('click', updateSolanaNetwork);
+el.refreshBitcoinNetworkButton?.addEventListener('click', () => Promise.allSettled([updateBitcoinNetwork(), updateBitcoinWalletBalances()]));
+document.querySelectorAll('[data-network-view]').forEach(button => button.addEventListener('click', () => setActiveNetwork(button.dataset.networkView)));
 el.refreshExchangeButton.addEventListener('click', () => updateExchangeAccount({ force: true }));
 el.pendingSyncButton.addEventListener('click', () => Promise.allSettled([syncPendingState(true), syncServerTransactions({ force:true })]));
 el.pendingSyncNoticeButton.addEventListener('click', () => Promise.allSettled([syncPendingState(true), syncServerTransactions({ force:true })]));
@@ -2630,6 +2777,7 @@ el.form.addEventListener('submit', async event => {
   const backendToken = '';
   const parsed = parseAddressLines(el.addresses.value);
   const parsedSolana = parseAddressLines(el.solanaAddresses.value, {lowercase:false});
+  const parsedBitcoin = parseAddressLines(el.bitcoinAddresses.value, {lowercase:false});
   const addresses = parsed.addresses;
   if (addresses.length > 50 || addresses.some(address => !validAddress(address))) {
     el.error.textContent = 'Enter 1–50 valid Ethereum addresses, one per line.';
@@ -2639,6 +2787,10 @@ el.form.addEventListener('submit', async event => {
     el.error.textContent = 'Enter up to 50 valid Solana addresses, one per line.';
     return;
   }
+  if (parsedBitcoin.addresses.length > 25 || parsedBitcoin.addresses.some(address => !validBitcoinAddress(address))) {
+    el.error.textContent = 'Enter up to 25 valid Bitcoin mainnet addresses, one per line.';
+    return;
+  }
   state.endpoint = ''; 
   state.backendUrl = backendUrl;
   state.backendToken = backendToken;
@@ -2646,6 +2798,8 @@ el.form.addEventListener('submit', async event => {
   state.addressLabels = parsed.labels;
   state.solanaAddresses = parsedSolana.addresses;
   state.solanaLabels = parsedSolana.labels;
+  state.bitcoinAddresses = parsedBitcoin.addresses;
+  state.bitcoinLabels = parsedBitcoin.labels;
   state.pendingDiagnostics = {};
   state.pendingSyncUpdatedAt = 0;
   state.pendingSyncError = '';
@@ -2659,6 +2813,8 @@ el.form.addEventListener('submit', async event => {
   Treasury.storage.setItem(LABELS_KEY, JSON.stringify(parsed.labels));
   Treasury.storage.setItem(SOLANA_ADDRESSES_KEY, JSON.stringify(parsedSolana.addresses));
   Treasury.storage.setItem(SOLANA_LABELS_KEY, JSON.stringify(parsedSolana.labels));
+  Treasury.storage.setItem(BITCOIN_ADDRESSES_KEY, JSON.stringify(parsedBitcoin.addresses));
+  Treasury.storage.setItem(BITCOIN_LABELS_KEY, JSON.stringify(parsedBitcoin.labels));
   if (backendConfigured() && !(await syncBackendSettings({ report: true }))) return;
   el.dialog.close();
   reconnect();
@@ -2728,6 +2884,7 @@ el.gasBalanceBody.addEventListener('click', event => {
   if (event.target.closest('[data-refresh-solana-gas]')) updateSolanaGasBalance();
 });
 el.refreshBalancesButton.addEventListener('click', updateSolanaWalletBalances);
+el.refreshBalancesButton.addEventListener('click', updateBitcoinWalletBalances);
 el.balanceForm.addEventListener('submit', async event => {
   if (event.submitter?.value !== 'default') return;
   event.preventDefault();
@@ -2856,7 +3013,14 @@ if (['overview', 'wallets'].includes(CURRENT_VIEW)) {
 }
 if (CURRENT_VIEW === 'market') scheduleNewsRefresh(); else renderNews();
 if (['overview', 'networks'].includes(CURRENT_VIEW)) scheduleGasAnalyticsRefresh(); else renderGasAnalytics();
-if (CURRENT_VIEW === 'networks') scheduleSolanaNetworkRefresh(); else renderSolanaNetwork();
+if (CURRENT_VIEW === 'networks') {
+  setActiveNetwork('ethereum');
+  scheduleSolanaNetworkRefresh();
+  scheduleBitcoinNetworkRefresh();
+} else {
+  renderSolanaNetwork();
+  renderBitcoinNetwork();
+}
 if (CURRENT_VIEW === 'overview') scheduleExchangeRefresh(); else renderExchangeAccount();
 setInterval(render, 1000);
 if (CURRENT_VIEW === 'market') setInterval(renderNews, 60000);

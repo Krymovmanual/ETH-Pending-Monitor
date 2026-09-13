@@ -12,6 +12,7 @@ const { proxyAlchemyRpc, fetchEtherscanPendingNonces, fetchCryptoCompareNews } =
 const { GasAnalyticsCollector, RETENTION_DAYS } = require('./gas-analytics');
 
 const { fetchWalletBalances, fetchSolanaWalletBalances, fetchSolanaNetworkStatus, validSolanaAddress, estimateEthereumTransfer } = require('./wallets');
+const { fetchBitcoinWalletBalances, fetchBitcoinNetworkStatus, validBitcoinAddress } = require('./bitcoin');
 
 const app = express();
 const monitors = createMonitors(db.pool);
@@ -60,6 +61,16 @@ function sanitizeSettings(body) {
     const label = String(body.solanaLabels?.[address] || '').trim().slice(0, 80);
     if (label) solanaLabels[address] = label;
   }
+  const bitcoinAddresses = [...new Set((Array.isArray(body.bitcoinAddresses) ? body.bitcoinAddresses : [])
+    .map(value => String(value).trim()))];
+  if (bitcoinAddresses.length > 25 || bitcoinAddresses.some(value => !validBitcoinAddress(value))) {
+    throw new Error('Enter up to 25 valid Bitcoin mainnet addresses');
+  }
+  const bitcoinLabels = {};
+  for (const address of bitcoinAddresses) {
+    const label = String(body.bitcoinLabels?.[address] || '').trim().slice(0, 80);
+    if (label) bitcoinLabels[address] = label;
+  }
   const email = String(body.email || '').trim().slice(0, 254);
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid alert email');
   const sourceRules = body.notificationSettings?.rules || {};
@@ -81,6 +92,8 @@ function sanitizeSettings(body) {
     labels,
     solanaAddresses,
     solanaLabels,
+    bitcoinAddresses,
+    bitcoinLabels,
     email,
     timezone: safeTimezone(body.timezone),
     notificationSettings: {
@@ -193,7 +206,7 @@ app.get('/health', (_req,res) => res.json({status:'ok',version:packageVersion,au
 app.use(express.static(path.join(__dirname,'../docs'),{index:'index.html',maxAge:0}));
 
 app.get('/api/public-config', (_req, res) => {
-  res.json({ pushEnabled: hasPushConfiguration(), vapidPublicKey: config.vapidPublicKey || null, solanaEnabled:Boolean(config.solanaRpcUrl) });
+  res.json({ pushEnabled: hasPushConfiguration(), vapidPublicKey: config.vapidPublicKey || null, solanaEnabled:Boolean(config.solanaRpcUrl), bitcoinEnabled:Boolean(config.bitcoinRpcUrl) });
 });
 
 app.get('/api/settings', auth.requireUser, async (req, res, next) => {
@@ -314,6 +327,23 @@ app.get('/api/networks/solana', auth.requireUser, async (_req, res) => {
   try { res.json(await fetchSolanaNetworkStatus()); }
   catch (error) {
     const message = String(error?.message || 'Solana network request failed').slice(0, 220);
+    res.status(/not configured/.test(message) ? 503 : 502).json({ error:message });
+  }
+});
+
+app.post('/api/wallets/bitcoin/balances', auth.requireUser, async (req, res) => {
+  try {
+    res.json(await fetchBitcoinWalletBalances(Array.isArray(req.body?.addresses) ? req.body.addresses : []));
+  } catch (error) {
+    const message = String(error?.message || 'Bitcoin balance request failed').slice(0, 220);
+    res.status(/Enter 1/.test(message) ? 400 : /not configured/.test(message) ? 503 : 502).json({ error:message });
+  }
+});
+
+app.get('/api/networks/bitcoin', auth.requireUser, async (_req, res) => {
+  try { res.json(await fetchBitcoinNetworkStatus()); }
+  catch (error) {
+    const message = String(error?.message || 'Bitcoin network request failed').slice(0, 220);
     res.status(/not configured/.test(message) ? 503 : 502).json({ error:message });
   }
 });

@@ -9,8 +9,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=16">
-<link rel="stylesheet" href="accounts.css?v=16"></head>
+  <link rel="stylesheet" href="styles.css?v=17">
+<link rel="stylesheet" href="accounts.css?v=17"></head>
 <body class="has-app-rail app-loading" data-view="overview">
   <section id="startupDiagnostic" role="alert" class="panel" style="margin:20px;padding:20px;border-color:#b98031" hidden>
     <h2>Application needs attention</h2><p></p><button id="retryStartup" type="button">Reload application</button>
@@ -177,7 +177,16 @@
       </div>
     </section>
 
-    <section class="panel network-health-panel view-networks solana-network-panel" aria-labelledby="solanaNetworkTitle">
+    <section class="network-chain-switcher view-networks" aria-label="Select network">
+      <div><span class="eyebrow">NETWORK WORKSPACE</span><strong>Chain intelligence</strong><small>Health, fees and operational readiness</small></div>
+      <div class="network-chain-tabs" role="tablist" aria-label="Networks">
+        <button class="active" type="button" role="tab" aria-selected="true" data-network-view="ethereum"><span class="network-mark ethereum">E</span>Ethereum</button>
+        <button type="button" role="tab" aria-selected="false" data-network-view="solana"><span class="network-mark solana">S</span>Solana</button>
+        <button type="button" role="tab" aria-selected="false" data-network-view="bitcoin"><span class="network-mark bitcoin">₿</span>Bitcoin <small>UTXO</small></button>
+      </div>
+    </section>
+
+    <section class="panel network-health-panel view-networks solana-network-panel" data-network-panel="solana" hidden aria-labelledby="solanaNetworkTitle">
       <div class="panel-head network-health-head">
         <div>
           <span class="eyebrow solana-eyebrow">SOLANA MAINNET</span>
@@ -197,7 +206,7 @@
       </div>
     </section>
 
-    <section class="panel network-health-panel view-networks" aria-labelledby="networkHealthTitle">
+    <section class="panel network-health-panel view-networks" data-network-panel="ethereum" aria-labelledby="networkHealthTitle">
       <div class="panel-head network-health-head">
         <div>
           <span class="eyebrow">ETHEREUM MAINNET</span>
@@ -226,10 +235,39 @@
       </div>
     </section>
 
+    <section class="panel network-health-panel view-networks bitcoin-network-panel" data-network-panel="bitcoin" hidden aria-labelledby="bitcoinNetworkTitle">
+      <div class="panel-head network-health-head">
+        <div>
+          <span class="eyebrow bitcoin-eyebrow">BITCOIN MAINNET</span>
+          <h2 id="bitcoinNetworkTitle">Bitcoin &amp; UTXO Health</h2>
+          <p id="bitcoinNetworkDetail">Checking chain synchronization, mempool and fee estimates…</p>
+        </div>
+        <div class="network-health-actions"><span class="connection compact" id="bitcoinNetworkBadge"><span class="dot"></span><span id="bitcoinNetworkStatus">Checking</span></span><button class="secondary" id="refreshBitcoinNetworkButton" type="button">Refresh</button></div>
+      </div>
+      <div class="network-health-body">
+        <div class="network-kpis" aria-label="Bitcoin network health">
+          <article><span>Block height</span><strong id="bitcoinBlockHeight">—</strong><small id="bitcoinNetworkAge">Waiting for data</small></article>
+          <article><span>Mempool</span><strong id="bitcoinMempoolCount">—</strong><small id="bitcoinMempoolSize">Unconfirmed transactions</small></article>
+          <article><span>Standard fee</span><strong id="bitcoinStandardFee">—</strong><small>sat/vB · 3-block target</small></article>
+          <article><span>RPC latency</span><strong id="bitcoinRpcLatency">—</strong><small>Railway → Alchemy</small></article>
+        </div>
+        <div class="bitcoin-control-grid">
+          <section class="network-subcard">
+            <div class="network-subhead"><div><span class="eyebrow">FEE MARKET</span><h3>Estimated confirmation fees</h3></div><small>sat/vB</small></div>
+            <div class="bitcoin-fee-band" id="bitcoinFeeBand"><div class="network-empty">Waiting for Bitcoin fee estimates…</div></div>
+          </section>
+          <section class="network-subcard">
+            <div class="network-subhead"><div><span class="eyebrow">UTXO HEALTH</span><h3>Watched address fragmentation</h3></div><small>Watch-only</small></div>
+            <div class="utxo-health-list" id="bitcoinUtxoHealth"><div class="network-empty">Add a Bitcoin address in Wallet settings.</div></div>
+          </section>
+        </div>
+      </div>
+    </section>
+
     <section class="panel view-wallets" style="padding:16px;margin-bottom:16px" aria-label="Synchronization status">
       <strong>Synchronization</strong><p id="syncDiagnostics" role="status">Waiting for Railway connection…</p>
     </section>
-    <section class="panel gas-analytics-panel view-networks" aria-labelledby="gasAnalyticsTitle">
+    <section class="panel gas-analytics-panel view-networks" data-network-panel="ethereum" aria-labelledby="gasAnalyticsTitle">
       <div class="panel-head gas-analytics-head">
         <div>
           <h2 id="gasAnalyticsTitle">Gas Analytics</h2>
@@ -558,6 +596,9 @@
       <label for="solanaAddressesInput">Solana addresses</label>
       <textarea id="solanaAddressesInput" spellcheck="false" placeholder="Treasury SOL | 7xKX…p9Qs"></textarea>
       <p class="hint">Add public Solana addresses only. Private keys and seed phrases are never required.</p>
+      <label for="bitcoinAddressesInput">Bitcoin addresses</label>
+      <textarea id="bitcoinAddressesInput" spellcheck="false" placeholder="Cold storage | bc1q…"></textarea>
+      <p class="hint">Add up to 25 public Bitcoin mainnet addresses. UTXO Health is watch-only and never needs a private key or seed phrase.</p>
 
       <div class="dialog-error" id="dialogError" role="alert"></div>
       <div class="dialog-actions">
@@ -567,7 +608,7 @@
     </form>
   </dialog>
 
-  <script src="overview-data.js?v=16"></script>
-  <script src="session.js?v=16" data-module="app.js"></script>
+  <script src="overview-data.js?v=17"></script>
+  <script src="session.js?v=17" data-module="app.js"></script>
 </body>
 </html>

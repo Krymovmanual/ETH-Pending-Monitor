@@ -9,6 +9,8 @@ const config = {
   databaseUrl: String(process.env.DATABASE_URL || '').trim(),
   alchemyWssUrl: String(process.env.ALCHEMY_WSS_URL || '').trim(),
   solanaRpcUrl: String(process.env.SOLANA_RPC_URL || '').trim(),
+  bitcoinRpcUrl: String(process.env.BITCOIN_RPC_URL || '').trim(),
+  bitcoinIndexerUrl: String(process.env.BITCOIN_INDEXER_URL || 'https://mempool.space/api').trim(),
   etherscanApiKey: String(process.env.ETHERSCAN_API_KEY || '').trim(),
   cryptoCompareApiKey: String(process.env.CRYPTOCOMPARE_API_KEY || '').trim(),
   bitgetApiKey: String(process.env.BITGET_API_KEY || '').trim(),
