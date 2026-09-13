@@ -300,16 +300,44 @@ async function gasAnalyticsSummary(timezone = 'UTC') {
         percentile_cont(0.70) WITHIN GROUP (ORDER BY standard_avg)::float AS p70
       FROM gas_minute_samples
       WHERE minute >= NOW() - INTERVAL '30 days'`),
+    pool.query(`
+      SELECT EXTRACT(ISODOW FROM minute AT TIME ZONE $1)::integer AS bucket,
+        COUNT(*)::integer AS minutes,
+        MIN(standard_min)::float AS minimum,
+        percentile_cont(0.25) WITHIN GROUP (ORDER BY standard_avg)::float AS q1,
+        percentile_cont(0.50) WITHIN GROUP (ORDER BY standard_avg)::float AS median,
+        percentile_cont(0.75) WITHIN GROUP (ORDER BY standard_avg)::float AS q3,
+        MAX(standard_max)::float AS maximum,
+        AVG(standard_avg)::float AS average
+      FROM gas_minute_samples
+      WHERE minute >= NOW() - INTERVAL '180 days'
+      GROUP BY 1 ORDER BY 1`, [timezone]),
+    pool.query(`
+      SELECT EXTRACT(HOUR FROM minute AT TIME ZONE $1)::integer AS bucket,
+        COUNT(*)::integer AS minutes,
+        MIN(standard_min)::float AS minimum,
+        percentile_cont(0.25) WITHIN GROUP (ORDER BY standard_avg)::float AS q1,
+        percentile_cont(0.50) WITHIN GROUP (ORDER BY standard_avg)::float AS median,
+        percentile_cont(0.75) WITHIN GROUP (ORDER BY standard_avg)::float AS q3,
+        MAX(standard_max)::float AS maximum,
+        AVG(standard_avg)::float AS average
+      FROM gas_minute_samples
+      WHERE minute >= NOW() - INTERVAL '30 days'
+      GROUP BY 1 ORDER BY 1`, [timezone]),
     ]);
   } catch (error) {
     if (error?.code === '22023' && timezone !== 'UTC') return gasAnalyticsSummary('UTC');
     throw error;
   }
-  const [hourlyResult, heatmapResult, baselineResult] = results;
+  const [hourlyResult, heatmapResult, baselineResult, weekdayDistributionResult, hourDistributionResult] = results;
   return {
     hourly: hourlyResult.rows,
     heatmap: heatmapResult.rows,
     baseline: baselineResult.rows[0] || { minutes: 0, p35: null, p70: null },
+    distributions: {
+      weekday: weekdayDistributionResult.rows,
+      hour: hourDistributionResult.rows,
+    },
   };
 }
 

@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('node:path');
+const {version: packageVersion}=require('../package.json');
 const {createAuth,appOrigin}=require('./auth/service');
 const {createAccounts}=require('./accounts');
 const {createMonitors}=require('./monitors');
@@ -166,7 +167,7 @@ function ethereumFeePlanner(current) {
   });
 }
 
-app.get('/health', (_req,res) => res.json({status:'ok',version:'11',authentication:'sessions'}));
+app.get('/health', (_req,res) => res.json({status:'ok',version:packageVersion,authentication:'sessions'}));
 app.use(express.static(path.join(__dirname,'../docs'),{index:'index.html',maxAge:0}));
 
 app.get('/api/public-config', (_req, res) => {

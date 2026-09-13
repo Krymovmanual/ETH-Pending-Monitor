@@ -44,7 +44,7 @@
     if(!rail){rail=document.createElement('aside');document.body.prepend(rail);}
     rail.className='overview-rail app-rail';rail.setAttribute('aria-label','Treasury navigation');
     rail.replaceChildren();
-    const brand=document.createElement('a');brand.className='overview-brand';brand.href='index.html';brand.innerHTML='<span aria-hidden="true">T</span><strong>Treasury</strong>';
+    const brand=document.createElement('a');brand.className='overview-brand';brand.href='index.html';brand.innerHTML='<span aria-hidden="true">P</span><strong>Paseqa<small>Treasury</small></strong>';
     const nav=document.createElement('nav');
     routes.forEach(([id,label,href])=>{const link=document.createElement('a');link.href=href;link.textContent=label;if(id===section){link.className='active';link.setAttribute('aria-current','page');}nav.append(link);});
     const railStatus=document.createElement('div');railStatus.className='overview-rail-status';
@@ -77,10 +77,11 @@
     const link=document.createElement('a');link.href='security.html';link.textContent='Security & accounts';
     const status=document.createElement('span');status.id='sessionStatus';status.setAttribute('role','status');
     const logout=document.createElement('button');logout.type='button';logout.className='secondary';logout.textContent='Sign out';logout.onclick=()=>Treasury.logout();
-    bar.append(email,link,status,logout);document.body.prepend(bar);
-    const script=document.createElement('script');script.src=moduleName+'?v=14';document.body.append(script);
+    bar.append(email,link,status,logout);document.body.prepend(bar);requestAnimationFrame(()=>document.body.classList.remove('app-loading'));
+    const script=document.createElement('script');script.src=moduleName+'?v=15';document.body.append(script);
   }
   start().catch(error=>{
+    document.body.classList.remove('app-loading');
     const panel=document.createElement('div');panel.className='panel';panel.style.padding='24px';panel.textContent=error.message;document.body.prepend(panel);
   });
 })();

@@ -151,6 +151,9 @@ const el = {
   gasAnalyticsChange: document.querySelector('#gasAnalyticsChange'),
   gasHourlyBody: document.querySelector('#gasHourlyBody'),
   gasHeatmap: document.querySelector('#gasHeatmap'),
+  gasWeekdayChart: document.querySelector('#gasWeekdayChart'),
+  gasHourChart: document.querySelector('#gasHourChart'),
+  gasTrendChart: document.querySelector('#gasTrendChart'),
   networkHealthBadge: document.querySelector('#networkHealthBadge'),
   networkHealthStatus: document.querySelector('#networkHealthStatus'),
   networkHealthDetail: document.querySelector('#networkHealthDetail'),
@@ -1586,6 +1589,42 @@ function renderGasHeatmap(items) {
   el.gasHeatmap.innerHTML = `${markup}</div><div class="heatmap-scale"><span>${gasNumber(minimum)} Gwei</span><span>${gasNumber(maximum)} Gwei</span></div>`;
 }
 
+function renderGasDistributionChart(container, items, labels, accessibleLabel) {
+  const rows = (Array.isArray(items) ? items : []).map(item => ({
+    bucket:Number(item.bucket), minutes:Number(item.minutes), minimum:Number(item.minimum),
+    q1:Number(item.q1), median:Number(item.median), q3:Number(item.q3), maximum:Number(item.maximum),
+  })).filter(item => labels[item.bucket] !== undefined && ['minimum','q1','median','q3','maximum'].every(key => Number.isFinite(item[key])));
+  if (!container || !rows.length) {
+    if (container) container.innerHTML = '<div class="gas-history-empty">More history is needed for this chart.</div>';
+    return;
+  }
+  const width=960,height=270,left=52,right=18,top=18,bottom=42,plotWidth=width-left-right,plotHeight=height-top-bottom;
+  const highest=Math.max(...rows.map(row=>row.maximum),.01),step=10**Math.floor(Math.log10(highest)),ceiling=Math.ceil(highest/step)*step;
+  const y=value=>top+plotHeight-(Math.max(0,value)/ceiling)*plotHeight;
+  const slot=plotWidth/rows.length,boxWidth=Math.max(8,Math.min(46,slot*.48));
+  let grid='';
+  for(let index=0;index<=4;index+=1){const value=ceiling*index/4,position=y(value);grid+=`<line x1="${left}" y1="${position}" x2="${width-right}" y2="${position}" class="chart-grid"/><text x="${left-10}" y="${position+4}" class="chart-axis" text-anchor="end">${gasNumber(value)}</text>`;}
+  const boxes=rows.map((row,index)=>{const x=left+slot*(index+.5),label=labels[row.bucket];return `<g><title>${escapeHtml(String(label))}: median ${gasNumber(row.median)} Gwei · range ${gasNumber(row.minimum)}–${gasNumber(row.maximum)} · ${row.minutes.toLocaleString()} samples</title><line x1="${x}" y1="${y(row.maximum)}" x2="${x}" y2="${y(row.minimum)}" class="box-whisker"/><line x1="${x-boxWidth*.3}" y1="${y(row.maximum)}" x2="${x+boxWidth*.3}" y2="${y(row.maximum)}" class="box-whisker"/><line x1="${x-boxWidth*.3}" y1="${y(row.minimum)}" x2="${x+boxWidth*.3}" y2="${y(row.minimum)}" class="box-whisker"/><rect x="${x-boxWidth/2}" y="${y(row.q3)}" width="${boxWidth}" height="${Math.max(2,y(row.q1)-y(row.q3))}" class="box-range"/><line x1="${x-boxWidth/2}" y1="${y(row.median)}" x2="${x+boxWidth/2}" y2="${y(row.median)}" class="box-median"/><text x="${x}" y="${height-16}" class="chart-axis" text-anchor="middle">${escapeHtml(String(label))}</text></g>`;}).join('');
+  container.innerHTML=`<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(accessibleLabel)}">${grid}${boxes}<text x="${left}" y="11" class="chart-unit">Gwei</text></svg>`;
+}
+
+function renderGasTrendChart(hourly) {
+  const rows=(Array.isArray(hourly)?hourly:[]).map(row=>({hour:new Date(row.hour),value:Number(row.standard)})).filter(row=>Number.isFinite(row.hour.getTime())&&Number.isFinite(row.value)).sort((a,b)=>a.hour-b.hour).slice(-24);
+  if(!el.gasTrendChart||rows.length<2){if(el.gasTrendChart)el.gasTrendChart.innerHTML='<div class="gas-history-empty">At least two hourly samples are needed.</div>';return;}
+  const recent=rows.slice(-Math.min(8,rows.length)),count=recent.length,meanX=(count-1)/2,meanY=recent.reduce((sum,row)=>sum+row.value,0)/count;
+  const denominator=recent.reduce((sum,_row,index)=>sum+(index-meanX)**2,0)||1;
+  const slope=recent.reduce((sum,row,index)=>sum+(index-meanX)*(row.value-meanY),0)/denominator;
+  const last=rows.at(-1),projection=Array.from({length:6},(_item,index)=>({hour:new Date(last.hour.getTime()+(index+1)*3600000),value:Math.max(0,last.value+slope*(index+1)*(.82**index))}));
+  const all=[...rows,...projection],width=960,height=250,left=52,right=18,top=18,bottom=40,plotWidth=width-left-right,plotHeight=height-top-bottom;
+  const maximum=Math.max(...all.map(row=>row.value),.01)*1.12,y=value=>top+plotHeight-(value/maximum)*plotHeight,x=index=>left+(index/(all.length-1))*plotWidth;
+  let grid='';for(let index=0;index<=4;index+=1){const value=maximum*index/4,position=y(value);grid+=`<line x1="${left}" y1="${position}" x2="${width-right}" y2="${position}" class="chart-grid"/><text x="${left-10}" y="${position+4}" class="chart-axis" text-anchor="end">${gasNumber(value)}</text>`;}
+  const actualPath=rows.map((row,index)=>`${index?'L':'M'}${x(index).toFixed(1)},${y(row.value).toFixed(1)}`).join(' ');
+  const projectedRows=[last,...projection],offset=rows.length-1,projectedPath=projectedRows.map((row,index)=>`${index?'L':'M'}${x(offset+index).toFixed(1)},${y(row.value).toFixed(1)}`).join(' ');
+  const labels=all.map((row,index)=>index%4===0||index===all.length-1?`<text x="${x(index)}" y="${height-14}" class="chart-axis" text-anchor="middle">${escapeHtml(new Intl.DateTimeFormat(undefined,{hour:'2-digit'}).format(row.hour))}</text>`:'').join('');
+  const dots=rows.map((row,index)=>`<circle cx="${x(index)}" cy="${y(row.value)}" r="2.5" class="trend-dot"><title>${row.hour.toLocaleString()} · ${gasNumber(row.value)} Gwei</title></circle>`).join('');
+  el.gasTrendChart.innerHTML=`<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Observed standard gas price and six-hour statistical projection">${grid}<path d="${actualPath}" class="trend-actual"/><path d="${projectedPath}" class="trend-projected"/>${dots}${labels}<text x="${left}" y="11" class="chart-unit">Gwei</text></svg>`;
+}
+
 function renderNetworkHealth() {
   const data = state.gasAnalytics;
   const network = data?.network;
@@ -1649,7 +1688,7 @@ function renderGasAnalytics() {
   if (state.gasAnalyticsLoading && !data) el.gasAnalyticsStatus.textContent = 'Loading live gas data…';
   else if (state.gasAnalyticsError && data) el.gasAnalyticsStatus.textContent = `Showing saved analytics · ${state.gasAnalyticsError}`;
   else if (state.gasAnalyticsError) el.gasAnalyticsStatus.textContent = state.gasAnalyticsError;
-  else if (current?.sampledAt) el.gasAnalyticsStatus.textContent = `Block ${current.blockNumber?.toLocaleString() || '—'} · updated ${age(new Date(current.sampledAt).getTime())} ago · 30-day retention`;
+  else if (current?.sampledAt) el.gasAnalyticsStatus.textContent = `Block ${current.blockNumber?.toLocaleString() || '—'} · updated ${age(new Date(current.sampledAt).getTime())} ago · 180-day history`;
   else el.gasAnalyticsStatus.textContent = data?.status?.error || 'Waiting for the next Ethereum block…';
 
   el.gasAnalyticsBase.textContent = gasNumber(current?.baseFee);
@@ -1668,6 +1707,9 @@ function renderGasAnalytics() {
   el.gasAnalyticsChange.classList.toggle('spike', Boolean(current?.spike));
   renderGasHourly(Array.isArray(data?.hourly) ? data.hourly : [], data?.baseline);
   renderGasHeatmap(Array.isArray(data?.heatmap) ? data.heatmap : []);
+  renderGasDistributionChart(el.gasWeekdayChart, data?.distributions?.weekday, {1:'Mon',2:'Tue',3:'Wed',4:'Thu',5:'Fri',6:'Sat',7:'Sun'}, 'Standard gas price distribution by weekday');
+  renderGasDistributionChart(el.gasHourChart, data?.distributions?.hour, Object.fromEntries(Array.from({length:24},(_item,hour)=>[hour,String(hour).padStart(2,'0')])), 'Standard gas price distribution by hour');
+  renderGasTrendChart(data?.hourly);
   renderNetworkHealth();
 }
 

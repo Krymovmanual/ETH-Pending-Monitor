@@ -4,6 +4,8 @@ const {fixture}=require('./fixture');const {totp}=require('../server/auth/crypto
 test('browser: login, 2FA, add account, all tabs, logout and other user',async t=>{
   const f=await fixture();t.after(()=>f.close());
   await f.register('browser@example.test');await f.register('second@example.test');
+  const metric=value=>({min:value*.82,avg:value,median:value*.98,max:value*1.32});
+  for(let day=0;day<14;day+=1)for(let hour=0;hour<24;hour+=4){const value=4+hour*.36+(day%7)*.7;await f.db.saveGasMinute({minute:new Date(Date.now()-((day*24+(23-hour))*3600000)),sampleCount:1,base:metric(value*.78),low:metric(value*.9),standard:metric(value),fast:metric(value*1.18)});}
   const browser=await chromium.launch({executablePath:await binary.executablePath(),args:binary.args.filter(arg=>!arg.includes("disable-web-security")&&!arg.includes("disable-site-isolation")&&!arg.includes("IsolateOrigins")),headless:true});t.after(()=>browser.close());
   const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(f.origin+'/index.html');await page.waitForURL('**/auth.html');
@@ -25,8 +27,9 @@ test('browser: login, 2FA, add account, all tabs, logout and other user',async t
   await page.getByRole('link',{name:'Add account',exact:true}).click();await page.locator('#addExchangeDialog').waitFor({state:'visible'});await page.locator('#closeAddExchange').click();
   for(const path of ['exchanges.html','transfers.html','index.html?view=networks','index.html?view=market','index.html?view=wallets']){
     await page.goto(f.origin+'/'+path);await page.locator('.session-bar').waitFor();
-    await page.waitForFunction(()=>document.querySelector('script[src$="?v=14"]')&&window.Treasury?.user);
+    await page.waitForFunction(()=>document.querySelector('script[src$="?v=15"]')&&window.Treasury?.user);
     await page.locator('.app-rail a[aria-current="page"]').waitFor();
+    assert.equal(await page.locator('body').evaluate(body=>body.classList.contains('app-loading')),false);
     await page.waitForTimeout(250);await page.screenshot({path:require('node:path').join(__dirname,`../${path.split('?')[0].replace('.html','')}${path.includes('view=')?'-'+path.split('view=')[1]:''}-preview.png`),fullPage:true});
     await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth),true,`${path} has no document-level mobile overflow`);await page.setViewportSize({width:1440,height:1000});
   }

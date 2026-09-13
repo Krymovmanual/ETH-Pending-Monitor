@@ -40,8 +40,9 @@ body[data-view="overview"] .overview-rail {
   flex-direction: column;
 }
 .overview-brand { padding: 0 10px 26px; color: var(--text); display: flex; align-items: center; gap: 10px; text-decoration: none; }
-.overview-brand > span { width: 29px; height: 29px; border-radius: 8px; color: #06100c; background: #67e6aa; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; }
-.overview-brand strong { font-size: .94rem; font-weight: 600; letter-spacing: -.02em; }
+.overview-brand > span { width: 31px; height: 31px; color: #06100c; background: linear-gradient(145deg,#67e6aa,#d4a84b); clip-path: polygon(25% 6.7%,75% 6.7%,100% 50%,75% 93.3%,25% 93.3%,0 50%); display: inline-flex; align-items: center; justify-content: center; font-weight: 800; }
+.overview-brand strong { font-size: .94rem; font-weight: 600; letter-spacing: -.02em; line-height: 1.05; }
+.overview-brand strong small { margin-top: 4px; display: block; color: #71847c; font-size: .52rem; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; }
 .overview-rail nav { display: grid; gap: 4px; }
 .overview-rail nav a { min-height: 40px; padding: 0 12px; border-radius: 8px; color: #879b94; display: flex; align-items: center; text-decoration: none; font-size: .82rem; }
 .overview-rail nav a:hover { color: #eaf2ee; background: #0f1815; }
@@ -594,6 +595,26 @@ a.overview-list-item:hover { background: #111824; }
 .heatmap-legend i:nth-of-type(4) { background: rgba(98,126,234,.9); }
 .gas-history-empty { color: var(--muted); text-align: center; font-size: .75rem; }
 .gas-heatmap-wrap > .gas-history-empty { padding: 120px 16px; }
+.gas-distribution-grid { margin: 12px 0; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.gas-chart-card,.gas-trend-card { overflow: hidden; }
+.gas-trend-card { margin-bottom: 12px; }
+.gas-svg-chart { min-height: 220px; padding: 10px 12px 4px; overflow-x: auto; }
+.gas-svg-chart > .gas-history-empty { padding: 88px 10px; }
+.gas-svg-chart svg { display: block; width: 100%; min-width: 560px; height: auto; }
+.chart-grid { stroke: #24312c; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.chart-axis,.chart-unit { fill: #74877f; font: 11px "IBM Plex Mono",ui-monospace,monospace; }
+.chart-unit { font-size: 10px; }
+.box-whisker { stroke: #55c997; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.box-range { fill: rgba(103,230,170,.22); stroke: #67e6aa; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.box-median { stroke: #d4a84b; stroke-width: 2.2; vector-effect: non-scaling-stroke; }
+.chart-key,.trend-legend { color: #7d9189; font-size: .62rem; }
+.chart-key i,.trend-legend i { width: 12px; height: 3px; margin-right: 5px; display: inline-block; border-radius: 2px; background: #67e6aa; vertical-align: middle; }
+.trend-legend { display: flex; align-items: center; gap: 12px; }
+.trend-legend span { white-space: nowrap; }
+.trend-legend i.projected { background: #d4a84b; }
+.trend-actual { fill: none; stroke: #67e6aa; stroke-width: 2.2; vector-effect: non-scaling-stroke; }
+.trend-projected { fill: none; stroke: #d4a84b; stroke-width: 2.2; stroke-dasharray: 6 5; vector-effect: non-scaling-stroke; }
+.trend-dot { fill: #07100c; stroke: #67e6aa; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .panel-head { padding: 20px 22px; border-bottom: 1px solid var(--border); }
 .panel-head p { color: var(--muted); font-size: .83rem; margin: 6px 0 0; }
 .sync-status { color: #aab5c6; }
@@ -853,6 +874,9 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
 body.has-app-rail {
   background: radial-gradient(circle at 76% -18%, rgba(43,115,83,.11), transparent 34%), #070b0a;
 }
+body.app-loading > main { opacity: 0; pointer-events: none; }
+body.app-loading::after { content: "Opening Paseqa Treasury"; position: fixed; z-index: 100; left: calc(50% + 102px); top: 50%; transform: translate(-50%,-50%); padding-top: 35px; color: #81958d; font-size: .72rem; letter-spacing: .05em; background: radial-gradient(circle at 50% 9px,#67e6aa 0 4px,transparent 5px); animation: workspace-pulse 1.15s ease-in-out infinite; }
+@keyframes workspace-pulse { 50% { opacity: .42; } }
 body.has-app-rail .app-rail {
   position: fixed; inset: 0 auto 0 0; z-index: 20; width: 204px; padding: 24px 14px 18px;
   border-right: 1px solid #202c28; background: rgba(8,13,11,.98); display: flex; flex-direction: column;
@@ -951,6 +975,7 @@ body.has-app-rail .panel-head a { color: #8db8ff; }
 body.has-app-rail dialog { border-color: #304039; border-radius: 12px; background: #0d1512; }
 
 @media (max-width: 930px) {
+  body.app-loading::after { left: 50%; }
   body.has-app-rail .app-rail { display: none; }
   body.has-app-rail > .session-bar { padding: 8px 14px; }
   body.has-app-rail .shell,
@@ -967,4 +992,6 @@ body.has-app-rail dialog { border-color: #304039; border-radius: 12px; backgroun
   body.has-app-rail .exchange-kpis article:nth-child(3) { border-left: 0; border-top: 1px solid #202c28; }
   body.has-app-rail .exchange-kpis article:nth-child(4) { border-top: 1px solid #202c28; }
   body.has-app-rail .transfer-layout { grid-template-columns: 1fr; }
+  .gas-distribution-grid { grid-template-columns: 1fr; }
+  .gas-svg-chart { padding-inline: 8px; }
 }

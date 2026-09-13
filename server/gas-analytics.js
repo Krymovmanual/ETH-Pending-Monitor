@@ -2,7 +2,7 @@ const WebSocket = require('ws');
 const { config } = require('./config');
 const db = require('./db');
 
-const RETENTION_DAYS = 30;
+const RETENTION_DAYS = 180;
 const RECONNECT_MS = 5_000;
 
 function fromHexGwei(value) {

@@ -9,15 +9,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=14">
-<link rel="stylesheet" href="accounts.css?v=14"></head>
-<body data-view="overview">
+  <link rel="stylesheet" href="styles.css?v=15">
+<link rel="stylesheet" href="accounts.css?v=15"></head>
+<body class="has-app-rail app-loading" data-view="overview">
   <section id="startupDiagnostic" role="alert" class="panel" style="margin:20px;padding:20px;border-color:#b98031" hidden>
     <h2>Application needs attention</h2><p></p><button id="retryStartup" type="button">Reload application</button>
   </section>
   <script src="boot.js?v=10"></script>
   <aside class="overview-rail" aria-label="Treasury navigation">
-    <a class="overview-brand" href="index.html"><span aria-hidden="true">T</span><strong>Treasury</strong></a>
+    <a class="overview-brand" href="index.html"><span aria-hidden="true">P</span><strong>Paseqa<small>Treasury</small></strong></a>
     <nav>
       <a class="active" href="index.html">Overview</a>
       <a href="exchanges.html">Accounts</a>
@@ -229,6 +229,20 @@
           <div><strong id="gasRecommendationLabel">Building baseline</strong><small id="gasRecommendationDetail">Collecting the first hour of gas history.</small></div>
           <span class="gas-change-pill" id="gasAnalyticsChange">—</span>
         </div>
+        <div class="gas-distribution-grid" aria-label="Historical gas distributions">
+          <section class="gas-history-card gas-chart-card" aria-labelledby="gasWeekdayTitle">
+            <div class="gas-subhead"><div><h3 id="gasWeekdayTitle">Gas by weekday</h3><p>Distribution of standard gas · up to 180 days</p></div><span class="chart-key"><i></i> Median &amp; range</span></div>
+            <div class="gas-svg-chart" id="gasWeekdayChart"><div class="gas-history-empty">Collecting weekday history…</div></div>
+          </section>
+          <section class="gas-history-card gas-chart-card" aria-labelledby="gasHourTitle">
+            <div class="gas-subhead"><div><h3 id="gasHourTitle">Gas by hour</h3><p>Distribution of standard gas · last 30 days</p></div><span class="chart-key"><i></i> Median &amp; range</span></div>
+            <div class="gas-svg-chart" id="gasHourChart"><div class="gas-history-empty">Collecting hourly history…</div></div>
+          </section>
+        </div>
+        <section class="gas-history-card gas-trend-card" aria-labelledby="gasTrendTitle">
+          <div class="gas-subhead"><div><h3 id="gasTrendTitle">Gas trend &amp; projection</h3><p>Observed hourly average with a short statistical projection</p></div><div class="trend-legend"><span><i class="actual"></i>Actual</span><span><i class="projected"></i>Projected</span></div></div>
+          <div class="gas-svg-chart gas-trend-chart" id="gasTrendChart"><div class="gas-history-empty">Collecting trend history…</div></div>
+        </section>
         <div class="gas-history-layout">
           <section class="gas-history-card" aria-labelledby="gas24Title">
             <div class="gas-subhead"><div><h3 id="gas24Title">Last 24 hours</h3><p>Hourly gas range and average</p></div></div>
@@ -518,7 +532,7 @@
     </form>
   </dialog>
 
-  <script src="overview-data.js?v=14"></script>
-  <script src="session.js?v=14" data-module="app.js"></script>
+  <script src="overview-data.js?v=15"></script>
+  <script src="session.js?v=15" data-module="app.js"></script>
 </body>
 </html>
