@@ -139,6 +139,15 @@ async function fetchSolanaWalletBalances(addresses) {
   return { updatedAt:Date.now(), network:'solana-mainnet', wallets };
 }
 
+async function fetchSolanaNativeBalance(address) {
+  if (!validSolanaAddress(address)) throw new Error('Enter a valid Solana address');
+  const results = await solanaRpc([
+    { jsonrpc:'2.0', id:1, method:'getBalance', params:[address, { commitment:'confirmed' }] },
+  ]);
+  const raw = BigInt(results.get(1)?.value || 0);
+  return { address, raw:raw.toString(), balance:Number(raw) / 1e9, checkedAt:new Date().toISOString() };
+}
+
 async function fetchSolanaNetworkStatus() {
   const startedAt = Date.now();
   const results = await solanaRpc([
@@ -230,4 +239,4 @@ async function estimateEthereumTransfer({ from, to, symbol, amount }) {
   };
 }
 
-module.exports = { TOKENS, validAddress, validSolanaAddress, formatUnits, parseUnits, fetchWalletBalances, fetchSolanaWalletBalances, fetchSolanaNetworkStatus, estimateEthereumTransfer };
+module.exports = { TOKENS, validAddress, validSolanaAddress, formatUnits, parseUnits, fetchWalletBalances, fetchSolanaWalletBalances, fetchSolanaNativeBalance, fetchSolanaNetworkStatus, estimateEthereumTransfer };

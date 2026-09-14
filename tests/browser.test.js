@@ -29,13 +29,14 @@ test('browser: login, 2FA, add account, all tabs, logout and other user',async t
   await page.locator('#notificationSettingsButton').click();await page.locator('#notificationSettingsDialog').waitFor({state:'visible'});
   await page.locator('#telegramChatIdInput').fill('-1001234567890');await page.locator('#testTelegramButton').click();await page.locator('#testTelegramStatus').filter({hasText:'The group is connected'}).waitFor();
   assert.equal(await page.locator('#pendingTelegramInput').isChecked(),true);await page.screenshot({path:require('node:path').join(__dirname,'../telegram-preview.png'),fullPage:true});
+  assert.equal(await page.locator('#solanaGasTelegramInput').count(),1);
   await page.locator('#notificationSettingsForm button.primary').click();await page.locator('#notificationSettingsDialog').waitFor({state:'hidden'});
   await page.goto(f.origin+'/index.html');await page.waitForFunction(()=>window.treasuryBootComplete===true);await page.locator('#overviewAccountGrid').getByText('Personal Bitget · Unified',{exact:true}).waitFor();
   await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth),true);await page.screenshot({path:require('node:path').join(__dirname,'../overview-mobile-preview.png'),fullPage:true});await page.setViewportSize({width:1440,height:1000});
   await page.getByRole('link',{name:'Add account',exact:true}).click();await page.locator('#addExchangeDialog').waitFor({state:'visible'});await page.locator('#closeAddExchange').click();
   for(const path of ['exchanges.html','transfers.html','index.html?view=networks','index.html?view=market','index.html?view=wallets']){
     await page.goto(f.origin+'/'+path);await page.locator('.session-bar').waitFor();
-    await page.waitForFunction(()=>document.querySelector('script[src$="?v=18"]')&&window.Treasury?.user);
+    await page.waitForFunction(()=>document.querySelector('script[src$="?v=19"]')&&window.Treasury?.user);
     await page.locator('.app-rail a[aria-current="page"]').waitFor();
     assert.equal(await page.locator('body').evaluate(body=>body.classList.contains('app-loading')),false);
     await page.waitForTimeout(250);await page.screenshot({path:require('node:path').join(__dirname,`../${path.split('?')[0].replace('.html','')}${path.includes('view=')?'-'+path.split('view=')[1]:''}-preview.png`),fullPage:true});

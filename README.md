@@ -44,6 +44,8 @@ Gas Analytics uses an independent Alchemy connection on Railway to sample every 
 
 Solana support is server-only and optional. When `SOLANA_RPC_URL` is configured, each user can save public Solana addresses, view SOL and SPL token balances, configure an independent SOL Gas Station reserve, and inspect Solana RPC health and priority fees. See [SOLANA-v16.md](SOLANA-v16.md).
 
+Low SOL reserves now have a dedicated `solanaGasLow` alert rule, separate from Ethereum. Browser, email, Telegram, repeat cadence, and quiet-hours bypass can be configured independently, while Railway checks both Gas Stations continuously even when the dashboard is closed. See [SOLANA-GAS-ALERT-v19.md](SOLANA-GAS-ALERT-v19.md).
+
 Bitcoin support is watch-only. Each user can save up to 25 public mainnet addresses, view BTC balances and UTXO fragmentation, estimate consolidation cost, and inspect chain synchronization, mempool and fee targets. The Networks workspace defaults to Ethereum and switches cleanly between Ethereum, Solana and Bitcoin without stacking all analytics on one page. See [BITCOIN-v17.md](BITCOIN-v17.md).
 
 The Railway monitor also scans confirmed Ethereum blocks and stores a persistent block checkpoint. The browser merges `/api/transactions` into its local cache every 15 seconds, so transactions observed while the page was closed or missed by the browser WebSocket still appear after reopening the dashboard.

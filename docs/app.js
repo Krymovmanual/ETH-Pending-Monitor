@@ -302,6 +302,12 @@ const el = {
   gasTelegram: document.querySelector('#gasTelegramInput'),
   gasIgnoreQuiet: document.querySelector('#gasIgnoreQuietInput'),
   gasRepeat: document.querySelector('#gasRepeatInput'),
+  solanaGasAlerts: document.querySelector('#solanaGasAlertsInput'),
+  solanaGasBrowser: document.querySelector('#solanaGasBrowserInput'),
+  solanaGasEmail: document.querySelector('#solanaGasEmailInput'),
+  solanaGasTelegram: document.querySelector('#solanaGasTelegramInput'),
+  solanaGasIgnoreQuiet: document.querySelector('#solanaGasIgnoreQuietInput'),
+  solanaGasRepeat: document.querySelector('#solanaGasRepeatInput'),
   pendingMinutes: document.querySelector('#pendingMinutesInput'),
   pendingRepeat: document.querySelector('#pendingRepeatInput'),
   alertCheckInterval: document.querySelector('#alertCheckIntervalInput'),
@@ -394,6 +400,7 @@ function loadNotificationSettings() {
     dropped: {enabled:true, browser:true, email:true, telegram:false, afterMinutes:30, repeatMinutes:0},
     replaced: {enabled:true, browser:true, email:true, telegram:false, afterMinutes:0, repeatMinutes:0},
     gasLow: {enabled:true, browser:true, email:true, telegram:false, afterMinutes:0, repeatMinutes:60, ignoreQuiet:true},
+    solanaGasLow: {enabled:true, browser:true, email:true, telegram:false, afterMinutes:0, repeatMinutes:60, ignoreQuiet:true},
   };
   const defaults = {
     rules: defaultRules,
@@ -425,6 +432,7 @@ function loadNotificationSettings() {
         dropped: {...defaultRules.dropped, enabled:stored.droppedEnabled !== false, browser, email},
         replaced: {...defaultRules.replaced, enabled:stored.replacedEnabled !== false, browser, email},
         gasLow: {...defaultRules.gasLow, enabled:stored.gasLowEnabled !== false, browser, email, repeatMinutes:Number(stored.repeatMinutes) || 0},
+        solanaGasLow: {...defaultRules.solanaGasLow, enabled:stored.gasLowEnabled !== false, browser, email, repeatMinutes:Number(stored.repeatMinutes) || 0},
       },
     };
   }
@@ -1133,7 +1141,7 @@ async function sendPendingSummary(wallet, transactions) {
 }
 
 function ruleNameForKind(kind) {
-  return ({stuck:'pending', stuck_summary:'pending', blocker:'blocker', dropped:'dropped', replaced:'replaced', gasLow:'gasLow'})[kind] || kind;
+  return ({stuck:'pending', stuck_summary:'pending', blocker:'blocker', dropped:'dropped', replaced:'replaced', gasLow:'gasLow', solanaGasLow:'solanaGasLow'})[kind] || kind;
 }
 
 function notificationRule(kind) {
@@ -1533,9 +1541,10 @@ async function sendGasAlert(currentBalance, network = 'ethereum') {
   const solana = network === 'solana';
   const alertKey = solana ? SOLANA_GAS_ALERT_KEY : GAS_ALERT_KEY;
   const lastSent = Number(Treasury.storage.getItem(alertKey) || 0);
-  const rule = notificationRule('gasLow');
-  if (!rule.enabled || inQuietHours('gasLow') || !alertCanRepeat(lastSent, 'gasLow')) return;
-  const channels = activeAlertChannels('gasLow');
+  const ruleName = solana ? 'solanaGasLow' : 'gasLow';
+  const rule = notificationRule(ruleName);
+  if (!rule.enabled || inQuietHours(ruleName) || !alertCanRepeat(lastSent, ruleName)) return;
+  const channels = activeAlertChannels(ruleName);
   if (!channels.browser && !channels.email) return;
   Treasury.storage.setItem(alertKey, String(Date.now()));
   const settings = state.balanceSettings;
@@ -1547,7 +1556,7 @@ async function sendGasAlert(currentBalance, network = 'ethereum') {
   const bodyText = `${name}: ${compactNumber(currentBalance, 6)} ${symbol}. Minimum: ${compactNumber(threshold, 6)} ${symbol}.`;
   let browserDelivered = false;
   if (channels.browser) {
-    try { new Notification(title, {body:bodyText, tag:'gas-station-low', requireInteraction:true}); browserDelivered = true; }
+    try { new Notification(title, {body:bodyText, tag:solana ? 'solana-gas-station-low' : 'ethereum-gas-station-low', requireInteraction:true}); browserDelivered = true; }
     catch { /* Browser support varies. */ }
   }
   if (!channels.email) return;
@@ -2699,6 +2708,7 @@ function openNotificationSettings() {
   const dropped = notificationRule('dropped');
   const replaced = notificationRule('replaced');
   const gasLow = notificationRule('gasLow');
+  const solanaGasLow = notificationRule('solanaGasLow');
   el.pendingAlerts.checked = Boolean(pending.enabled);
   el.pendingBrowser.checked = Boolean(pending.browser);
   el.pendingEmail.checked = Boolean(pending.email);
@@ -2727,6 +2737,12 @@ function openNotificationSettings() {
   el.gasTelegram.checked = Boolean(gasLow.telegram);
   el.gasIgnoreQuiet.checked = Boolean(gasLow.ignoreQuiet);
   el.gasRepeat.value = String(gasLow.repeatMinutes);
+  el.solanaGasAlerts.checked = Boolean(solanaGasLow.enabled);
+  el.solanaGasBrowser.checked = Boolean(solanaGasLow.browser);
+  el.solanaGasEmail.checked = Boolean(solanaGasLow.email);
+  el.solanaGasTelegram.checked = Boolean(solanaGasLow.telegram);
+  el.solanaGasIgnoreQuiet.checked = Boolean(solanaGasLow.ignoreQuiet);
+  el.solanaGasRepeat.value = String(solanaGasLow.repeatMinutes);
   el.alertCheckInterval.value = String(settings.checkIntervalSeconds);
   el.quietHours.checked = Boolean(settings.quietHoursEnabled);
   el.quietStart.value = settings.quietStart;
@@ -2887,6 +2903,7 @@ el.notificationForm.addEventListener('submit', async event => {
     el.droppedAlerts.checked && el.droppedEmail.checked,
     el.replacedAlerts.checked && el.replacedEmail.checked,
     el.gasAlerts.checked && el.gasEmail.checked,
+    el.solanaGasAlerts.checked && el.solanaGasEmail.checked,
   ].some(Boolean);
   if (emailRequired && !validEmail(email)) {
     el.notificationError.textContent = 'Enter a valid alert email or disable Email for every active rule.';
@@ -2898,6 +2915,7 @@ el.notificationForm.addEventListener('submit', async event => {
     el.droppedAlerts.checked && el.droppedTelegram.checked,
     el.replacedAlerts.checked && el.replacedTelegram.checked,
     el.gasAlerts.checked && el.gasTelegram.checked,
+    el.solanaGasAlerts.checked && el.solanaGasTelegram.checked,
   ].some(Boolean);
   if (telegramRequired && !/^-?\d{5,20}$/.test(telegramChatId)) {
     el.notificationError.textContent = 'Enter a valid numeric Telegram chat ID or disable Telegram for every active rule.';
@@ -2924,6 +2942,7 @@ el.notificationForm.addEventListener('submit', async event => {
       dropped: {enabled:el.droppedAlerts.checked, browser:el.droppedBrowser.checked, email:el.droppedEmail.checked, telegram:el.droppedTelegram.checked, afterMinutes:droppedMinutes, repeatMinutes:0},
       replaced: {enabled:el.replacedAlerts.checked, browser:el.replacedBrowser.checked, email:el.replacedEmail.checked, telegram:el.replacedTelegram.checked, afterMinutes:0, repeatMinutes:0},
       gasLow: {enabled:el.gasAlerts.checked, browser:el.gasBrowser.checked, email:el.gasEmail.checked, telegram:el.gasTelegram.checked, afterMinutes:0, repeatMinutes:Number(el.gasRepeat.value), ignoreQuiet:el.gasIgnoreQuiet.checked},
+      solanaGasLow: {enabled:el.solanaGasAlerts.checked, browser:el.solanaGasBrowser.checked, email:el.solanaGasEmail.checked, telegram:el.solanaGasTelegram.checked, afterMinutes:0, repeatMinutes:Number(el.solanaGasRepeat.value), ignoreQuiet:el.solanaGasIgnoreQuiet.checked},
     },
     checkIntervalSeconds: Number(el.alertCheckInterval.value),
     quietHoursEnabled: el.quietHours.checked,

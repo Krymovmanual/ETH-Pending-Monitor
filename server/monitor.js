@@ -2,6 +2,7 @@ const WebSocket = require('ws');
 const { config } = require('./config');
 const db = require('./db');
 const { deliverAlert } = require('./notifier');
+const { fetchSolanaNativeBalance, validSolanaAddress } = require('./wallets');
 
 const ERC20_TRANSFER = '0xa9059cbb';
 const ERC20_TRANSFER_FROM = '0x23b872dd';
@@ -24,7 +25,9 @@ class EthereumMonitor {
     this.connected = false;
     this.lastError = '';
     this.gasStation = null;
+    this.solanaGasStation = null;
     this.lastGasCheck = 0;
+    this.lastSolanaGasCheck = 0;
     this.currentGasGwei = 0;
     this.subscriptionIds = new Set();
   }
@@ -43,15 +46,15 @@ class EthereumMonitor {
     this.statusTimer = setInterval(() => this.checkPending().catch(this.logError), 30_000);
     this.snapshotTimer = setInterval(() => this.scanPendingBlock().catch(this.logError), 60_000);
     this.blockTimer = setInterval(() => this.scanConfirmedBlocks().catch(this.logError), 12_000);
-    this.gasTimer = setInterval(() => this.checkGasStation().catch(this.logError), 60_000);
-    void Promise.allSettled([this.scanPendingBlock(), this.scanConfirmedBlocks(), this.checkPending(), this.checkGasStation()]);
+    this.gasTimer = setInterval(() => this.checkGasStations().catch(this.logError), 60_000);
+    void Promise.allSettled([this.scanPendingBlock(), this.scanConfirmedBlocks(), this.checkPending(), this.checkGasStations()]);
   }
 
   async reconfigure(settings) {
     this.settings = settings || await db.getSettings();
     this.disconnect();
     this.connect();
-    await Promise.allSettled([this.scanPendingBlock(), this.scanConfirmedBlocks(), this.checkPending(), this.checkGasStation(true)]);
+    await Promise.allSettled([this.scanPendingBlock(), this.scanConfirmedBlocks(), this.checkPending(), this.checkGasStations(true)]);
   }
 
   stop() {
@@ -362,6 +365,36 @@ class EthereumMonitor {
     });
   }
 
+  async checkSolanaGasStation(force = false) {
+    const balance = this.settings?.balanceSettings || {};
+    if (!validSolanaAddress(balance.solanaGasAddress)) return;
+    const interval = Math.max(60_000, Number(balance.solanaGasInterval) || 300_000);
+    if (!force && Date.now() - this.lastSolanaGasCheck < interval) return;
+    this.lastSolanaGasCheck = Date.now();
+    const result = await fetchSolanaNativeBalance(balance.solanaGasAddress);
+    const current = result.balance;
+    this.solanaGasStation = {
+      name: balance.solanaGasName || 'Solana Gas Station',
+      address: balance.solanaGasAddress,
+      balance: current,
+      threshold: Number(balance.solanaGasThreshold || 0),
+      sufficient: current >= Number(balance.solanaGasThreshold || 0),
+      checkedAt: result.checkedAt,
+    };
+    if (current >= Number(balance.solanaGasThreshold || 0)) return;
+    const rule = this.rule('solanaGasLow');
+    await deliverAlert({
+      kind: 'solanaGasLow', scopeKey: balance.solanaGasAddress, title: 'URGENT: SOL Gas Station balance is low',
+      body: `${balance.solanaGasName || 'Solana Gas Station'} has ${round(current, 6)} SOL. Minimum: ${balance.solanaGasThreshold} SOL.`,
+      settings: this.settings, rule, urgent: true,
+      extra: { network:'Solana', wallet:balance.solanaGasName || 'Solana Gas Station', status:'low balance' },
+    });
+  }
+
+  async checkGasStations(force = false) {
+    await Promise.allSettled([this.checkGasStation(force), this.checkSolanaGasStation(force)]);
+  }
+
   rule(name) {
     return this.settings?.notificationSettings?.rules?.[name] || { enabled: false };
   }
@@ -375,6 +408,7 @@ class EthereumMonitor {
       lastConfirmedBlockAt: this.lastConfirmedBlockAt ? new Date(this.lastConfirmedBlockAt).toISOString() : null,
       blockScanning: this.blockScanning,
       gasStation: this.gasStation,
+      solanaGasStation: this.solanaGasStation,
       error: this.lastError || null,
     };
   }

@@ -84,7 +84,7 @@ function sanitizeSettings(body) {
     telegram: sourceRules[name]?.telegram === undefined ? Boolean(defaults.telegram) : Boolean(sourceRules[name].telegram),
     afterMinutes: clamp(sourceRules[name]?.afterMinutes, defaults.afterMinutes, 0, 1440),
     repeatMinutes: clamp(sourceRules[name]?.repeatMinutes, defaults.repeatMinutes, 0, 1440),
-    ignoreQuiet: Boolean(sourceRules[name]?.ignoreQuiet),
+    ignoreQuiet: sourceRules[name]?.ignoreQuiet === undefined ? Boolean(defaults.ignoreQuiet) : Boolean(sourceRules[name].ignoreQuiet),
   });
   const gasAddress = String(body.balanceSettings?.gasAddress || '').trim().toLowerCase();
   if (gasAddress && !validAddress(gasAddress)) throw new Error('Enter a valid Gas Station address');
@@ -107,6 +107,7 @@ function sanitizeSettings(body) {
         dropped: rule('dropped', { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 30, repeatMinutes: 0 }),
         replaced: rule('replaced', { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 0, repeatMinutes: 0 }),
         gasLow: rule('gasLow', { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 0, repeatMinutes: 60, ignoreQuiet: true }),
+        solanaGasLow: rule('solanaGasLow', { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 0, repeatMinutes: 60, ignoreQuiet: true }),
       },
       quietHoursEnabled: Boolean(body.notificationSettings?.quietHoursEnabled),
       quietStart: validTime(body.notificationSettings?.quietStart) ? body.notificationSettings.quietStart : '22:00',

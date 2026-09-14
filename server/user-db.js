@@ -2,10 +2,17 @@ const {AsyncLocalStorage}=require('node:async_hooks');
 const context=new AsyncLocalStorage();
 function userId(){const id=context.getStore();if(!id)throw new Error('User context is required');return id;}
 function forUser(id,work){if(!id)throw new Error('User context is required');return context.run(id,work);}
+function mergeSettings(defaults,value){
+  if(Array.isArray(value))return structuredClone(value);
+  if(!value||typeof value!=='object')return value===undefined?structuredClone(defaults):value;
+  const result={...structuredClone(defaults||{})};
+  for(const [key,item]of Object.entries(value))result[key]=item&&typeof item==='object'&&!Array.isArray(item)?mergeSettings(defaults?.[key]||{},item):structuredClone(item);
+  return result;
+}
 function scopedDatabase(pool,defaults){
   const q=(sql,values=[])=>pool.query(sql,[userId(),...values]);
   return {
-    async getSettings(){const r=await q('SELECT settings FROM user_settings WHERE user_id=$1');return {...structuredClone(defaults),...r.rows[0]?.settings};},
+    async getSettings(){const r=await q('SELECT settings FROM user_settings WHERE user_id=$1');return mergeSettings(defaults,r.rows[0]?.settings||{});},
     async saveSettings(settings){await q(`INSERT INTO user_settings(user_id,settings) VALUES($1,$2::jsonb)
       ON CONFLICT(user_id) DO UPDATE SET settings=EXCLUDED.settings,updated_at=NOW()`,[JSON.stringify(settings)]);return settings;},
     async upsertTransaction(tx){const r=await q(`INSERT INTO user_transactions(user_id,hash,from_address,to_address,nonce,tx_data)

@@ -22,3 +22,30 @@ test('Solana addresses, balances and network health are served through Railway',
   assert.equal(response.data.slot,345678901);
   assert.equal(response.data.priorityFeeMicroLamports.median,200);
 });
+
+test('Solana Gas Station has an independent 24/7 Telegram alert rule',async t=>{
+  const f=await fixture();t.after(()=>f.close());
+  const {EthereumMonitor}=require('../server/monitor');
+  const {forUser}=require('../server/user-db');
+  const user=await f.register('solana-alert@example.test');
+  const address='11111111111111111111111111111111';
+  const ethereumAddress='0x1111111111111111111111111111111111111111';
+  const response=await user.client.call('/api/settings','PUT',{
+    addresses:[],solanaAddresses:[],telegramChatId:'-1001234567890',
+    balanceSettings:{gasAddress:ethereumAddress,gasThreshold:3,solanaGasAddress:address,solanaGasThreshold:3,solanaGasInterval:60000},
+    notificationSettings:{rules:{gasLow:{enabled:false,telegram:false},solanaGasLow:{enabled:true,browser:false,email:false,telegram:true,repeatMinutes:60,ignoreQuiet:true}}},
+  });
+  assert.equal(response.status,200);
+  assert.equal(response.data.settings.notificationSettings.rules.gasLow.enabled,false);
+  assert.equal(response.data.settings.notificationSettings.rules.solanaGasLow.telegram,true);
+  const monitor=new EthereumMonitor();monitor.settings=response.data.settings;monitor.rpc=async()=>`0x${(2n*10n**18n).toString(16)}`;
+  const before=f.telegramMessages.length;
+  await forUser(user.id,()=>monitor.checkGasStation(true));
+  assert.equal(f.telegramMessages.length,before,'disabled ETH rule stays silent');
+  await forUser(user.id,()=>monitor.checkSolanaGasStation(true));
+  assert.equal(f.telegramMessages.length,before+1);
+  assert.match(f.telegramMessages.at(-1).text,/SOL Gas Station balance is low/);
+  assert.match(f.telegramMessages.at(-1).text,/2\.5 SOL/);
+  await forUser(user.id,()=>monitor.checkSolanaGasStation(true));
+  assert.equal(f.telegramMessages.length,before+1,'repeat window deduplicates the SOL alert');
+});
