@@ -234,7 +234,10 @@ app.put('/api/settings', auth.requireUser, auth.requireRole('admin'), async (req
 });
 
 app.get('/api/transactions', auth.requireUser, async (req, res, next) => {
-  try { res.json({ items: await db.recentTransactions(req.query.limit), monitor: monitors.get(req.organization.dataOwnerId).getStatus() }); } catch (error) { next(error); }
+  try {
+    const [items,queue]=await Promise.all([db.recentTransactions(req.query.limit),db.pendingQueue()]);
+    res.json({items,queue,monitor:monitors.get(req.organization.dataOwnerId).getStatus()});
+  } catch (error) { next(error); }
 });
 
 app.get('/api/gas-analytics', auth.requireUser, async (req, res, next) => {
@@ -459,6 +462,7 @@ async function boot() {
     await db.pool.query("DELETE FROM sessions WHERE expires_at<NOW() OR last_seen<NOW()-INTERVAL '7 days'; DELETE FROM email_tokens WHERE expires_at<NOW(); DELETE FROM request_limits WHERE reset_at<NOW(); DELETE FROM security_events WHERE created_at<NOW()-INTERVAL '30 days';");
     await db.pool.query(`DELETE FROM user_transactions WHERE (user_id,hash) IN (
       SELECT user_id,hash FROM (SELECT user_id,hash,ROW_NUMBER() OVER(PARTITION BY user_id ORDER BY first_seen DESC) AS row_number FROM user_transactions WHERE status<>'pending') ranked WHERE row_number>2000)`);
+    await db.pool.query("DELETE FROM user_pending_queue WHERE resolved_at<NOW()-INTERVAL '7 days'");
   };
   cleanup().catch(()=>console.error('Cleanup failed'));
   setInterval(()=>cleanup().catch(()=>console.error('Cleanup failed')),3600000).unref();

@@ -93,7 +93,7 @@
     const status=document.createElement('span');status.id='sessionStatus';status.setAttribute('role','status');
     const logout=document.createElement('button');logout.type='button';logout.className='secondary';logout.textContent='Sign out';logout.onclick=()=>Treasury.logout();
     bar.append(workspace,email,link,status,logout);document.body.prepend(bar);requestAnimationFrame(()=>document.body.classList.remove('app-loading'));
-    const script=document.createElement('script');script.src=moduleName+'?v=20';document.body.append(script);
+    const script=document.createElement('script');script.src=moduleName+'?v=20.1';document.body.append(script);
   }
   start().catch(error=>{
     document.body.classList.remove('app-loading');

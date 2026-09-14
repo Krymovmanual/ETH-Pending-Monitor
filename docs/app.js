@@ -78,6 +78,7 @@ const state = {
   notificationSettings: loadNotificationSettings(),
   summaryAlerts: loadStoredObject(SUMMARY_ALERTS_KEY),
   transactions: loadTransactions(),
+  pendingQueue: [],
   tokenCache: loadTokenCache(),
   balanceSettings: loadBalanceSettings(),
   walletBalances: loadStoredObject(WALLET_BALANCES_KEY),
@@ -613,6 +614,7 @@ async function syncServerTransactions({ force = false } = {}) {
     const body = await response.json().catch(() => ({}));
     if (!response.ok || !Array.isArray(body.items)) throw new Error(body.error || `Transaction history returned ${response.status}`);
     state.serverMonitorStatus = body.monitor || null;
+    state.pendingQueue = Array.isArray(body.queue) ? body.queue : [];
     const merged = new Map(state.transactions.map(tx => [tx.hash, tx]));
     const tokensToHydrate = [];
     for (const row of body.items) {
@@ -1018,12 +1020,39 @@ async function updateGasPrice() {
 }
 
 function needsBoost(tx) {
-  return tx.status === 'pending' && state.currentGasPrice > 0 && tx.maxFee > 0 && tx.maxFee < state.currentGasPrice;
+  return !tx.queueSlot && tx.status === 'pending' && state.currentGasPrice > 0 && tx.maxFee > 0 && tx.maxFee < state.currentGasPrice;
+}
+
+function transactionRows() {
+  const known = new Set(state.transactions
+    .filter(tx => tx.status === 'pending')
+    .map(tx => `${String(tx.from || '').toLowerCase()}:${Number(tx.nonce)}`));
+  const queueSlots = state.pendingQueue
+    .filter(slot => !slot.has_full_transaction && !known.has(`${String(slot.from_address || '').toLowerCase()}:${Number(slot.nonce)}`))
+    .map(slot => ({
+      queueSlot: true,
+      id: `queue:${slot.from_address}:${slot.nonce}`,
+      hash: '',
+      from: String(slot.from_address || '').toLowerCase(),
+      to: '',
+      matchedAddress: String(slot.from_address || '').toLowerCase(),
+      nonce: Number(slot.nonce),
+      value: 0,
+      maxFee: 0,
+      tokenSymbol: '',
+      tokenName: '',
+      method: '',
+      discoveredBy: slot.source || 'Railway nonce reconciliation',
+      firstSeen: new Date(slot.first_seen).getTime() || Date.now(),
+      lastSeen: new Date(slot.last_seen).getTime() || Date.now(),
+      status: 'pending',
+    }));
+  return [...state.transactions, ...queueSlots];
 }
 
 function queueInfo(tx) {
   if (tx.status !== 'pending' || !state.addresses.includes(tx.from)) return null;
-  const related = state.transactions.filter(item => item.status === 'pending' && item.from === tx.from);
+  const related = transactionRows().filter(item => item.status === 'pending' && item.from === tx.from);
   const nonces = [...new Set(related.map(item => item.nonce))].sort((a, b) => a - b);
   if (nonces.length < 2) return null;
   const blockerNonce = nonces[0];
@@ -2121,7 +2150,8 @@ async function copyHash(hash) {
 
 function searchableTransactionText(tx) {
   const matched = tx.matchedAddress || state.addresses.find(address => [tx.from, tx.to, tx.tokenRecipient].includes(address)) || '';
-  return [tx.hash, tx.nonce, tx.from, tx.to, matched, walletLabel(matched), tx.tokenSymbol, tx.tokenName, tx.tokenContract, transactionAmount(tx), statusLabel(tx.status)]
+  return [tx.hash, tx.nonce, tx.from, tx.to, matched, walletLabel(matched), tx.tokenSymbol, tx.tokenName, tx.tokenContract,
+    tx.queueSlot ? 'unresolved queue nonce hash unavailable action required' : transactionAmount(tx), statusLabel(tx.status)]
     .filter(value => value !== undefined && value !== null)
     .join(' ')
     .toLowerCase();
@@ -2142,7 +2172,7 @@ function sortTransactions(items) {
     if (state.sortKey === 'age') comparison = b.firstSeen - a.firstSeen;
     if (state.sortKey === 'amount') comparison = amountSortValue(a) - amountSortValue(b);
     if (state.sortKey === 'nonce') comparison = a.nonce - b.nonce;
-    if (state.sortKey === 'maxFee') comparison = a.maxFee - b.maxFee;
+    if (state.sortKey === 'maxFee') comparison = (Number(a.maxFee) || 0) - (Number(b.maxFee) || 0);
     if (state.sortKey === 'status') comparison = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
     if (comparison === 0) comparison = left.index - right.index;
     return state.sortDirection === 'asc' ? comparison : -comparison;
@@ -2165,6 +2195,7 @@ function renderPendingSync() {
   const tracked = diagnostics.reduce((total, item) => total + Number(item.tracked || 0), 0);
   const missing = diagnostics.reduce((total, item) => total + Number(item.missing || 0), 0);
   const etherscanExtra = etherscanDiagnostics.reduce((total, item) => total + Number(item.extraVsAlchemy || 0), 0);
+  const recoveredSlots = state.pendingQueue.filter(item => !item.has_full_transaction).length;
 
   el.pendingSyncButton.disabled = state.pendingSyncRunning || state.transactionSyncRunning || !backendConfigured();
   el.pendingSyncNoticeButton.disabled = state.pendingSyncRunning || !backendConfigured();
@@ -2202,7 +2233,7 @@ function renderPendingSync() {
     const firstAddress = affectedItems[0]?.address;
     el.pendingSyncNotice.hidden = false;
     el.pendingSyncTitle.textContent = `Etherscan detects ${etherscanExtra} additional pending transaction${etherscanExtra === 1 ? '' : 's'}`;
-    el.pendingSyncMessage.textContent = `Etherscan's pending nonce is higher than Alchemy's — ${affected}. The official Etherscan API confirms the difference but does not return the missing TX hashes.${state.etherscanSyncError ? ` ${state.etherscanSyncError}.` : ''}`;
+    el.pendingSyncMessage.textContent = `Etherscan's pending nonce is higher than Alchemy's — ${affected}. Railway keeps these nonce slots visible and advances the blocker after each confirmation, even when the provider does not expose their hashes.${state.etherscanSyncError ? ` ${state.etherscanSyncError}.` : ''}`;
     if (firstAddress) {
       el.pendingEtherscanLink.href = `https://etherscan.io/txsPending?a=${firstAddress}&m=hf`;
       el.pendingEtherscanLink.hidden = false;
@@ -2215,9 +2246,13 @@ function renderPendingSync() {
       .map(item => `${walletLabel(item.address)}: ${item.missing}`)
       .join(' · ');
     el.pendingSyncNotice.hidden = false;
-    el.pendingSyncTitle.textContent = `${missing} pending transaction${missing === 1 ? '' : 's'} detected without full details`;
+    el.pendingSyncTitle.textContent = recoveredSlots
+      ? `${recoveredSlots} pending nonce${recoveredSlots === 1 ? '' : 's'} recovered by Railway`
+      : `${missing} pending transaction${missing === 1 ? '' : 's'} detected without full details`;
     const snapshotNote = state.pendingSnapshotError ? ` Full snapshot error: ${state.pendingSnapshotError}.` : '';
-    el.pendingSyncMessage.textContent = `Alchemy nonce state indicates ${expected} pending nonce${expected === 1 ? '' : 's'}; ${tracked} ${tracked === 1 ? 'is' : 'are'} loaded in the table. Missing by wallet — ${affected}. The node did not expose their TX hashes.${snapshotNote}`;
+    el.pendingSyncMessage.textContent = recoveredSlots
+      ? `The queue remains actionable by nonce — ${affected}. Hash and fee details will appear automatically if the RPC exposes them; until then, open the signer or Etherscan pending queue.${snapshotNote}`
+      : `Alchemy nonce state indicates ${expected} pending nonce${expected === 1 ? '' : 's'}; ${tracked} ${tracked === 1 ? 'is' : 'are'} loaded in the table. Missing by wallet — ${affected}. The node did not expose their TX hashes.${snapshotNote}`;
     return;
   }
   if (state.pendingSnapshotError) {
@@ -2248,7 +2283,7 @@ function renderOverview() {
   const overview = window.TreasuryOverview.summarize(state.exchangeData);
   const accounts = overview.accounts;
   const positions = overview.positions;
-  const pending = state.transactions.filter(tx => tx.status === 'pending');
+  const pending = transactionRows().filter(tx => tx.status === 'pending');
   const problems = state.transactions.filter(tx => ['dropped', 'replaced', 'failed'].includes(tx.status));
   const blockerCount = pending.filter(tx => queueInfo(tx)?.role === 'blocker').length;
   const pnl = overview.pnl.value;
@@ -2339,23 +2374,25 @@ function render() {
     const monitor = state.serverMonitorStatus;
     diagnostic.textContent = !backendConfigured() ? 'Sign in to open your workspace.'
       : state.transactionSyncError ? `Synchronization failed: ${state.transactionSyncError}. Existing records are retained.`
-      : `Last successful sync: ${state.transactionSyncUpdatedAt ? age(state.transactionSyncUpdatedAt) + ' ago' : 'waiting'} · Live subscriptions: ${monitor?.subscriptions ?? 'unknown'}/2 · Last scanned block: ${monitor?.lastConfirmedBlock ?? 'waiting'}${monitor?.error ? ' · Server monitoring needs attention' : ''}`;
+      : `Last successful sync: ${state.transactionSyncUpdatedAt ? age(state.transactionSyncUpdatedAt) + ' ago' : 'waiting'} · Live subscriptions: ${monitor?.subscriptions ?? 'unknown'}/2 · Queue slots: ${monitor?.queueCount ?? state.pendingQueue.length} · Last scanned block: ${monitor?.lastConfirmedBlock ?? 'waiting'}${monitor?.error || monitor?.queueError ? ' · Server monitoring needs attention' : ''}`;
   }
-  const pending = state.transactions.filter(tx => tx.status === 'pending').length;
+  const rows = transactionRows();
+  const pending = rows.filter(tx => tx.status === 'pending').length;
   const confirmed = state.transactions.filter(tx => ['confirmed','failed'].includes(tx.status)).length;
   const problems = state.transactions.filter(tx => ['dropped','replaced'].includes(tx.status)).length;
   el.pendingCount.textContent = pending;
   el.confirmedCount.textContent = confirmed;
   el.problemCount.textContent = problems;
-  el.lastEvent.textContent = state.transactions[0] ? dateTime(state.transactions[0].firstSeen) : '—';
+  const lastEvent = [...rows].sort((a,b) => b.firstSeen-a.firstSeen)[0];
+  el.lastEvent.textContent = lastEvent ? dateTime(lastEvent.firstSeen) : '—';
   el.addressList.innerHTML = state.addresses.map(address => `<a class="address-chip" href="https://etherscan.io/address/${address}" target="_blank" rel="noreferrer" title="${address}">${escapeHtml(walletLabel(address))}</a>`).join('');
 
   const filter = el.filter.value;
   const query = state.searchQuery.trim().toLowerCase();
-  const filtered = state.transactions.filter(tx => {
+  const filtered = rows.filter(tx => {
     if (filter === 'all') return true;
     if (filter === 'problem') return ['dropped','replaced'].includes(tx.status);
-    if (filter === 'boost') return needsBoost(tx);
+    if (filter === 'boost') return needsBoost(tx) || (tx.queueSlot && queueInfo(tx)?.role === 'blocker');
     return tx.status === filter;
   }).filter(tx => !query || searchableTransactionText(tx).includes(query));
   const visible = sortTransactions(filtered);
@@ -2371,7 +2408,9 @@ function render() {
     const matched = tx.matchedAddress || state.addresses.find(address => [tx.from, tx.to, tx.tokenRecipient].includes(address)) || '';
     const boost = needsBoost(tx);
     const queue = queueInfo(tx);
-    const gasLabel = tx.status !== 'pending'
+    const gasLabel = tx.queueSlot
+      ? '<span class="gas-check boost"><strong>Inspect in signer</strong><small>Fee and hash unavailable</small></span>'
+      : tx.status !== 'pending'
       ? '<span class="gas-check"><strong>—</strong></span>'
       : `<span class="gas-check ${boost ? 'boost' : ''}"><strong>${boost ? 'Boost recommended' : 'OK'}</strong><small>Network ${state.currentGasPrice ? `${compactNumber(state.currentGasPrice, 2)} Gwei` : '—'}</small></span>`;
     const queueLabel = queue?.role === 'blocker'
@@ -2379,16 +2418,20 @@ function render() {
       : queue?.role === 'blocked'
         ? `<span class="queue-state blocked"><strong>Blocked</strong><small>By nonce ${queue.blockerNonce}</small></span>`
         : '—';
-    return `<tr class="transaction-row" data-tx-hash="${tx.hash}" tabindex="0" aria-label="Open details for transaction ${tx.hash}">
+    const hashCell = tx.queueSlot
+      ? `<div class="hash-cell queue-hash"><a class="hash" href="https://etherscan.io/txsPending?a=${tx.from}&m=hf" target="_blank" rel="noreferrer">Hash unavailable</a><small>Open pending queue</small></div>`
+      : `<div class="hash-cell"><a class="hash" href="https://etherscan.io/tx/${tx.hash}" target="_blank" rel="noreferrer">${shortHash(tx.hash)}</a><button class="copy-button" type="button" data-copy-hash="${tx.hash}" aria-label="Copy full transaction hash">${state.copiedHash === tx.hash ? 'Copied' : 'Copy'}</button></div>`;
+    const rowAction = tx.queueSlot ? 'data-queue-slot="true"' : `data-tx-hash="${tx.hash}" tabindex="0" aria-label="Open details for transaction ${tx.hash}"`;
+    return `<tr class="transaction-row${tx.queueSlot ? ' queue-placeholder' : ''}" ${rowAction}>
       <td><span class="status ${escapeHtml(tx.status)}">${escapeHtml(statusLabel(tx.status))}</span></td>
       <td>${age(tx.firstSeen)}</td>
-      <td><div class="hash-cell"><a class="hash" href="https://etherscan.io/tx/${tx.hash}" target="_blank" rel="noreferrer">${shortHash(tx.hash)}</a><button class="copy-button" type="button" data-copy-hash="${tx.hash}" aria-label="Copy full transaction hash">${state.copiedHash === tx.hash ? 'Copied' : 'Copy'}</button></div></td>
+      <td>${hashCell}</td>
       <td title="${escapeHtml(matched)}">${matched ? escapeHtml(walletLabel(matched)) : '—'}</td>
       <td>${outgoing ? 'Outgoing' : 'Incoming'}</td>
-      <td title="${escapeHtml(tx.tokenName || 'Ether')}">${escapeHtml(transactionAmount(tx))}</td>
+      <td title="${escapeHtml(tx.queueSlot ? 'Transaction details have not been exposed by the RPC' : tx.tokenName || 'Ether')}">${tx.queueSlot ? '<span class="muted">Awaiting details</span>' : escapeHtml(transactionAmount(tx))}</td>
       <td>${tx.nonce}</td>
       <td>${queueLabel}</td>
-      <td>${compactNumber(tx.maxFee, 2)} Gwei</td>
+      <td>${tx.queueSlot ? 'Unknown' : `${compactNumber(tx.maxFee, 2)} Gwei`}</td>
       <td>${gasLabel}</td>
     </tr>`;
   }).join('');

@@ -87,6 +87,15 @@ CREATE TABLE IF NOT EXISTS user_transactions (
 );
 CREATE INDEX IF NOT EXISTS user_tx_pending ON user_transactions(user_id,from_address,nonce) WHERE status='pending';
 CREATE INDEX IF NOT EXISTS user_tx_recent ON user_transactions(user_id,first_seen DESC);
+CREATE TABLE IF NOT EXISTS user_pending_queue (
+ user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ from_address TEXT NOT NULL, nonce BIGINT NOT NULL,
+ first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ resolved_at TIMESTAMPTZ, source TEXT NOT NULL DEFAULT 'nonce-reconciliation',
+ PRIMARY KEY(user_id,from_address,nonce)
+);
+CREATE INDEX IF NOT EXISTS user_pending_queue_open
+  ON user_pending_queue(user_id,from_address,nonce) WHERE resolved_at IS NULL;
 CREATE TABLE IF NOT EXISTS user_monitor_state (
  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, key TEXT NOT NULL, value JSONB NOT NULL,
  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(user_id,key)

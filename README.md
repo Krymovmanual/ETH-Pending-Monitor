@@ -1,6 +1,10 @@
-# Treasury Operations Center — Users v11
+# Treasury Operations Center — v20.1
 
 Start with [USERS-v11.md](USERS-v11.md). It supersedes the deployment instructions below for authentication, hosting and credentials.
+
+## v20.1 — Ethereum Queue Recovery
+
+Railway now persists compact unresolved nonce slots, including transactions whose hashes are not exposed by the connected provider. After a boosted blocker confirms, the next nonce automatically becomes the visible blocker and can trigger a fresh Telegram, email or browser alert. The API and Wallets table merge nonce-only placeholders with full transaction records without duplicating rows. See [QUEUE-RECOVERY-v20.1.md](QUEUE-RECOVERY-v20.1.md).
 
 ## v20 — Organizations & Roles
 

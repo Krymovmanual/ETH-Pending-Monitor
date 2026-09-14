@@ -99,13 +99,13 @@ function shortAddress(address) {
   return address ? `${address.slice(0, 6)}…${address.slice(-4)}` : 'Unknown wallet';
 }
 
-async function deliverAlert({ kind, scopeKey, title, body, tx, settings, rule, extra = {}, urgent = false }) {
+async function deliverAlert({ kind, scopeKey, title, body, tx, settings, rule, extra = {}, urgent = false, url: suppliedUrl }) {
   if (!rule?.enabled) return false;
   if (inQuietHours(settings, rule)) return false;
   if (!(await db.alertIsDue(kind, scopeKey, rule.repeatMinutes))) return false;
 
   let delivered = false;
-  const url = tx?.hash ? `https://etherscan.io/tx/${tx.hash}` : undefined;
+  const url = suppliedUrl || (tx?.hash ? `https://etherscan.io/tx/${tx.hash}` : undefined);
   if (rule.browser) {
     delivered = (await sendPush(title, body, url, `${kind}-${scopeKey}`, urgent)) > 0 || delivered;
   }
@@ -131,7 +131,8 @@ async function deliverAlert({ kind, scopeKey, title, body, tx, settings, rule, e
     const details = [
       tx ? `Wallet: ${walletLabel(settings, tx.from_address)}` : extra.wallet ? `Wallet: ${extra.wallet}` : '',
       tx?.hash ? `TX: ${tx.hash}` : '',
-      tx?.nonce != null ? `Nonce: ${tx.nonce}` : '',
+      tx?.nonce != null ? `Nonce: ${tx.nonce}` : extra.nonce != null ? `Nonce: ${extra.nonce}` : '',
+      extra.blockedCount != null ? `Transactions behind it: ${extra.blockedCount}` : '',
       tx?.tx_data?.maxFeePerGasGwei ? `Max fee: ${tx.tx_data.maxFeePerGasGwei} Gwei` : '',
       extra.currentGasGwei ? `Network gas: ${extra.currentGasGwei} Gwei` : '',
       body,

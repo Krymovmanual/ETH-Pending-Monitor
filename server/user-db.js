@@ -19,7 +19,11 @@ function scopedDatabase(pool,defaults){
   return {
     async getSettings(){const r=await q('SELECT settings FROM user_settings WHERE user_id=$1');return mergeSettings(defaults,r.rows[0]?.settings||{});},
     async saveSettings(settings){await q(`INSERT INTO user_settings(user_id,settings) VALUES($1,$2::jsonb)
-      ON CONFLICT(user_id) DO UPDATE SET settings=EXCLUDED.settings,updated_at=NOW()`,[JSON.stringify(settings)]);return settings;},
+      ON CONFLICT(user_id) DO UPDATE SET settings=EXCLUDED.settings,updated_at=NOW()`,[JSON.stringify(settings)]);
+      const addresses=(Array.isArray(settings?.addresses)?settings.addresses:[]).map(value=>String(value).toLowerCase());
+      await q(`UPDATE user_pending_queue SET resolved_at=COALESCE(resolved_at,NOW()),last_seen=NOW()
+        WHERE user_id=$1 AND resolved_at IS NULL AND NOT(from_address=ANY($2::text[]))`,[addresses]);
+      return settings;},
     async upsertTransaction(tx){const r=await q(`INSERT INTO user_transactions(user_id,hash,from_address,to_address,nonce,tx_data)
       VALUES($1,$2,$3,$4,$5,$6::jsonb) ON CONFLICT(user_id,hash) DO UPDATE SET last_seen=NOW(),missing_checks=0,
       tx_data=user_transactions.tx_data || EXCLUDED.tx_data RETURNING *, (xmax=0) AS inserted`,[tx.hash,tx.from,tx.to,tx.nonce,JSON.stringify(tx)]);return r.rows[0];},
@@ -31,6 +35,22 @@ function scopedDatabase(pool,defaults){
     async saveMonitorState(key,value){await q(`INSERT INTO user_monitor_state(user_id,key,value) VALUES($1,$2,$3::jsonb)
       ON CONFLICT(user_id,key) DO UPDATE SET value=EXCLUDED.value,updated_at=NOW()`,[key,JSON.stringify(value)]);},
     async pendingTransactions(){return (await q("SELECT * FROM user_transactions WHERE user_id=$1 AND status='pending' ORDER BY from_address,nonce,first_seen")).rows;},
+    async reconcilePendingQueue(from,latestNonce,pendingNonce,source='nonce-reconciliation'){
+      const address=String(from||'').toLowerCase();
+      const latest=Math.max(0,Number(latestNonce)||0),pending=Math.max(latest,Number(pendingNonce)||0);
+      const capped=Math.min(pending,latest+250);
+      await q(`UPDATE user_pending_queue SET resolved_at=COALESCE(resolved_at,NOW()),last_seen=NOW()
+        WHERE user_id=$1 AND from_address=$2 AND nonce<$3 AND resolved_at IS NULL`,[address,latest]);
+      if(capped>latest)await q(`INSERT INTO user_pending_queue(user_id,from_address,nonce,source)
+        SELECT $1,$2,value,$5 FROM generate_series($3::bigint,$4::bigint) AS value
+        ON CONFLICT(user_id,from_address,nonce) DO UPDATE SET last_seen=NOW(),resolved_at=NULL,source=EXCLUDED.source`,[address,latest,capped-1,String(source).slice(0,80)]);
+      return {address,latestNonce:latest,pendingNonce:pending,tracked:capped-latest,truncated:pending>capped};
+    },
+    async pendingQueue(){return(await q(`SELECT queue.from_address,queue.nonce,queue.first_seen,queue.last_seen,queue.source,
+        EXISTS(SELECT 1 FROM user_transactions tx WHERE tx.user_id=queue.user_id AND tx.from_address=queue.from_address AND tx.nonce=queue.nonce AND tx.status='pending') AS has_full_transaction
+      FROM user_pending_queue queue WHERE queue.user_id=$1 AND queue.resolved_at IS NULL
+      ORDER BY queue.from_address,queue.nonce`)).rows;},
+    async cleanupPendingQueue(){return(await q("DELETE FROM user_pending_queue WHERE user_id=$1 AND resolved_at<NOW()-INTERVAL '7 days'")).rowCount;},
     async recentTransactions(limit=250){return (await q('SELECT * FROM user_transactions WHERE user_id=$1 ORDER BY first_seen DESC LIMIT $2',[Math.min(1000,Math.max(1,Number(limit)||250))])).rows;},
     async clearTransactions(){return (await q('DELETE FROM user_transactions WHERE user_id=$1')).rowCount;},
     async markStatus(hash,status,replacementHash=null){await q('UPDATE user_transactions SET status=$3,replacement_hash=COALESCE($4,replacement_hash),last_seen=NOW() WHERE user_id=$1 AND hash=$2',[hash,status,replacementHash]);},

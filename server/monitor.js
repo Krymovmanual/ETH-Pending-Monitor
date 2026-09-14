@@ -3,6 +3,7 @@ const { config } = require('./config');
 const db = require('./db');
 const { deliverAlert } = require('./notifier');
 const { fetchSolanaNativeBalance, validSolanaAddress } = require('./wallets');
+const { fetchEtherscanPendingNonces } = require('./providers');
 
 const ERC20_TRANSFER = '0xa9059cbb';
 const ERC20_TRANSFER_FROM = '0x23b872dd';
@@ -19,6 +20,10 @@ class EthereumMonitor {
     this.blockTimer = null;
     this.gasTimer = null;
     this.blockScanning = false;
+    this.queueScanning = false;
+    this.queueCount = 0;
+    this.lastQueueAt = 0;
+    this.queueError = '';
     this.lastConfirmedBlock = null;
     this.lastConfirmedBlockAt = 0;
     this.lastPendingAt = 0;
@@ -36,6 +41,8 @@ class EthereumMonitor {
     return {connected: this.connected, subscriptions: this.subscriptionIds.size,
       lastPendingAt: this.lastPendingAt, lastConfirmedBlock: this.lastConfirmedBlock,
       lastConfirmedBlockAt: this.lastConfirmedBlockAt, scanning: this.blockScanning,
+      queueCount: this.queueCount, lastQueueAt: this.lastQueueAt,
+      queueError: this.queueError || null,
       error: this.lastError ? 'Provider monitoring error; inspect server logs' : null};
   }
 
@@ -233,18 +240,58 @@ class EthereumMonitor {
   }
 
   async checkPending() {
+    const queue = await this.reconcilePendingQueues();
     const pending = await db.pendingTransactions();
-    if (!pending.length) return;
-    try {
-      const gas = await this.rpc('eth_gasPrice', []);
-      this.currentGasGwei = Number(BigInt(gas)) / 1e9;
-    } catch (error) {
-      console.error('Gas price update failed:', error.message);
-    }
+    if (pending.length) {
+      try {
+        const gas = await this.rpc('eth_gasPrice', []);
+        this.currentGasGwei = Number(BigInt(gas)) / 1e9;
+      } catch (error) {
+        console.error('Gas price update failed:', error.message);
+      }
 
-    for (const tx of pending) await this.refreshTransactionStatus(tx);
+      for (const tx of pending) await this.refreshTransactionStatus(tx);
+    }
     const live = await db.pendingTransactions();
-    await this.evaluatePendingAlerts(live);
+    await this.evaluatePendingAlerts(live, queue);
+    await this.evaluateUnknownQueueAlerts(queue);
+  }
+
+  async reconcilePendingQueues() {
+    if (this.queueScanning || !this.settings?.addresses?.length) return db.pendingQueue();
+    this.queueScanning = true;
+    try {
+      const addresses = this.settings.addresses.map(value => value.toLowerCase());
+      let etherscan = { items: [], errors: [] };
+      if (config.etherscanApiKey) {
+        try { etherscan = await fetchEtherscanPendingNonces(addresses); }
+        catch (error) { etherscan.errors = [{ error: error?.message || 'Etherscan pending nonce check failed' }]; }
+      }
+      const etherscanByAddress = new Map(etherscan.items.map(item => [item.address.toLowerCase(), Number(item.pendingNonce)]));
+      const results = await Promise.allSettled(addresses.map(async address => {
+        const [latestRaw, pendingRaw] = await Promise.all([
+          this.rpc('eth_getTransactionCount', [address, 'latest']),
+          this.rpc('eth_getTransactionCount', [address, 'pending']),
+        ]);
+        const latest = Number.parseInt(latestRaw, 16);
+        const alchemyPending = Number.parseInt(pendingRaw, 16);
+        if (!Number.isInteger(latest) || !Number.isInteger(alchemyPending)) throw new Error(`Invalid nonce response for ${address}`);
+        const etherscanPending = etherscanByAddress.get(address);
+        const pending = Math.max(latest, alchemyPending, Number.isInteger(etherscanPending) ? etherscanPending : latest);
+        return db.reconcilePendingQueue(address, latest, pending,
+          Number.isInteger(etherscanPending) && etherscanPending > alchemyPending ? 'etherscan+alchemy' : 'alchemy');
+      }));
+      const errors = results.filter(result => result.status === 'rejected').map(result => result.reason?.message || 'Nonce check failed');
+      if (etherscan.errors.length) errors.push(...etherscan.errors.map(item => item.error));
+      const queue = await db.pendingQueue();
+      this.queueCount = queue.length;
+      this.lastQueueAt = Date.now();
+      this.queueError = errors.length ? `${errors.length} queue source check${errors.length === 1 ? '' : 's'} failed` : '';
+      await db.cleanupPendingQueue();
+      return queue;
+    } finally {
+      this.queueScanning = false;
+    }
   }
 
   async refreshTransactionStatus(tx) {
@@ -276,7 +323,7 @@ class EthereumMonitor {
     return !receipt && current && current.blockNumber == null;
   }
 
-  async evaluatePendingAlerts(rows) {
+  async evaluatePendingAlerts(rows, queueRows = []) {
     const bySender = new Map();
     for (const row of rows) {
       if (!bySender.has(row.from_address)) bySender.set(row.from_address, []);
@@ -286,6 +333,7 @@ class EthereumMonitor {
     for (const [sender, transactions] of bySender) {
       transactions.sort((a, b) => Number(a.nonce) - Number(b.nonce));
       const first = transactions[0];
+      const queueNonces = new Set(queueRows.filter(row => row.from_address === sender).map(row => Number(row.nonce)));
       const ageMinutes = (Date.now() - new Date(first.first_seen).getTime()) / 60_000;
       const pendingRule = this.rule('pending');
       if (pendingRule.enabled && ageMinutes >= Number(pendingRule.afterMinutes || 15) && await this.verifyStillPending(first)) {
@@ -301,22 +349,48 @@ class EthereumMonitor {
       }
 
       const blockerRule = this.rule('blocker');
-      if (transactions.length > 1 && blockerRule.enabled && ageMinutes >= Number(blockerRule.afterMinutes || 15)) {
-        const higher = transactions.slice(1);
-        const [blockerLive, followerLive] = await Promise.all([
-          this.verifyStillPending(first),
-          Promise.any(higher.map(tx => this.verifyStillPending(tx).then(value => value ? tx : Promise.reject()))).catch(() => null),
-        ]);
-        if (blockerLive && followerLive) {
-          const body = `TX ${first.hash} (nonce ${first.nonce}) is still pending and is blocking ${higher.length} higher-nonce transaction${higher.length === 1 ? '' : 's'}.`;
+      const knownHigher = transactions.filter(tx => Number(tx.nonce) > Number(first.nonce));
+      const higherCount = new Set([...knownHigher.map(tx => Number(tx.nonce)), ...[...queueNonces].filter(nonce => nonce > Number(first.nonce))]).size;
+      if (higherCount > 0 && blockerRule.enabled && ageMinutes >= Number(blockerRule.afterMinutes || 15)) {
+        const blockerLive = await this.verifyStillPending(first);
+        if (blockerLive) {
+          const body = `TX ${first.hash} (nonce ${first.nonce}) is still pending and is blocking ${higherCount} higher-nonce transaction${higherCount === 1 ? '' : 's'}.`;
           await deliverAlert({
             kind: 'blocker', scopeKey: first.hash,
-            title: `URGENT: ${first.hash} is blocking ${higher.length} transaction${higher.length === 1 ? '' : 's'}`,
+            title: `URGENT: ${first.hash} is blocking ${higherCount} transaction${higherCount === 1 ? '' : 's'}`,
             body, tx: first, settings: this.settings, rule: blockerRule, urgent: true,
-            extra: { blockedCount: higher.length, currentGasGwei: round(this.currentGasGwei) },
+            extra: { blockedCount: higherCount, currentGasGwei: round(this.currentGasGwei) },
           });
         }
       }
+    }
+  }
+
+  async evaluateUnknownQueueAlerts(queueRows = []) {
+    const groups = new Map();
+    for (const row of queueRows) {
+      if (!groups.has(row.from_address)) groups.set(row.from_address, []);
+      groups.get(row.from_address).push(row);
+    }
+    for (const [address, rows] of groups) {
+      rows.sort((a, b) => Number(a.nonce) - Number(b.nonce));
+      const first = rows[0];
+      if (!first || first.has_full_transaction) continue;
+      const blockedCount = rows.length - 1;
+      const rule = this.rule(blockedCount ? 'blocker' : 'pending');
+      const ageMinutes = (Date.now() - new Date(first.first_seen).getTime()) / 60_000;
+      if (!rule.enabled || ageMinutes < Number(rule.afterMinutes || 15)) continue;
+      const label = this.settings.labels?.[address] || address;
+      const body = blockedCount
+        ? `Nonce ${first.nonce} is the first unresolved transaction for ${label} and is blocking ${blockedCount} higher-nonce transaction${blockedCount === 1 ? '' : 's'}. Its hash was not exposed by the connected RPC; inspect the wallet queue and boost or cancel it in the signing system.`
+        : `Nonce ${first.nonce} is unresolved for ${label}. Its hash was not exposed by the connected RPC; inspect the wallet queue before taking action.`;
+      await deliverAlert({
+        kind: blockedCount ? 'queue_blocker' : 'queue_pending', scopeKey: `${address}:${first.nonce}`,
+        title: blockedCount ? `URGENT: nonce ${first.nonce} is blocking ${blockedCount} transaction${blockedCount === 1 ? '' : 's'}` : `Pending nonce ${first.nonce} requires attention`,
+        body, settings: this.settings, rule, urgent: Boolean(blockedCount),
+        extra: { wallet: label, nonce: Number(first.nonce), blockedCount },
+        url: `https://etherscan.io/txsPending?a=${address}&m=hf`,
+      });
     }
   }
 
@@ -407,6 +481,9 @@ class EthereumMonitor {
       lastConfirmedBlock: this.lastConfirmedBlock,
       lastConfirmedBlockAt: this.lastConfirmedBlockAt ? new Date(this.lastConfirmedBlockAt).toISOString() : null,
       blockScanning: this.blockScanning,
+      queueCount: this.queueCount,
+      lastQueueAt: this.lastQueueAt ? new Date(this.lastQueueAt).toISOString() : null,
+      queueError: this.queueError || null,
       gasStation: this.gasStation,
       solanaGasStation: this.solanaGasStation,
       error: this.lastError || null,
