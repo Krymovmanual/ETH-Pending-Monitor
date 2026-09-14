@@ -2,6 +2,10 @@
 
 Start with [USERS-v11.md](USERS-v11.md). It supersedes the deployment instructions below for authentication, hosting and credentials.
 
+## v20 — Organizations & Roles
+
+Company workspaces now support `owner`, `admin`, `operator` and `viewer` roles, email invitations, workspace switching and a dedicated organization audit trail. Wallets, alerts, transactions and encrypted exchange connections are shared through the active organization while authorization is enforced on Railway. Existing users are migrated automatically and no new environment variables are required. See [ORGANIZATIONS-v20.md](ORGANIZATIONS-v20.md).
+
 # Treasury Operations Center
 
 Digital asset operations dashboard for wallets, transactions, gas, and market monitoring, with an optional 24/7 Railway backend. The repository and deployment URLs retain the `ETH-Pending-Monitor` name.

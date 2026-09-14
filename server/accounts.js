@@ -46,7 +46,7 @@ function createAccounts(pool,auth){
   }
   function routes(app){
     app.get('/api/connections',auth.requireUser,async(req,res)=>res.json({items:await list()}));
-    app.post('/api/connections',auth.requireUser,async(req,res)=>{
+    app.post('/api/connections',auth.requireUser,auth.requireRole('admin'),async(req,res)=>{
       await auth.factor(req);await auth.limit('connection:'+req.user.id,5,300);
       const exchange=String(req.body?.exchange||'bitget').trim().toLowerCase(),meta=definition(exchange);
       if(!meta)throw fail(400,'Choose a supported exchange');
@@ -60,18 +60,18 @@ function createAccounts(pool,auth){
       }
       const id=crypto.randomUUID();
       await auth.tx(async client=>{
-        await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE',[req.user.id]);
-        const n=(await client.query('SELECT COUNT(*) AS count FROM exchange_connections WHERE user_id=$1',[req.user.id])).rows[0].count;
-        if(Number(n)>=12)throw fail(400,'This beta supports up to 12 exchange connections per user');
-        await client.query("INSERT INTO exchange_connections(id,user_id,exchange,name,key_hint,credentials,last_checked) VALUES($1,$2,$3,$4,$5,$6,NOW())",[id,req.user.id,exchange,name,'••••'+credentials.apiKey.slice(-4),seal(credentials,aad(req.user.id,id))]);
-      });await auth.audit(req.user.id,`exchange_${exchange}_added`,req);res.status(201).json({id,name,exchange});
+        const owner=userId();await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE',[owner]);
+        const n=(await client.query('SELECT COUNT(*) AS count FROM exchange_connections WHERE user_id=$1',[owner])).rows[0].count;
+        if(Number(n)>=12)throw fail(400,'This beta supports up to 12 exchange connections per workspace');
+        await client.query("INSERT INTO exchange_connections(id,user_id,exchange,name,key_hint,credentials,last_checked) VALUES($1,$2,$3,$4,$5,$6,NOW())",[id,owner,exchange,name,'••••'+credentials.apiKey.slice(-4),seal(credentials,aad(owner,id))]);
+      });await auth.audit(req.user.id,`exchange_${exchange}_added`,req);await auth.auditOrganization(req,`exchange_${exchange}_added`,'exchange_connection',id,{name});res.status(201).json({id,name,exchange});
     });
-    app.delete('/api/connections/:id',auth.requireUser,async(req,res)=>{
+    app.delete('/api/connections/:id',auth.requireUser,auth.requireRole('admin'),async(req,res)=>{
       await auth.factor(req);
       if(!/^[a-f0-9-]{36}$/i.test(req.params.id))throw fail(404,'Connection not found');
-      const r=await pool.query('DELETE FROM exchange_connections WHERE user_id=$1 AND id=$2 RETURNING id',[req.user.id,req.params.id]);
+      const r=await pool.query('DELETE FROM exchange_connections WHERE user_id=$1 AND id=$2 RETURNING id',[userId(),req.params.id]);
       if(!r.rowCount)throw fail(404,'Connection not found');cache.delete(req.params.id);
-      await auth.audit(req.user.id,'exchange_removed',req);res.json({success:true});
+      await auth.audit(req.user.id,'exchange_removed',req);await auth.auditOrganization(req,'exchange_removed','exchange_connection',req.params.id);res.json({success:true});
     });
   }
   return {all,summary,routes};

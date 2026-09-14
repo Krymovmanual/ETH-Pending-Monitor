@@ -15,10 +15,18 @@
 .security-page .account-panel p { color: #91a39c; font-size: .79rem; line-height: 1.55; }
 .security-page .account-panel label { color: #9aaca5; font-size: .74rem; }
 .security-page .account-panel input { min-height: 44px; color: #edf5f1; border-color: #2a3732; background: #101815; font-family: "IBM Plex Mono",ui-monospace,monospace; }
+.security-page .account-panel select,.workspace-switcher select { min-height: 42px; padding: 0 36px 0 12px; color: #dce8e2; border: 1px solid #2a3732; border-radius: 8px; background: #101815; font: 500 .74rem "DM Sans",sans-serif; }
 .security-page .account-panel button { min-height: 38px; border-radius: 8px; }
 .security-page .security-row { border-color: #22302a; }
 .security-page .secret-output { color: #8ce9bb; border: 1px solid #263a31; background: #08100d; font-family: "IBM Plex Mono",ui-monospace,monospace; font-size: .75rem; }
 .security-page #securityStatus { border-color: #315947; background: #102019; }
+.workspace-subsection { margin-top: 20px; padding-top: 18px; border-top: 1px solid #22302a; }
+.workspace-subsection h3,#inviteMember h3 { margin: 0 0 10px; font-size: .82rem; }
+#inviteMember { margin-top: 20px; padding-top: 18px; border-top: 1px solid #22302a; }
+.member-controls { display: flex; gap: 8px; align-items: center; }
+.member-controls button { margin: 0; }
+.workspace-switcher { margin: 0 auto 0 0; }
+.workspace-switcher select { min-width: 210px; }
 
 .auth-page { min-height: 100vh; background: radial-gradient(circle at 15% 20%,rgba(47,123,88,.18),transparent 32%),radial-gradient(circle at 90% 0,rgba(98,126,234,.1),transparent 28%),#070b0a; }
 .auth-shell { width: min(1100px,calc(100% - 40px)); max-width: none; min-height: 100vh; margin: 0 auto; padding: 42px 0; display: grid; grid-template-columns: minmax(0,1.05fr) minmax(390px,.72fr); gap: clamp(42px,8vw,110px); align-items: center; }

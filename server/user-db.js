@@ -1,7 +1,12 @@
 const {AsyncLocalStorage}=require('node:async_hooks');
 const context=new AsyncLocalStorage();
-function userId(){const id=context.getStore();if(!id)throw new Error('User context is required');return id;}
-function forUser(id,work){if(!id)throw new Error('User context is required');return context.run(id,work);}
+function scope(){const value=context.getStore();if(!value)throw new Error('User context is required');return typeof value==='string'?{userId:value,actorUserId:value,organizationId:null,role:'owner'}:value;}
+function userId(){return scope().userId;}
+function actorUserId(){return scope().actorUserId;}
+function organizationId(){return scope().organizationId;}
+function role(){return scope().role;}
+function forUser(id,work){if(!id)throw new Error('User context is required');return context.run({userId:id,actorUserId:id,organizationId:null,role:'owner'},work);}
+function forOrganization(value,work){if(!value?.dataOwnerId||!value?.actorUserId||!value?.organizationId)throw new Error('Organization context is required');return context.run({userId:value.dataOwnerId,actorUserId:value.actorUserId,organizationId:value.organizationId,role:value.role},work);}
 function mergeSettings(defaults,value){
   if(Array.isArray(value))return structuredClone(value);
   if(!value||typeof value!=='object')return value===undefined?structuredClone(defaults):value;
@@ -35,9 +40,9 @@ function scopedDatabase(pool,defaults){
     async recordAlert(kind,key){await q('INSERT INTO user_alert_log(user_id,kind,scope_key) VALUES($1,$2,$3) ON CONFLICT(user_id,kind,scope_key) DO UPDATE SET last_sent=NOW()',[kind,key]);},
     async savePushSubscription(subscription,sessionHash){await q(`INSERT INTO user_push_subscriptions(user_id,endpoint,subscription,session_hash) VALUES($1,$2,$3::jsonb,$4)
       ON CONFLICT(endpoint) DO UPDATE SET user_id=EXCLUDED.user_id,subscription=EXCLUDED.subscription,session_hash=EXCLUDED.session_hash`,[subscription.endpoint,JSON.stringify(subscription),sessionHash]);},
-    async allPushSubscriptions(){return(await q(`SELECT p.endpoint,p.subscription FROM user_push_subscriptions p JOIN sessions s ON s.id_hash=p.session_hash
-      WHERE p.user_id=$1 AND s.user_id=$1 AND s.authenticated=TRUE AND s.expires_at>NOW() AND s.last_seen>NOW()-INTERVAL '24 hours'`)).rows;},
+    async allPushSubscriptions(){const organization=organizationId();return(await q(`SELECT p.endpoint,p.subscription FROM user_push_subscriptions p JOIN sessions s ON s.id_hash=p.session_hash
+      WHERE p.user_id=$1 AND ($2::uuid IS NULL OR s.active_organization_id=$2) AND s.authenticated=TRUE AND s.expires_at>NOW() AND s.last_seen>NOW()-INTERVAL '24 hours'`,[organization])).rows;},
     async deletePushSubscription(endpoint){await q('DELETE FROM user_push_subscriptions WHERE user_id=$1 AND endpoint=$2',[endpoint]);},
   };
 }
-module.exports={forUser,userId,scopedDatabase};
+module.exports={forUser,forOrganization,userId,actorUserId,organizationId,role,scopedDatabase};

@@ -13,8 +13,11 @@
     if(url.origin===location.origin&&url.pathname.startsWith('/api/')){
       const headers=new Headers(options.headers||{});if(csrf)headers.set('X-CSRF-Token',csrf);
       if(window.Treasury?.user)headers.set('X-Workspace-User',Treasury.user.id);
+      if(window.Treasury?.organization)headers.set('X-Workspace-Organization',Treasury.organization.id);
       const response=await nativeFetch(input,{...options,headers,credentials:'same-origin',cache:'no-store'});
-      if([401,409].includes(response.status) && ['SESSION_REQUIRED','SESSION_CHANGED'].includes((await response.clone().json().catch(()=>({}))).code)){signOutView();throw Error('Session changed or expired');}
+      const code=[401,409].includes(response.status)?(await response.clone().json().catch(()=>({}))).code:null;
+      if(code==='WORKSPACE_CHANGED'){location.reload();throw Error('Workspace changed');}
+      if(['SESSION_REQUIRED','SESSION_CHANGED'].includes(code)){signOutView();throw Error('Session changed or expired');}
       return response;
     }
     return nativeFetch(input,options);
@@ -57,7 +60,9 @@
     if(response.status===401){location.replace('auth.html');return;}
     if(!response.ok)throw Error('Open the cabinet on your Railway domain. The account service is unavailable here.');
     const body=await response.json();csrf=body.csrf;
-    window.Treasury={user:body.user,storage,csrf:()=>csrf,logout:async()=>{
+    window.Treasury={user:body.user,organization:body.organization,organizations:body.organizations||[],storage,csrf:()=>csrf,can:(minimum)=>{
+      const levels={viewer:0,operator:1,admin:2,owner:3};return levels[body.organization?.role]>=levels[minimum];
+    },logout:async()=>{
       await fetch('/api/auth/logout',{method:'POST'});authChannel?.postMessage('logout');signOutView();
     }};
     const results=await Promise.all([fetch('/api/settings'),fetch('/api/preferences')]);
@@ -78,12 +83,17 @@
     localStorage.removeItem('eth-pending-monitor-backend-token');
     mountAppRail();
     const bar=document.createElement('div');bar.className='session-bar';
+    const workspace=document.createElement('label');workspace.className='workspace-switcher';workspace.title='Active workspace';
+    const workspaceSelect=document.createElement('select');workspaceSelect.setAttribute('aria-label','Active workspace');
+    for(const item of body.organizations||[]){const option=document.createElement('option');option.value=item.id;option.textContent=`${item.name} · ${item.role}`;option.selected=item.id===body.organization?.id;workspaceSelect.append(option);}
+    workspaceSelect.onchange=async()=>{workspaceSelect.disabled=true;try{const response=await fetch('/api/organizations/switch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({organizationId:workspaceSelect.value})});if(!response.ok)throw Error((await response.json()).error||'Workspace switch failed');location.reload();}catch(error){workspaceSelect.disabled=false;status.textContent=error.message;}};
+    workspace.append(workspaceSelect);
     const email=document.createElement('span');email.textContent=body.user.email;
     const link=document.createElement('a');link.href='security.html';link.textContent='Security & accounts';
     const status=document.createElement('span');status.id='sessionStatus';status.setAttribute('role','status');
     const logout=document.createElement('button');logout.type='button';logout.className='secondary';logout.textContent='Sign out';logout.onclick=()=>Treasury.logout();
-    bar.append(email,link,status,logout);document.body.prepend(bar);requestAnimationFrame(()=>document.body.classList.remove('app-loading'));
-    const script=document.createElement('script');script.src=moduleName+'?v=19';document.body.append(script);
+    bar.append(workspace,email,link,status,logout);document.body.prepend(bar);requestAnimationFrame(()=>document.body.classList.remove('app-loading'));
+    const script=document.createElement('script');script.src=moduleName+'?v=20';document.body.append(script);
   }
   start().catch(error=>{
     document.body.classList.remove('app-loading');

@@ -218,12 +218,14 @@ app.get('/api/settings', auth.requireUser, async (req, res, next) => {
   try { res.json(await db.getSettings()); } catch (error) { next(error); }
 });
 
-app.put('/api/settings', auth.requireUser, async (req, res, next) => {
+app.put('/api/settings', auth.requireUser, auth.requireRole('admin'), async (req, res, next) => {
   try {
-    const settings = sanitizeSettings({...req.body, email:req.user.email});
+    const owner=(await db.pool.query('SELECT email FROM users WHERE id=$1',[req.organization.dataOwnerId])).rows[0];
+    const settings = sanitizeSettings({...req.body, email:owner?.email||req.user.email});
     await db.saveSettings(settings);
-    await monitors.ensure(req.user.id,settings);
+    await monitors.ensure(req.organization.dataOwnerId,settings);
     await auth.audit(req.user.id,'settings_updated',req);
+    await auth.auditOrganization(req,'settings_updated','workspace',req.organization.id);
     res.json({ success: true, settings });
   } catch (error) {
     if (/Enter /.test(error.message)) return res.status(400).json({ error: error.message });
@@ -232,7 +234,7 @@ app.put('/api/settings', auth.requireUser, async (req, res, next) => {
 });
 
 app.get('/api/transactions', auth.requireUser, async (req, res, next) => {
-  try { res.json({ items: await db.recentTransactions(req.query.limit), monitor: monitors.get(req.user.id).getStatus() }); } catch (error) { next(error); }
+  try { res.json({ items: await db.recentTransactions(req.query.limit), monitor: monitors.get(req.organization.dataOwnerId).getStatus() }); } catch (error) { next(error); }
 });
 
 app.get('/api/gas-analytics', auth.requireUser, async (req, res, next) => {
@@ -241,7 +243,7 @@ app.get('/api/gas-analytics', auth.requireUser, async (req, res, next) => {
     const summary = await db.gasAnalyticsSummary(safeTimezone(settings.timezone));
     const current = gasAnalytics.status().current;
     const analyticsStatus = gasAnalytics.status();
-    const monitorStatus = monitors.get(req.user.id).status();
+    const monitorStatus = monitors.get(req.organization.dataOwnerId).status();
     const minutes = Number(summary.baseline.minutes) || 0;
     let recommendation = { level: 'collecting', label: 'Building baseline', confidence: 'Low' };
     if (current && minutes >= 60) {
@@ -375,7 +377,7 @@ app.post('/api/push/subscribe', auth.requireUser, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.post('/api/test-push', auth.requireUser, async (req, res, next) => {
+app.post('/api/test-push', auth.requireUser, auth.requireRole('operator'), async (req, res, next) => {
   try {
     if (!hasPushConfiguration()) return res.status(503).json({ error: 'Web Push is not configured on the server' });
     const requestedUrl = String(req.body?.url || '');
@@ -394,7 +396,7 @@ app.post('/api/test-push', auth.requireUser, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.post('/api/test-email', auth.requireUser, async (req, res, next) => {
+app.post('/api/test-email', auth.requireUser, auth.requireRole('operator'), async (req, res, next) => {
   try {
     const email = req.user.email;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
@@ -407,7 +409,7 @@ app.post('/api/test-email', auth.requireUser, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.post('/api/test-telegram', auth.requireUser, async (req, res, next) => {
+app.post('/api/test-telegram', auth.requireUser, auth.requireRole('operator'), async (req, res, next) => {
   try {
     if (!hasTelegramConfiguration()) return res.status(503).json({ error: 'Telegram bot is not configured on the server' });
     const chatId = String(req.body?.chatId || '').trim();
@@ -427,7 +429,7 @@ app.put('/api/preferences',auth.requireUser,async(req,res)=>{
   const value={};for(const key of allowed)if(typeof req.body?.[key]==='string'&&req.body[key].length<=20000)value[key]=req.body[key];
   await db.saveMonitorState('ui_preferences',value);res.json({success:true});
 });
-app.post('/api/owner/import',auth.requireUser,async(req,res)=>{
+app.post('/api/owner/import',auth.requireUser,auth.requireRole('owner'),async(req,res)=>{
   if(!process.env.BOOTSTRAP_OWNER_EMAIL||req.user.email!==process.env.BOOTSTRAP_OWNER_EMAIL.trim().toLowerCase())return res.status(403).json({error:'Owner access required'});
   await auth.factor(req);
   await auth.tx(async client=>{
@@ -440,7 +442,7 @@ app.post('/api/owner/import',auth.requireUser,async(req,res)=>{
     await client.query("INSERT INTO user_monitor_state(user_id,key,value) SELECT $1,key,value FROM monitor_state ON CONFLICT(user_id,key) DO NOTHING",[req.user.id]);
     await client.query('UPDATE users SET legacy_imported=TRUE WHERE id=$1',[req.user.id]);
   });
-  await monitors.ensure(req.user.id,await db.getSettings());await auth.audit(req.user.id,'legacy_imported',req);res.json({success:true});
+  await monitors.ensure(req.user.id,await db.getSettings());await auth.audit(req.user.id,'legacy_imported',req);await auth.auditOrganization(req,'legacy_workspace_imported','workspace',req.organization.id);res.json({success:true});
 });
 
 app.use((error, _req, res, _next) => {

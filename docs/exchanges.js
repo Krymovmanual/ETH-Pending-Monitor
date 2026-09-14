@@ -3,6 +3,7 @@ const BACKEND_TOKEN_KEY = 'eth-pending-monitor-backend-token';
 const SELECTION_KEY = 'treasury-exchange-selection';
 const VIEW_KEY = 'treasury-exchange-view';
 const REFRESH_MS = 30_000;
+const canManageWorkspace = typeof Treasury.can==='function' ? Treasury.can('admin') : true;
 
 const state = {
   data: null,
@@ -343,11 +344,14 @@ el.refresh.addEventListener('click', () => loadData({ force:true }));
 el.pendingUpdate.addEventListener('click', () => state.pendingData && applyData(state.pendingData));
 
 function openAddExchange() {
+  if (!canManageWorkspace) return;
   el.addError.textContent = '';
   el.addDialog.showModal();
   el.addForm.elements.name.focus();
 }
-document.querySelector('#openAddExchange').addEventListener('click', openAddExchange);
+const addExchangeButton=document.querySelector('#openAddExchange');
+addExchangeButton.hidden=!canManageWorkspace;
+addExchangeButton.addEventListener('click', openAddExchange);
 
 const exchangeFormOptions = {
   bitget:{name:'Bitget Main',passphrase:true,text:'API key is <strong>Read-only</strong>; Unified account → <strong>Manage</strong> and <strong>Trade</strong> data access are enabled; transfers and withdrawals are disabled.'},
@@ -411,7 +415,7 @@ for (const eventName of ['wheel', 'touchmove', 'pointerdown', 'keydown']) {
 
 render({ preserveScroll:false });
 loadData();
-if (location.hash === '#add') {
+if (location.hash === '#add' && canManageWorkspace) {
   history.replaceState(null, '', `${location.pathname}${location.search}`);
   openAddExchange();
 }

@@ -2,7 +2,7 @@ const crypto=require('node:crypto');
 const fs=require('node:fs');
 const path=require('node:path');
 const c=require('./crypto');
-const {forUser}=require('../user-db');
+const {forOrganization}=require('../user-db');
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 const publicUser=u=>({id:u.id,email:u.email,twoFactorEnabled:Boolean(u.totp_secret),verified:Boolean(u.verified_at)});
 const cookieName=()=>process.env.NODE_ENV==='development'?'toc_session':'__Host-toc_session';
@@ -11,8 +11,27 @@ function cookie(req){return String(req.headers.cookie||'').split(';').map(x=>x.t
 function setCookie(res,value,maxAge=7*86400000){res.cookie(cookieName(),value,{httpOnly:true,secure:process.env.NODE_ENV!=='development',sameSite:'lax',path:'/',maxAge});}
 function createAuth(pool,sendMail){
   const audit=(id,event,req)=>pool.query('INSERT INTO security_events(user_id,event,ip) VALUES($1,$2,$3)',[id,event,String(req?.ip||'').slice(0,100)]);
+  const roles={viewer:0,operator:1,admin:2,owner:3};
+  const auditOrganization=(req,event,targetType=null,targetId=null,metadata={})=>pool.query(
+    `INSERT INTO organization_audit_log(organization_id,actor_user_id,event,target_type,target_id,metadata,ip)
+     VALUES($1,$2,$3,$4,$5,$6::jsonb,$7)`,
+    [req.organization.id,req.user.id,event,targetType,targetId,JSON.stringify(metadata||{}),String(req.ip||'').slice(0,100)],
+  );
   async function tx(work){const client=await pool.connect();try{await client.query('BEGIN');const result=await work(client);await client.query('COMMIT');return result;}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
-  async function initialize(){c.encryptionKey();appOrigin();await pool.query(fs.readFileSync(path.join(__dirname,'schema.sql'),'utf8'));}
+  async function initialize(){
+    c.encryptionKey();appOrigin();await pool.query(fs.readFileSync(path.join(__dirname,'schema.sql'),'utf8'));
+    const missing=(await pool.query(`SELECT u.id,u.email FROM users u LEFT JOIN organizations o ON o.owner_user_id=u.id WHERE o.id IS NULL`)).rows;
+    for(const user of missing){
+      const id=crypto.randomUUID(),local=String(user.email).split('@')[0].replace(/[._-]+/g,' ').trim();
+      await tx(async client=>{
+        await client.query('INSERT INTO organizations(id,name,owner_user_id) VALUES($1,$2,$3) ON CONFLICT(owner_user_id) DO NOTHING',[id,`${local||'Personal'} Treasury`,user.id]);
+        await client.query(`INSERT INTO organization_members(organization_id,user_id,role)
+          SELECT id,$1,'owner' FROM organizations WHERE owner_user_id=$1 ON CONFLICT DO NOTHING`,[user.id]);
+      });
+    }
+    await pool.query(`INSERT INTO organization_members(organization_id,user_id,role)
+      SELECT id,owner_user_id,'owner' FROM organizations ON CONFLICT DO NOTHING`);
+  }
   async function limit(key,max,seconds=900,weight=1){
     const r=await pool.query(`INSERT INTO request_limits(key,count,reset_at) VALUES($1,$3,NOW()+$2*INTERVAL '1 second')
       ON CONFLICT(key) DO UPDATE SET count=CASE WHEN request_limits.reset_at<NOW() THEN EXCLUDED.count ELSE request_limits.count+EXCLUDED.count END,
@@ -28,18 +47,28 @@ function createAuth(pool,sendMail){
     const value=cookie(req);if(!/^[A-Za-z0-9_-]{43}$/.test(value))return null;
     const r=await pool.query(`SELECT s.*,u.email,u.verified_at,u.totp_secret,u.legacy_imported FROM sessions s JOIN users u ON u.id=s.user_id
       WHERE s.id_hash=$1 AND s.expires_at>NOW() AND s.last_seen>NOW()-INTERVAL '24 hours'`,[c.hash(value)]);
-    return r.rows[0]||null;
+    const session=r.rows[0]||null;if(!session)return null;
+    let membership=(await pool.query(`SELECT o.id,o.name,o.owner_user_id,m.role FROM organization_members m
+      JOIN organizations o ON o.id=m.organization_id WHERE m.user_id=$1 AND o.id=$2`,[session.user_id,session.active_organization_id])).rows[0];
+    if(!membership)membership=(await pool.query(`SELECT o.id,o.name,o.owner_user_id,m.role FROM organization_members m
+      JOIN organizations o ON o.id=m.organization_id WHERE m.user_id=$1 ORDER BY CASE m.role WHEN 'owner' THEN 0 ELSE 1 END,m.joined_at LIMIT 1`,[session.user_id])).rows[0];
+    if(!membership)return null;
+    if(session.active_organization_id!==membership.id)await pool.query('UPDATE sessions SET active_organization_id=$2 WHERE id_hash=$1',[session.id_hash,membership.id]);
+    session.organization=membership;return session;
   }
   async function requireUser(req,res,next){try{
     const session=await loadSession(req);
     if(!session?.authenticated||!session.verified_at)return res.status(401).json({error:'Sign in required',code:'SESSION_REQUIRED'});
     if(req.headers['x-workspace-user']&&req.headers['x-workspace-user']!==session.user_id)return res.status(409).json({error:'Account changed in another tab',code:'SESSION_CHANGED'});
+    if(req.headers['x-workspace-organization']&&req.headers['x-workspace-organization']!==session.organization.id)return res.status(409).json({error:'Workspace changed in another tab',code:'WORKSPACE_CHANGED'});
     if(!['GET','HEAD'].includes(req.method)&&!c.same(req.headers['x-csrf-token']||'',session.csrf))return res.status(403).json({error:'Session verification failed; reload the page'});
     req.user={id:session.user_id,email:session.email,twoFactorEnabled:Boolean(session.totp_secret),canImportLegacy:!session.legacy_imported&&Boolean(process.env.BOOTSTRAP_OWNER_EMAIL)&&session.email===process.env.BOOTSTRAP_OWNER_EMAIL.trim().toLowerCase()};req.session=session;
+    req.organization={id:session.organization.id,name:session.organization.name,role:session.organization.role,dataOwnerId:session.organization.owner_user_id};
     await limit('api:'+session.user_id,300,60);
     await pool.query('UPDATE sessions SET last_seen=NOW() WHERE id_hash=$1',[session.id_hash]);
-    forUser(session.user_id,()=>next());
+    forOrganization({dataOwnerId:req.organization.dataOwnerId,actorUserId:req.user.id,organizationId:req.organization.id,role:req.organization.role},()=>next());
   }catch(error){next(error);}}
+  const requireRole=minimum=>(req,res,next)=>roles[req.organization?.role]>=roles[minimum]?next():res.status(403).json({error:`${minimum[0].toUpperCase()+minimum.slice(1)} access required`,code:'ROLE_REQUIRED'});
   async function newSession(req,res,user,authenticated){
     const raw=c.token(),csrf=c.token();
     await pool.query(`INSERT INTO sessions(id_hash,user_id,csrf,authenticated,expires_at,ip,user_agent)
@@ -78,7 +107,10 @@ function createAuth(pool,sendMail){
         const existing=(await client.query('SELECT id FROM users WHERE email=$1',[email])).rows[0];if(existing)return null;
         const count=(await client.query('SELECT COUNT(*) AS count FROM users')).rows[0].count;
         if(Number(count)>=Number(process.env.MAX_USERS||25))throw fail(503,'Registration capacity reached');
-        const id=crypto.randomUUID();await client.query('INSERT INTO users(id,email,password_hash) VALUES($1,$2,$3)',[id,email,password]);return {id,email};
+        const id=crypto.randomUUID(),organizationId=crypto.randomUUID();await client.query('INSERT INTO users(id,email,password_hash) VALUES($1,$2,$3)',[id,email,password]);
+        await client.query('INSERT INTO organizations(id,name,owner_user_id) VALUES($1,$2,$3)',[organizationId,`${email.split('@')[0].replace(/[._-]+/g,' ')} Treasury`,id]);
+        await client.query("INSERT INTO organization_members(organization_id,user_id,role) VALUES($1,$2,'owner')",[organizationId,id]);
+        return {id,email};
       });
       if(user){await emailToken(user,'verify');await audit(user.id,'registered',req);}
       res.json({message:'If registration is available for this email, a confirmation link has been sent. You can also request another verification email.'});
@@ -133,7 +165,11 @@ function createAuth(pool,sendMail){
         await client.query("INSERT INTO security_events(user_id,event) VALUES($1,'password_reset')",[row.user_id]);
       });setCookie(res,'',0);res.json({message:'Password updated. Sign in again.'});
     });
-    router.get('/api/auth/me',requireUser,(req,res)=>res.json({user:req.user,csrf:req.session.csrf}));
+    router.get('/api/auth/me',requireUser,async(req,res)=>{
+      const organizations=(await pool.query(`SELECT o.id,o.name,m.role FROM organization_members m JOIN organizations o ON o.id=m.organization_id
+        WHERE m.user_id=$1 ORDER BY CASE m.role WHEN 'owner' THEN 0 ELSE 1 END,o.name`,[req.user.id])).rows;
+      res.json({user:req.user,organization:{id:req.organization.id,name:req.organization.name,role:req.organization.role},organizations,csrf:req.session.csrf});
+    });
     router.post('/api/auth/logout',requireUser,async(req,res)=>{
       await pool.query('DELETE FROM sessions WHERE id_hash=$1',[req.session.id_hash]);await audit(req.user.id,'logout',req);setCookie(res,'',0);res.json({success:true});
     });
@@ -189,7 +225,69 @@ function createAuth(pool,sendMail){
         await client.query('DELETE FROM sessions WHERE user_id=$1',[user.id]);
       });await audit(req.user.id,'2fa_disabled',req);setCookie(res,'',0);res.json({success:true});
     });
+    router.post('/api/organizations/switch',requireUser,async(req,res)=>{
+      const id=String(req.body?.organizationId||'');
+      const membership=(await pool.query('SELECT role FROM organization_members WHERE organization_id=$1 AND user_id=$2',[id,req.user.id])).rows[0];
+      if(!membership)throw fail(404,'Workspace not found');
+      await pool.query('UPDATE sessions SET active_organization_id=$2 WHERE id_hash=$1',[req.session.id_hash,id]);
+      res.json({success:true});
+    });
+    router.get('/api/organizations/current',requireUser,async(req,res)=>{
+      const members=(await pool.query(`SELECT u.id,u.email,m.role,m.joined_at FROM organization_members m JOIN users u ON u.id=m.user_id
+        WHERE m.organization_id=$1 ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 WHEN 'operator' THEN 2 ELSE 3 END,u.email`,[req.organization.id])).rows;
+      const invitations=roles[req.organization.role]>=roles.admin?(await pool.query(`SELECT id,email,role,expires_at,created_at FROM organization_invitations
+        WHERE organization_id=$1 AND accepted_at IS NULL AND expires_at>NOW() ORDER BY created_at DESC`,[req.organization.id])).rows:[];
+      res.json({organization:{id:req.organization.id,name:req.organization.name,role:req.organization.role},members,invitations});
+    });
+    router.patch('/api/organizations/current',requireUser,requireRole('admin'),async(req,res)=>{
+      const name=String(req.body?.name||'').trim();if(name.length<2||name.length>80)throw fail(400,'Use a workspace name with 2–80 characters');
+      await pool.query('UPDATE organizations SET name=$2,updated_at=NOW() WHERE id=$1',[req.organization.id,name]);
+      await auditOrganization(req,'workspace_renamed','organization',req.organization.id,{name});res.json({success:true,name});
+    });
+    router.post('/api/organizations/invitations',requireUser,requireRole('admin'),async(req,res)=>{
+      const email=String(req.body?.email||'').trim().toLowerCase(),role=String(req.body?.role||'viewer');
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>254)throw fail(400,'Enter a valid email');
+      if(!['admin','operator','viewer'].includes(role)||(role==='admin'&&req.organization.role!=='owner'))throw fail(400,'Choose an allowed role');
+      if((await pool.query(`SELECT 1 FROM organization_members m JOIN users u ON u.id=m.user_id WHERE m.organization_id=$1 AND u.email=$2`,[req.organization.id,email])).rowCount)throw fail(409,'This person already belongs to the workspace');
+      const raw=c.token(),id=crypto.randomUUID();
+      await tx(async client=>{
+        await client.query('DELETE FROM organization_invitations WHERE organization_id=$1 AND email=$2 AND accepted_at IS NULL',[req.organization.id,email]);
+        await client.query(`INSERT INTO organization_invitations(id,organization_id,email,role,token_hash,created_by,expires_at)
+          VALUES($1,$2,$3,$4,$5,$6,NOW()+INTERVAL '7 days')`,[id,req.organization.id,email,role,c.hash(raw),req.user.id]);
+      });
+      try{await sendMail(email,`Invitation to ${req.organization.name}`,{workspace:req.organization.name,role,link:`${appOrigin()}/security.html#invite=${raw}`,expires:'7 days'});}
+      catch(error){await pool.query('DELETE FROM organization_invitations WHERE id=$1',[id]);throw fail(503,'Invitation email unavailable. Try again later.');}
+      await auditOrganization(req,'member_invited','invitation',id,{email,role});res.status(201).json({id,email,role});
+    });
+    router.post('/api/organizations/invitations/accept',requireUser,async(req,res)=>{
+      const tokenHash=c.hash(req.body?.token||'');
+      const invitation=(await pool.query(`SELECT i.*,o.name FROM organization_invitations i JOIN organizations o ON o.id=i.organization_id
+        WHERE i.token_hash=$1 AND i.accepted_at IS NULL AND i.expires_at>NOW()`,[tokenHash])).rows[0];
+      if(!invitation)throw fail(400,'Invitation expired or already used');
+      if(invitation.email!==req.user.email)throw fail(403,'Sign in with the email address that received this invitation');
+      await tx(async client=>{
+        await client.query('INSERT INTO organization_members(organization_id,user_id,role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',[invitation.organization_id,req.user.id,invitation.role]);
+        await client.query('UPDATE organization_invitations SET accepted_at=NOW() WHERE id=$1',[invitation.id]);
+        await client.query('UPDATE sessions SET active_organization_id=$2 WHERE id_hash=$1',[req.session.id_hash,invitation.organization_id]);
+        await client.query(`INSERT INTO organization_audit_log(organization_id,actor_user_id,event,target_type,target_id,metadata,ip)
+          VALUES($1,$2,'invitation_accepted','user',$3,$4::jsonb,$5)`,[invitation.organization_id,req.user.id,req.user.id,JSON.stringify({role:invitation.role}),String(req.ip||'').slice(0,100)]);
+      });res.json({success:true,organization:{id:invitation.organization_id,name:invitation.name,role:invitation.role}});
+    });
+    router.patch('/api/organizations/members/:id',requireUser,requireRole('owner'),async(req,res)=>{
+      const role=String(req.body?.role||'');if(!['admin','operator','viewer'].includes(role))throw fail(400,'Choose admin, operator or viewer');
+      const r=await pool.query(`UPDATE organization_members SET role=$3 WHERE organization_id=$1 AND user_id=$2 AND role<>'owner' RETURNING user_id`,[req.organization.id,req.params.id,role]);
+      if(!r.rowCount)throw fail(404,'Member not found');await auditOrganization(req,'member_role_changed','user',req.params.id,{role});res.json({success:true});
+    });
+    router.delete('/api/organizations/members/:id',requireUser,requireRole('owner'),async(req,res)=>{
+      const r=await pool.query(`DELETE FROM organization_members WHERE organization_id=$1 AND user_id=$2 AND role<>'owner' RETURNING user_id`,[req.organization.id,req.params.id]);
+      if(!r.rowCount)throw fail(404,'Member not found');await auditOrganization(req,'member_removed','user',req.params.id);res.json({success:true});
+    });
+    router.get('/api/organizations/audit',requireUser,requireRole('admin'),async(req,res)=>{
+      const rows=(await pool.query(`SELECT a.id,a.event,a.target_type,a.target_id,a.metadata,a.ip,a.created_at,u.email AS actor_email
+        FROM organization_audit_log a LEFT JOIN users u ON u.id=a.actor_user_id WHERE a.organization_id=$1 ORDER BY a.created_at DESC LIMIT 100`,[req.organization.id])).rows;
+      res.json({items:rows});
+    });
   }
-  return {initialize,routes,origin,requireUser,factor,audit,limit,tx,consumeFactor,loadSession};
+  return {initialize,routes,origin,requireUser,requireRole,factor,audit,auditOrganization,limit,tx,consumeFactor,loadSession};
 }
 module.exports={createAuth,appOrigin,fail,publicUser};

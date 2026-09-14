@@ -337,6 +337,8 @@ const el = {
   overviewExposureBody: document.querySelector('#overviewExposureBody'),
   overviewAllocationBody: document.querySelector('#overviewAllocationBody'),
 };
+const canManageWorkspace = typeof Treasury.can==='function' ? Treasury.can('admin') : true;
+[el.settingsButton,el.overviewSettingsButton,el.notificationSettingsButton,el.gasSettingsButton].filter(Boolean).forEach(button=>button.hidden=!canManageWorkspace);
 
 function loadAddresses() {
   try {
@@ -505,7 +507,7 @@ async function connect() {
     if (!el.dialog.open) openSettings();
     return;
   }
-  if (!state.addresses.length && !state.solanaAddresses.length && !state.bitcoinAddresses.length && !el.dialog.open) openSettings();
+  if (canManageWorkspace && !state.addresses.length && !state.solanaAddresses.length && !state.bitcoinAddresses.length && !el.dialog.open) openSettings();
   setConnection('', 'Connecting to Railway…');
   await syncServerTransactions();
   updateGasPrice();

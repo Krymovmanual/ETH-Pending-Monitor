@@ -6,13 +6,18 @@
   <title>Security & accounts · Treasury</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=19"><link rel="stylesheet" href="accounts.css?v=19">
+  <link rel="stylesheet" href="styles.css?v=20"><link rel="stylesheet" href="accounts.css?v=20">
 </head>
 <body class="security-page has-app-rail app-loading">
 <main class="account-shell">
   <header class="security-header"><div><p class="eyebrow">WORKSPACE CONTROL</p><h1>Security & accounts</h1><p class="muted">Identity, credentials and active access in one place.</p></div><span class="security-shield">Protected workspace</span></header>
   <div class="security-layout">
     <div>
+      <section class="panel account-panel" id="workspacePanel"><div class="account-panel-head"><div><span class="eyebrow">ORGANIZATION</span><h2 id="workspaceTitle">Workspace</h2></div><span class="security-chip" id="workspaceRole">—</span></div>
+      <form method="post" id="renameWorkspace"><label>Workspace name<input name="name" minlength="2" maxlength="80" required></label><button disabled>Save name</button></form>
+      <div class="workspace-subsection"><h3>Members</h3><div id="members"></div></div>
+      <form method="post" id="inviteMember"><h3>Invite member</h3><label>Email<input name="email" type="email" autocomplete="email" required></label><label>Role<select name="role"><option value="viewer">Viewer</option><option value="operator">Operator</option><option value="admin">Admin</option></select></label><button disabled>Send invitation</button></form>
+      <div id="invitations"></div></section>
       <section class="panel account-panel security-primary"><div class="account-panel-head"><div><span class="eyebrow">SIGN-IN PROTECTION</span><h2>Two-factor authentication</h2></div><span class="security-chip">Recommended</span></div><p id="factorStatus">Loading…</p>
       <form method="post" id="setupFactor"><label>Current password<input name="password" type="password" autocomplete="current-password" required></label><button disabled>Set up authenticator</button></form>
       <div id="factorSecret" hidden><p>In your authenticator, add an account using this setup key. Keep this key private.</p><pre class="secret-output" id="secretValue"></pre><form method="post" id="enableFactor"><label>Six-digit code<input name="code" autocomplete="one-time-code" pattern="[0-9]{6}" required></label><button disabled>Enable 2FA</button></form></div>
@@ -20,7 +25,8 @@
       <form method="post" id="disableFactor" hidden><label>Current password<input name="password" type="password" autocomplete="current-password" required></label><label>Authenticator or recovery code<input name="code" autocomplete="one-time-code" required></label><button disabled>Disable 2FA and sign out</button></form></section>
       <section class="panel account-panel" id="exchange-accounts"><div class="account-panel-head"><div><span class="eyebrow">ENCRYPTED CONNECTIONS</span><h2>Exchange accounts</h2></div><a class="button-link secondary" href="exchanges.html">Open Accounts</a></div><p>Bitget, Bybit, Gate.io, OKX and Binance credentials are encrypted and kept server-side.</p><div id="connections"></div>
       <form method="post" id="removeConnection" hidden><input name="id" type="hidden"><p id="removeName"></p><label>Fresh authenticator or recovery code<input name="code" autocomplete="one-time-code" required></label><button disabled>Remove connection</button><button type="button" id="cancelRemove">Cancel</button></form></section>
-      <section class="panel account-panel"><span class="eyebrow">AUDIT TRAIL</span><h2>Security activity</h2><div id="events"></div></section>
+      <section class="panel account-panel"><span class="eyebrow">AUDIT TRAIL</span><h2>Workspace activity</h2><div id="organizationEvents"></div></section>
+      <section class="panel account-panel"><span class="eyebrow">IDENTITY AUDIT</span><h2>Security activity</h2><div id="events"></div></section>
     </div>
     <aside class="security-side">
       <section class="panel account-panel"><span class="eyebrow">ACCESS</span><h2>Active sessions</h2><div id="sessions"></div></section>
@@ -30,5 +36,5 @@
   </div>
   <p id="securityStatus" role="status"></p>
 </main>
-<script src="session.js?v=19" data-module="security.js"></script>
+<script src="session.js?v=20" data-module="security.js"></script>
 </body></html>
