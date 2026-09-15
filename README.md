@@ -1,6 +1,10 @@
-# Treasury Operations Center — v20.1
+# Treasury Operations Center — v21
 
 Start with [USERS-v11.md](USERS-v11.md). It supersedes the deployment instructions below for authentication, hosting and credentials.
+
+## v21 — BTC UTXO Intelligence & Passkeys
+
+Bitcoin monitoring now identifies low-fee consolidation windows, keeps a compact 30-day fee baseline, counts dust outputs, estimates consolidation cost and forecasts the inputs, vbytes and fee for the next expected payout. A dedicated alert rule can notify the configured Telegram group without repeating more often than its selected cadence. Passkeys add phishing-resistant WebAuthn registration, login and credential management while private keys remain on the user's device. See [V21-BTC-PASSKEYS.md](V21-BTC-PASSKEYS.md).
 
 ## v20.1 — Ethereum Queue Recovery
 
@@ -54,7 +58,7 @@ Solana support is server-only and optional. When `SOLANA_RPC_URL` is configured,
 
 Low SOL reserves now have a dedicated `solanaGasLow` alert rule, separate from Ethereum. Browser, email, Telegram, repeat cadence, and quiet-hours bypass can be configured independently, while Railway checks both Gas Stations continuously even when the dashboard is closed. See [SOLANA-GAS-ALERT-v19.md](SOLANA-GAS-ALERT-v19.md).
 
-Bitcoin support is watch-only. Each user can save up to 25 public mainnet addresses, view BTC balances and UTXO fragmentation, estimate consolidation cost, and inspect chain synchronization, mempool and fee targets. The Networks workspace defaults to Ethereum and switches cleanly between Ethereum, Solana and Bitcoin without stacking all analytics on one page. See [BITCOIN-v17.md](BITCOIN-v17.md).
+Bitcoin support is watch-only. Each user can save up to 25 public mainnet addresses, view BTC balances and UTXO fragmentation, estimate consolidation cost and the next payout fee, and inspect chain synchronization, mempool and fee targets. The Networks workspace defaults to Ethereum and switches cleanly between Ethereum, Solana and Bitcoin without stacking all analytics on one page. See [BITCOIN-v17.md](BITCOIN-v17.md) and [V21-BTC-PASSKEYS.md](V21-BTC-PASSKEYS.md).
 
 The Railway monitor also scans confirmed Ethereum blocks and stores a persistent block checkpoint. The browser merges `/api/transactions` into its local cache every 15 seconds, so transactions observed while the page was closed or missed by the browser WebSocket still appear after reopening the dashboard.
 

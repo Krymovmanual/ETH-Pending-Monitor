@@ -18,7 +18,7 @@ function validTelegramChatId(value) {
   return /^-?\d{5,20}$/.test(String(value || '').trim());
 }
 
-async function sendTelegram(chatId, title, body, url) {
+async function sendTelegram(chatId, title, body, url, linkLabel='Open on Etherscan') {
   if (!hasTelegramConfiguration()) throw new Error('Telegram bot is not configured');
   if (!validTelegramChatId(chatId)) throw new Error('Enter a valid numeric Telegram chat ID');
   const text = `<b>${escapeHtml(title)}</b>\n\n${escapeHtml(body)}\n\n<i>Checked ${escapeHtml(new Date().toISOString())}</i>`;
@@ -28,7 +28,7 @@ async function sendTelegram(chatId, title, body, url) {
     parse_mode: 'HTML',
     disable_web_page_preview: true,
   };
-  if (url) payload.reply_markup = { inline_keyboard: [[{ text: 'Open on Etherscan', url }]] };
+  if (url) payload.reply_markup = { inline_keyboard: [[{ text: String(linkLabel).slice(0,64), url }]] };
   const response = await fetch(`https://api.telegram.org/bot${config.telegramBotToken}/sendMessage`, {
     method: 'POST',
     signal: AbortSignal.timeout(15000),
@@ -99,7 +99,7 @@ function shortAddress(address) {
   return address ? `${address.slice(0, 6)}…${address.slice(-4)}` : 'Unknown wallet';
 }
 
-async function deliverAlert({ kind, scopeKey, title, body, tx, settings, rule, extra = {}, urgent = false, url: suppliedUrl }) {
+async function deliverAlert({ kind, scopeKey, title, body, tx, settings, rule, extra = {}, urgent = false, url: suppliedUrl, linkLabel }) {
   if (!rule?.enabled) return false;
   if (inQuietHours(settings, rule)) return false;
   if (!(await db.alertIsDue(kind, scopeKey, rule.repeatMinutes))) return false;
@@ -138,7 +138,7 @@ async function deliverAlert({ kind, scopeKey, title, body, tx, settings, rule, e
       body,
     ].filter(Boolean).join('\n');
     try {
-      await sendTelegram(settings.telegramChatId, title, details, url);
+      await sendTelegram(settings.telegramChatId, title, details, url, linkLabel);
       delivered = true;
     } catch (error) { console.error('Telegram alert delivery failed:', error.message); }
   }

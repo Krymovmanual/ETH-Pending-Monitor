@@ -64,7 +64,7 @@ async function fixture(){
   await db.initializeDatabase();
   const {app,auth}=require('../server/index');await auth.initialize();
   const server=app.listen(0,'127.0.0.1');await new Promise(resolve=>server.once('listening',resolve));
-  const origin=`http://127.0.0.1:${server.address().port}`;process.env.APP_ORIGIN=origin;
+  const origin=`http://localhost:${server.address().port}`;process.env.APP_ORIGIN=origin;
   function client(){
     let cookie='',csrf='';
     return {get cookie(){return cookie;},get csrf(){return csrf;},

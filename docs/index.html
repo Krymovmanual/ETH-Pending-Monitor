@@ -9,8 +9,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20.1">
-<link rel="stylesheet" href="accounts.css?v=20.1"></head>
+  <link rel="stylesheet" href="styles.css?v=21.0">
+<link rel="stylesheet" href="accounts.css?v=21.0"></head>
 <body class="has-app-rail app-loading" data-view="overview">
   <section id="startupDiagnostic" role="alert" class="panel" style="margin:20px;padding:20px;border-color:#b98031" hidden>
     <h2>Application needs attention</h2><p></p><button id="retryStartup" type="button">Reload application</button>
@@ -260,6 +260,16 @@
             <div class="network-subhead"><div><span class="eyebrow">UTXO HEALTH</span><h3>Watched address fragmentation</h3></div><small>Watch-only</small></div>
             <div class="utxo-health-list" id="bitcoinUtxoHealth"><div class="network-empty">Add a Bitcoin address in Wallet settings.</div></div>
           </section>
+          <section class="network-subcard bitcoin-intelligence-card">
+            <div class="network-subhead"><div><span class="eyebrow">BTC UTXO INTELLIGENCE</span><h3>Consolidation opportunity</h3></div><strong id="bitcoinWindowSignal">Collecting baseline</strong></div>
+            <div class="bitcoin-intelligence-grid">
+              <article><span>30-day low baseline</span><strong id="bitcoinFeeBaseline">—</strong><small>25th percentile · sat/vB</small></article>
+              <label>Low-fee threshold<input id="bitcoinFeeThreshold" type="number" min="1" max="500" step="0.1"><small>sat/vB</small></label>
+              <label>Expected next payout<input id="bitcoinPayoutAmount" type="number" min="0.00000546" max="1000" step="0.00000001"><small>BTC</small></label>
+              <button class="secondary" id="saveBitcoinIntelligence" type="button">Recalculate</button>
+            </div>
+            <div class="bitcoin-payout-list" id="bitcoinPayoutEstimate"><div class="network-empty">Add a watched Bitcoin address to estimate the next payout.</div></div>
+          </section>
         </div>
       </div>
     </section>
@@ -453,6 +463,12 @@
           <div class="rule-fields"><div><label for="pendingMinutesInput">Send after</label><div class="number-suffix"><input id="pendingMinutesInput" type="number" min="1" max="1440" step="1"><span>min</span></div></div><div><label for="pendingRepeatInput">Repeat</label><select id="pendingRepeatInput" class="dialog-select"><option value="0">Never</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="180">3 hours</option></select></div></div>
         </div>
 
+        <div class="alert-rule bitcoin-rule">
+          <div class="alert-rule-head"><label class="check-label" for="bitcoinConsolidationAlertsInput"><input id="bitcoinConsolidationAlertsInput" type="checkbox"><span><strong>Bitcoin consolidation window</strong><small>Alerts only when a fragmented wallet and a low-fee window occur together.</small></span></label></div>
+          <div class="rule-channels"><label class="check-label" for="bitcoinConsolidationBrowserInput"><input id="bitcoinConsolidationBrowserInput" type="checkbox"><span>Browser</span></label><label class="check-label" for="bitcoinConsolidationEmailInput"><input id="bitcoinConsolidationEmailInput" type="checkbox"><span>Email</span></label><label class="check-label" for="bitcoinConsolidationTelegramInput"><input id="bitcoinConsolidationTelegramInput" type="checkbox"><span>Telegram</span></label><label class="check-label" for="bitcoinConsolidationIgnoreQuietInput"><input id="bitcoinConsolidationIgnoreQuietInput" type="checkbox"><span>Ignore quiet hours</span></label></div>
+          <div class="rule-fields single-rule-field"><div><label for="bitcoinConsolidationRepeatInput">Repeat</label><select id="bitcoinConsolidationRepeatInput" class="dialog-select"><option value="0">Never</option><option value="360">6 hours</option><option value="720">12 hours</option><option value="1440">24 hours</option></select></div></div>
+        </div>
+
         <div class="alert-rule urgent-rule">
           <div class="alert-rule-head"><label class="check-label" for="blockerAlertsInput"><input id="blockerAlertsInput" type="checkbox"><span><strong>Nonce queue blocked</strong><small>Rechecks the blocker and higher nonces on-chain immediately before delivery.</small></span></label></div>
           <div class="rule-channels"><label class="check-label" for="blockerBrowserInput"><input id="blockerBrowserInput" type="checkbox"><span>Browser</span></label><label class="check-label" for="blockerEmailInput"><input id="blockerEmailInput" type="checkbox"><span>Email</span></label><label class="check-label" for="blockerTelegramInput"><input id="blockerTelegramInput" type="checkbox"><span>Telegram</span></label><label class="check-label" for="blockerIgnoreQuietInput"><input id="blockerIgnoreQuietInput" type="checkbox"><span>Ignore quiet hours</span></label></div>
@@ -622,7 +638,7 @@
     </form>
   </dialog>
 
-  <script src="overview-data.js?v=20.1"></script>
-  <script src="session.js?v=20.1" data-module="app.js"></script>
+  <script src="overview-data.js?v=21.0"></script>
+  <script src="session.js?v=21.0" data-module="app.js"></script>
 </body>
 </html>

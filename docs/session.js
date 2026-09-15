@@ -75,6 +75,7 @@
     data.set('paseqa-solana-address-labels',JSON.stringify(settings.solanaLabels||{}));
     data.set('paseqa-bitcoin-addresses',JSON.stringify(settings.bitcoinAddresses||[]));
     data.set('paseqa-bitcoin-address-labels',JSON.stringify(settings.bitcoinLabels||{}));
+    data.set('paseqa-bitcoin-intelligence-settings',JSON.stringify(settings.bitcoinSettings||{}));
     data.set('eth-pending-monitor-email',body.user.email);
     data.set('paseqa-telegram-chat-id',settings.telegramChatId||'');
     data.set('eth-pending-monitor-notification-settings',JSON.stringify(settings.notificationSettings||{}));
@@ -93,7 +94,7 @@
     const status=document.createElement('span');status.id='sessionStatus';status.setAttribute('role','status');
     const logout=document.createElement('button');logout.type='button';logout.className='secondary';logout.textContent='Sign out';logout.onclick=()=>Treasury.logout();
     bar.append(workspace,email,link,status,logout);document.body.prepend(bar);requestAnimationFrame(()=>document.body.classList.remove('app-loading'));
-    const script=document.createElement('script');script.src=moduleName+'?v=20.1';document.body.append(script);
+    const script=document.createElement('script');script.src=moduleName+'?v=21.0';document.body.append(script);
   }
   start().catch(error=>{
     document.body.classList.remove('app-loading');

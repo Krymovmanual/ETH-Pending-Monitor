@@ -28,6 +28,14 @@ test('multi-user authentication, credentials and isolation integration',async t=
     assert.ok(!JSON.stringify(r.data).includes('fixture-telegram-token'));
     assert.equal((await alice.client.call('/api/test-telegram','POST',{chatId:'invalid'})).status,400);
   });
+  await t.test('passkey ceremonies require fresh credentials and expose public options only',async()=>{
+    let r=await alice.client.call('/api/auth/passkeys/register/options','POST',{password:'wrong-password'});assert.equal(r.status,401);
+    r=await alice.client.call('/api/auth/passkeys/register/options','POST',{password:alice.password});assert.equal(r.status,200);
+    assert.ok(r.data.flowToken);assert.ok(r.data.options.challenge);assert.equal(r.data.options.rp.id,'localhost');
+    assert.ok(!JSON.stringify(r.data).toLowerCase().includes('privatekey'));
+    const unknown=f.client();r=await unknown.call('/api/auth/passkeys/login/options','POST',{email:'nobody@example.test'});assert.equal(r.status,200);assert.ok(r.data.options.challenge);
+    const security=await alice.client.call('/api/auth/security');assert.deepEqual(security.data.passkeys,[]);
+  });
   let secret,codes,connection;
   await t.test('background monitor remains bound to its owner across async calls',async()=>{
     const {bindMonitor}=require('../server/monitors');const {EthereumMonitor}=require('../server/monitor');

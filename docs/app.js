@@ -18,6 +18,7 @@ const SOLANA_GAS_ALERT_KEY = 'paseqa-solana-gas-alert-sent';
 const BITCOIN_ADDRESSES_KEY = 'paseqa-bitcoin-addresses';
 const BITCOIN_LABELS_KEY = 'paseqa-bitcoin-address-labels';
 const BITCOIN_WALLET_BALANCES_KEY = 'paseqa-bitcoin-wallet-balances';
+const BITCOIN_SETTINGS_KEY = 'paseqa-bitcoin-intelligence-settings';
 const PAGE_SIZE_KEY = 'eth-pending-monitor-page-size';
 const NOTIFICATION_SETTINGS_KEY = 'eth-pending-monitor-notification-settings';
 const SUMMARY_ALERTS_KEY = 'eth-pending-monitor-summary-alerts';
@@ -73,6 +74,7 @@ const state = {
   solanaLabels: loadStoredObject(SOLANA_LABELS_KEY),
   bitcoinAddresses: loadBitcoinAddresses(),
   bitcoinLabels: loadStoredObject(BITCOIN_LABELS_KEY),
+  bitcoinSettings: {...{lowFeeThreshold:5,expectedPayoutBtc:0.01,checkInterval:600000},...loadStoredObject(BITCOIN_SETTINGS_KEY)},
   email: Treasury.storage.getItem(EMAIL_KEY) || '',
   telegramChatId: Treasury.storage.getItem(TELEGRAM_CHAT_KEY) || '',
   notificationSettings: loadNotificationSettings(),
@@ -218,6 +220,12 @@ const el = {
   bitcoinRpcLatency: document.querySelector('#bitcoinRpcLatency'),
   bitcoinFeeBand: document.querySelector('#bitcoinFeeBand'),
   bitcoinUtxoHealth: document.querySelector('#bitcoinUtxoHealth'),
+  bitcoinWindowSignal:document.querySelector('#bitcoinWindowSignal'),
+  bitcoinFeeBaseline:document.querySelector('#bitcoinFeeBaseline'),
+  bitcoinFeeThreshold:document.querySelector('#bitcoinFeeThreshold'),
+  bitcoinPayoutAmount:document.querySelector('#bitcoinPayoutAmount'),
+  saveBitcoinIntelligence:document.querySelector('#saveBitcoinIntelligence'),
+  bitcoinPayoutEstimate:document.querySelector('#bitcoinPayoutEstimate'),
   exchangeAccountStatus: document.querySelector('#exchangeAccountStatus'),
   exchangeAccountBody: document.querySelector('#exchangeAccountBody'),
   refreshExchangeButton: document.querySelector('#refreshExchangeButton'),
@@ -309,6 +317,12 @@ const el = {
   solanaGasTelegram: document.querySelector('#solanaGasTelegramInput'),
   solanaGasIgnoreQuiet: document.querySelector('#solanaGasIgnoreQuietInput'),
   solanaGasRepeat: document.querySelector('#solanaGasRepeatInput'),
+  bitcoinConsolidationAlerts:document.querySelector('#bitcoinConsolidationAlertsInput'),
+  bitcoinConsolidationBrowser:document.querySelector('#bitcoinConsolidationBrowserInput'),
+  bitcoinConsolidationEmail:document.querySelector('#bitcoinConsolidationEmailInput'),
+  bitcoinConsolidationTelegram:document.querySelector('#bitcoinConsolidationTelegramInput'),
+  bitcoinConsolidationIgnoreQuiet:document.querySelector('#bitcoinConsolidationIgnoreQuietInput'),
+  bitcoinConsolidationRepeat:document.querySelector('#bitcoinConsolidationRepeatInput'),
   pendingMinutes: document.querySelector('#pendingMinutesInput'),
   pendingRepeat: document.querySelector('#pendingRepeatInput'),
   alertCheckInterval: document.querySelector('#alertCheckIntervalInput'),
@@ -404,6 +418,7 @@ function loadNotificationSettings() {
     replaced: {enabled:true, browser:true, email:true, telegram:false, afterMinutes:0, repeatMinutes:0},
     gasLow: {enabled:true, browser:true, email:true, telegram:false, afterMinutes:0, repeatMinutes:60, ignoreQuiet:true},
     solanaGasLow: {enabled:true, browser:true, email:true, telegram:false, afterMinutes:0, repeatMinutes:60, ignoreQuiet:true},
+    bitcoinConsolidation:{enabled:true,browser:true,email:false,telegram:true,afterMinutes:0,repeatMinutes:720,ignoreQuiet:false},
   };
   const defaults = {
     rules: defaultRules,
@@ -1498,7 +1513,7 @@ async function updateBitcoinWalletBalances() {
   try {
     const response = await fetch(`${normalizedBackendUrl()}/api/wallets/bitcoin/balances`, {
       method:'POST', headers:backendHeaders(), signal:AbortSignal.timeout(30_000),
-      body:JSON.stringify({addresses:state.bitcoinAddresses}),
+      body:JSON.stringify({addresses:state.bitcoinAddresses,expectedPayoutBtc:state.bitcoinSettings.expectedPayoutBtc}),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || !Array.isArray(body.wallets)) throw new Error(body.error || 'Bitcoin balance request failed');
@@ -2069,6 +2084,12 @@ function renderBitcoinNetwork() {
   el.bitcoinRpcLatency.textContent = Number.isFinite(data?.rpcLatencyMs) ? `${data.rpcLatencyMs} ms` : '—';
   const fees = data?.feeSatVbyte || {};
   el.bitcoinFeeBand.innerHTML = ['economy','standard','priority'].map((key, index) => `<article class="${key === 'standard' ? 'bitcoin-fee-primary' : ''}"><span>${['Economy · 6 blocks','Standard · 3 blocks','Priority · next block'][index]}</span><strong>${Number.isFinite(fees[key]) ? compactNumber(fees[key], 2) : '—'}</strong><small>sat/vB</small></article>`).join('');
+  const intelligence=data?.feeIntelligence||{};
+  el.bitcoinWindowSignal.textContent=intelligence.lowWindow?'Consolidate now':'Wait';
+  el.bitcoinWindowSignal.className=intelligence.lowWindow?'positive':'neutral';
+  el.bitcoinFeeBaseline.textContent=Number.isFinite(Number(intelligence.baseline?.p25))?compactNumber(intelligence.baseline.p25,2):'Collecting';
+  el.bitcoinFeeThreshold.value=state.bitcoinSettings.lowFeeThreshold;
+  el.bitcoinPayoutAmount.value=state.bitcoinSettings.expectedPayoutBtc;
   const rows = state.bitcoinAddresses.map(address => {
     const health = state.bitcoinWalletBalances[address]?.balance;
     if (!health) return `<div class="utxo-health-row"><span class="utxo-orb"></span><span><strong>${escapeHtml(state.bitcoinLabels[address] || shortAddress(address))}</strong><small>${escapeHtml(shortAddress(address))}</small></span><span class="utxo-health-value">Waiting</span></div>`;
@@ -2076,6 +2097,16 @@ function renderBitcoinNetwork() {
     return `<div class="utxo-health-row"><span class="utxo-orb ${escapeHtml(health.level)}"></span><span><strong>${escapeHtml(state.bitcoinLabels[address] || shortAddress(address))}</strong><small>${health.count} UTXOs · ${health.dust} dust · ${escapeHtml(health.totalBtc)} BTC</small></span><span class="utxo-health-value ${escapeHtml(health.level)}"><strong>${escapeHtml(health.recommendation)}</strong><small>${Number.isFinite(fee) ? `Consolidation ≈ ${fee.toLocaleString()} sats` : 'Fee estimate unavailable'}</small></span></div>`;
   }).join('');
   el.bitcoinUtxoHealth.innerHTML = rows || '<div class="network-empty">Add a public Bitcoin address in Wallet settings to inspect its UTXO fragmentation.</div>';
+  const payoutRows=state.bitcoinAddresses.map(address=>{
+    const estimate=state.bitcoinWalletBalances[address]?.balance?.estimatedPayout;
+    const label=state.bitcoinLabels[address]||shortAddress(address);
+    if(!estimate)return`<div class="bitcoin-payout-row"><strong>${escapeHtml(label)}</strong><span>Waiting for UTXO data</span></div>`;
+    const detail=estimate.available
+      ? `${estimate.inputs} input${estimate.inputs===1?'':'s'} · ≈ ${Number(estimate.feeSats||0).toLocaleString()} sats · ${estimate.vbytes} vB`
+      : `Insufficient confirmed balance · short ${Number(estimate.shortfallSats||0).toLocaleString()} sats`;
+    return`<div class="bitcoin-payout-row"><span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(estimate.payoutBtc)} BTC payout</small></span><span class="${estimate.available?'positive':'negative'}">${detail}</span></div>`;
+  });
+  el.bitcoinPayoutEstimate.innerHTML=payoutRows.join('')||'<div class="network-empty">Add a watched Bitcoin address to estimate the next payout.</div>';
 }
 
 async function updateBitcoinNetwork() {
@@ -2692,6 +2723,7 @@ function serverSettingsPayload() {
     solanaLabels: state.solanaLabels,
     bitcoinAddresses: state.bitcoinAddresses,
     bitcoinLabels: state.bitcoinLabels,
+    bitcoinSettings:state.bitcoinSettings,
     email: state.email,
     telegramChatId: state.telegramChatId,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
@@ -2754,6 +2786,7 @@ function openNotificationSettings() {
   const replaced = notificationRule('replaced');
   const gasLow = notificationRule('gasLow');
   const solanaGasLow = notificationRule('solanaGasLow');
+  const bitcoinConsolidation=notificationRule('bitcoinConsolidation');
   el.pendingAlerts.checked = Boolean(pending.enabled);
   el.pendingBrowser.checked = Boolean(pending.browser);
   el.pendingEmail.checked = Boolean(pending.email);
@@ -2788,6 +2821,12 @@ function openNotificationSettings() {
   el.solanaGasTelegram.checked = Boolean(solanaGasLow.telegram);
   el.solanaGasIgnoreQuiet.checked = Boolean(solanaGasLow.ignoreQuiet);
   el.solanaGasRepeat.value = String(solanaGasLow.repeatMinutes);
+  el.bitcoinConsolidationAlerts.checked=Boolean(bitcoinConsolidation.enabled);
+  el.bitcoinConsolidationBrowser.checked=Boolean(bitcoinConsolidation.browser);
+  el.bitcoinConsolidationEmail.checked=Boolean(bitcoinConsolidation.email);
+  el.bitcoinConsolidationTelegram.checked=Boolean(bitcoinConsolidation.telegram);
+  el.bitcoinConsolidationIgnoreQuiet.checked=Boolean(bitcoinConsolidation.ignoreQuiet);
+  el.bitcoinConsolidationRepeat.value=String(bitcoinConsolidation.repeatMinutes);
   el.alertCheckInterval.value = String(settings.checkIntervalSeconds);
   el.quietHours.checked = Boolean(settings.quietHoursEnabled);
   el.quietStart.value = settings.quietStart;
@@ -2949,6 +2988,7 @@ el.notificationForm.addEventListener('submit', async event => {
     el.replacedAlerts.checked && el.replacedEmail.checked,
     el.gasAlerts.checked && el.gasEmail.checked,
     el.solanaGasAlerts.checked && el.solanaGasEmail.checked,
+    el.bitcoinConsolidationAlerts.checked&&el.bitcoinConsolidationEmail.checked,
   ].some(Boolean);
   if (emailRequired && !validEmail(email)) {
     el.notificationError.textContent = 'Enter a valid alert email or disable Email for every active rule.';
@@ -2961,6 +3001,7 @@ el.notificationForm.addEventListener('submit', async event => {
     el.replacedAlerts.checked && el.replacedTelegram.checked,
     el.gasAlerts.checked && el.gasTelegram.checked,
     el.solanaGasAlerts.checked && el.solanaGasTelegram.checked,
+    el.bitcoinConsolidationAlerts.checked&&el.bitcoinConsolidationTelegram.checked,
   ].some(Boolean);
   if (telegramRequired && !/^-?\d{5,20}$/.test(telegramChatId)) {
     el.notificationError.textContent = 'Enter a valid numeric Telegram chat ID or disable Telegram for every active rule.';
@@ -2988,6 +3029,7 @@ el.notificationForm.addEventListener('submit', async event => {
       replaced: {enabled:el.replacedAlerts.checked, browser:el.replacedBrowser.checked, email:el.replacedEmail.checked, telegram:el.replacedTelegram.checked, afterMinutes:0, repeatMinutes:0},
       gasLow: {enabled:el.gasAlerts.checked, browser:el.gasBrowser.checked, email:el.gasEmail.checked, telegram:el.gasTelegram.checked, afterMinutes:0, repeatMinutes:Number(el.gasRepeat.value), ignoreQuiet:el.gasIgnoreQuiet.checked},
       solanaGasLow: {enabled:el.solanaGasAlerts.checked, browser:el.solanaGasBrowser.checked, email:el.solanaGasEmail.checked, telegram:el.solanaGasTelegram.checked, afterMinutes:0, repeatMinutes:Number(el.solanaGasRepeat.value), ignoreQuiet:el.solanaGasIgnoreQuiet.checked},
+      bitcoinConsolidation:{enabled:el.bitcoinConsolidationAlerts.checked,browser:el.bitcoinConsolidationBrowser.checked,email:el.bitcoinConsolidationEmail.checked,telegram:el.bitcoinConsolidationTelegram.checked,afterMinutes:0,repeatMinutes:Number(el.bitcoinConsolidationRepeat.value),ignoreQuiet:el.bitcoinConsolidationIgnoreQuiet.checked},
     },
     checkIntervalSeconds: Number(el.alertCheckInterval.value),
     quietHoursEnabled: el.quietHours.checked,
@@ -3005,6 +3047,14 @@ el.notificationForm.addEventListener('submit', async event => {
 el.balanceSettingsButton.addEventListener('click', openBalanceSettings);
 el.gasSettingsButton.addEventListener('click', openGasSettings);
 el.refreshBalancesButton.addEventListener('click', updateWalletBalances);
+el.saveBitcoinIntelligence?.addEventListener('click',async()=>{
+  const threshold=Number(el.bitcoinFeeThreshold.value),payout=Number(el.bitcoinPayoutAmount.value);
+  if(!Number.isFinite(threshold)||threshold<1||threshold>500||!Number.isFinite(payout)||payout<0.00000546||payout>1000)return;
+  state.bitcoinSettings={...state.bitcoinSettings,lowFeeThreshold:threshold,expectedPayoutBtc:payout};
+  Treasury.storage.setItem(BITCOIN_SETTINGS_KEY,JSON.stringify(state.bitcoinSettings));
+  await syncBackendSettings();
+  await Promise.allSettled([updateBitcoinNetwork(),updateBitcoinWalletBalances()]);
+});
 el.gasBalanceBody.addEventListener('click', event => {
   if (event.target.closest('[data-refresh-gas]')) updateGasBalance();
   if (event.target.closest('[data-refresh-solana-gas]')) updateSolanaGasBalance();

@@ -4,6 +4,7 @@ const db = require('./db');
 const { deliverAlert } = require('./notifier');
 const { fetchSolanaNativeBalance, validSolanaAddress } = require('./wallets');
 const { fetchEtherscanPendingNonces } = require('./providers');
+const { fetchBitcoinNetworkStatus, fetchBitcoinWalletBalances } = require('./bitcoin');
 
 const ERC20_TRANSFER = '0xa9059cbb';
 const ERC20_TRANSFER_FROM = '0x23b872dd';
@@ -19,6 +20,7 @@ class EthereumMonitor {
     this.snapshotTimer = null;
     this.blockTimer = null;
     this.gasTimer = null;
+    this.bitcoinTimer = null;
     this.blockScanning = false;
     this.queueScanning = false;
     this.queueCount = 0;
@@ -33,6 +35,8 @@ class EthereumMonitor {
     this.solanaGasStation = null;
     this.lastGasCheck = 0;
     this.lastSolanaGasCheck = 0;
+    this.lastBitcoinCheck = 0;
+    this.bitcoinIntelligence = null;
     this.currentGasGwei = 0;
     this.subscriptionIds = new Set();
   }
@@ -54,14 +58,15 @@ class EthereumMonitor {
     this.snapshotTimer = setInterval(() => this.scanPendingBlock().catch(this.logError), 60_000);
     this.blockTimer = setInterval(() => this.scanConfirmedBlocks().catch(this.logError), 12_000);
     this.gasTimer = setInterval(() => this.checkGasStations().catch(this.logError), 60_000);
-    void Promise.allSettled([this.scanPendingBlock(), this.scanConfirmedBlocks(), this.checkPending(), this.checkGasStations()]);
+    this.bitcoinTimer = setInterval(() => this.checkBitcoinIntelligence().catch(this.logError), 60_000);
+    void Promise.allSettled([this.scanPendingBlock(), this.scanConfirmedBlocks(), this.checkPending(), this.checkGasStations(),this.checkBitcoinIntelligence()]);
   }
 
   async reconfigure(settings) {
     this.settings = settings || await db.getSettings();
     this.disconnect();
     this.connect();
-    await Promise.allSettled([this.scanPendingBlock(), this.scanConfirmedBlocks(), this.checkPending(), this.checkGasStations(true)]);
+    await Promise.allSettled([this.scanPendingBlock(), this.scanConfirmedBlocks(), this.checkPending(), this.checkGasStations(true),this.checkBitcoinIntelligence(true)]);
   }
 
   stop() {
@@ -71,6 +76,7 @@ class EthereumMonitor {
     clearInterval(this.snapshotTimer);
     clearInterval(this.blockTimer);
     clearInterval(this.gasTimer);
+    clearInterval(this.bitcoinTimer);
   }
 
   disconnect() {
@@ -469,6 +475,42 @@ class EthereumMonitor {
     await Promise.allSettled([this.checkGasStation(force), this.checkSolanaGasStation(force)]);
   }
 
+  async checkBitcoinIntelligence(force=false){
+    const addresses=this.settings?.bitcoinAddresses||[];
+    if(!addresses.length||!config.bitcoinRpcUrl)return;
+    const bitcoin=this.settings?.bitcoinSettings||{};
+    const interval=Math.max(60_000,Number(bitcoin.checkInterval)||600_000);
+    if(!force&&Date.now()-this.lastBitcoinCheck<interval)return;
+    this.lastBitcoinCheck=Date.now();
+    const network=await fetchBitcoinNetworkStatus();
+    await db.saveBitcoinFeeSample(network);
+    const baseline=await db.bitcoinFeeSummary();
+    const configured=Number(bitcoin.lowFeeThreshold)||5;
+    const historical=Number(baseline.samples)>=12&&Number.isFinite(Number(baseline.p25))?Number(baseline.p25):null;
+    const threshold=historical===null?configured:Math.min(configured,historical);
+    const current=Number(network.feeSatVbyte?.standard);
+    const lowWindow=Number.isFinite(current)&&current<=threshold;
+    const balances=await fetchBitcoinWalletBalances(addresses,{expectedPayoutBtc:bitcoin.expectedPayoutBtc});
+    this.bitcoinIntelligence={currentFee:current,threshold,lowWindow,checkedAt:new Date().toISOString()};
+    if(!lowWindow)return;
+    const rule=this.rule('bitcoinConsolidation');
+    for(const wallet of balances.wallets){
+      const health=wallet.balance||{};
+      if(!['attention','watch'].includes(health.level))continue;
+      const label=this.settings.bitcoinLabels?.[wallet.address]||wallet.address;
+      const fee=health.estimatedConsolidation?.feeSats;
+      await deliverAlert({
+        kind:'bitcoin_consolidation',scopeKey:wallet.address,
+        title:'Bitcoin consolidation window',
+        body:`Bitcoin fee is ${round(current,2)} sat/vB. ${label} has ${health.count} UTXOs, including ${health.dust} dust output${health.dust===1?'':'s'}. Estimated consolidation cost: ${Number.isFinite(fee)?`${fee.toLocaleString()} sats`:'unavailable'}.`,
+        settings:this.settings,rule,
+        extra:{network:'Bitcoin',wallet:label,status:'consolidation opportunity'},
+        url:`https://mempool.space/address/${wallet.address}`,
+        linkLabel:'Open wallet on mempool.space',
+      });
+    }
+  }
+
   rule(name) {
     return this.settings?.notificationSettings?.rules?.[name] || { enabled: false };
   }
@@ -486,6 +528,7 @@ class EthereumMonitor {
       queueError: this.queueError || null,
       gasStation: this.gasStation,
       solanaGasStation: this.solanaGasStation,
+      bitcoinIntelligence:this.bitcoinIntelligence,
       error: this.lastError || null,
     };
   }

@@ -120,7 +120,20 @@ function inputVbytes(address) {
   return 148;
 }
 
-function utxoHealth(address, utxos, feeSatVbyte) {
+function payoutEstimate(address,utxos,feeSatVbyte,payoutBtc=0.01){
+  const target=Math.max(1,Math.round(Number(payoutBtc||0)*100_000_000));
+  const values=utxos.filter(item=>item?.status?.confirmed).map(item=>Number(item.value)).filter(value=>Number.isFinite(value)&&value>0).sort((a,b)=>b-a);
+  let selected=0,total=0,fee=null;
+  for(const value of values){
+    selected+=1;total+=value;
+    const vbytes=10+selected*inputVbytes(address)+68;
+    fee=Number.isFinite(feeSatVbyte)?Math.ceil(vbytes*feeSatVbyte):null;
+    if(total>=target+(fee||0))return{available:true,payoutSats:target,payoutBtc:(target/100_000_000).toFixed(8),inputs:selected,vbytes,feeSats:fee,totalDebitSats:fee===null?null:target+fee,changeSats:fee===null?null:total-target-fee};
+  }
+  return{available:false,payoutSats:target,payoutBtc:(target/100_000_000).toFixed(8),inputs:selected,vbytes:selected?10+selected*inputVbytes(address)+68:0,feeSats:fee,totalDebitSats:fee===null?null:target+fee,shortfallSats:Math.max(0,target+(fee||0)-total)};
+}
+
+function utxoHealth(address, utxos, feeSatVbyte, payoutBtc=0.01) {
   const values = utxos.map(item => Number(item.value)).filter(Number.isFinite);
   const totalSats = values.reduce((sum, value) => sum + value, 0);
   const confirmed = utxos.filter(item => item?.status?.confirmed).length;
@@ -143,6 +156,7 @@ function utxoHealth(address, utxos, feeSatVbyte) {
     largestSats:values.length ? Math.max(...values) : 0,
     averageSats:values.length ? Math.round(totalSats / values.length) : 0,
     estimatedConsolidation:{ vbytes:estimatedVbytes, feeSats:fee, feeSatVbyte:Number.isFinite(feeSatVbyte) ? feeSatVbyte : null },
+    estimatedPayout:payoutEstimate(address,utxos,feeSatVbyte,payoutBtc),
   };
 }
 
@@ -155,7 +169,7 @@ async function fetchAddressUtxos(address) {
   return body.slice(0, 10_000);
 }
 
-async function fetchBitcoinWalletBalances(addresses) {
+async function fetchBitcoinWalletBalances(addresses, options={}) {
   const unique = [...new Set((addresses || []).map(value => String(value).trim()))];
   if (!unique.length || unique.length > 25 || unique.some(value => !validBitcoinAddress(value))) throw new Error('Enter 1–25 valid Bitcoin mainnet addresses');
   let feeSatVbyte = null;
@@ -165,9 +179,9 @@ async function fetchBitcoinWalletBalances(addresses) {
   } catch { /* UTXO balances still work if the fee estimate is temporarily unavailable. */ }
   const wallets = await Promise.all(unique.map(async address => {
     const utxos = await fetchAddressUtxos(address);
-    return { address, chainName:'Bitcoin Mainnet', balance:utxoHealth(address, utxos, feeSatVbyte), utxos };
+    return { address, chainName:'Bitcoin Mainnet', balance:utxoHealth(address, utxos, feeSatVbyte,options.expectedPayoutBtc), utxos };
   }));
   return { updatedAt:Date.now(), network:'bitcoin-mainnet', wallets };
 }
 
-module.exports = { validBitcoinAddress, fetchBitcoinNetworkStatus, fetchBitcoinWalletBalances, utxoHealth };
+module.exports = { validBitcoinAddress, fetchBitcoinNetworkStatus, fetchBitcoinWalletBalances, utxoHealth, payoutEstimate };

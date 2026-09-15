@@ -3,6 +3,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const c=require('./crypto');
 const {forOrganization}=require('../user-db');
+const {generateRegistrationOptions,verifyRegistrationResponse,generateAuthenticationOptions,verifyAuthenticationResponse}=require('@simplewebauthn/server');
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 const publicUser=u=>({id:u.id,email:u.email,twoFactorEnabled:Boolean(u.totp_secret),verified:Boolean(u.verified_at)});
 const cookieName=()=>process.env.NODE_ENV==='development'?'toc_session':'__Host-toc_session';
@@ -84,6 +85,25 @@ function createAuth(pool,sendMail){
     const r=await client.query('DELETE FROM recovery_codes WHERE user_id=$1 AND code_hash=$2 RETURNING code_hash',[user.id,c.hash(String(code).replace(/-/g,''))]);
     if(!r.rowCount)throw fail(401,'Invalid or already used verification code');
   }
+  const passkeyContext=()=>{const origin=appOrigin(),rpID=new URL(origin).hostname;return{origin,rpID,rpName:'Paseqa Treasury'};};
+  async function savePasskeyChallenge(userId,purpose,challenge,req){
+    const token=c.token();
+    await pool.query(`INSERT INTO passkey_challenges(id_hash,user_id,purpose,challenge,expires_at,ip)
+      VALUES($1,$2,$3,$4,NOW()+INTERVAL '5 minutes',$5)`,[c.hash(token),userId||null,purpose,challenge,String(req.ip||'').slice(0,100)]);
+    return token;
+  }
+  async function consumePasskeyChallenge(token,purpose){
+    return(await pool.query(`DELETE FROM passkey_challenges WHERE id_hash=$1 AND purpose=$2 AND expires_at>NOW()
+      RETURNING user_id,challenge`,[c.hash(token||''),purpose])).rows[0]||null;
+  }
+  async function freshPasswordFactor(req){
+    await limit('passkey-manage:'+req.user.id,10,300);
+    await tx(async client=>{
+      const user=(await client.query('SELECT * FROM users WHERE id=$1 FOR UPDATE',[req.user.id])).rows[0];
+      if(!await c.passwordMatches(req.body?.password,user.password_hash))throw fail(401,'Current password is incorrect');
+      if(user.totp_secret)await consumeFactor(client,user,req.body?.code);
+    });
+  }
   async function factor(req){
     await limit('factor:'+req.user.id,10,300);
     await tx(async client=>{const r=await client.query('SELECT * FROM users WHERE id=$1 FOR UPDATE',[req.user.id]);await consumeFactor(client,r.rows[0],req.body?.code);});
@@ -126,6 +146,32 @@ function createAuth(pool,sendMail){
         if(!row)throw fail(400,'Link expired or already used. Request a new one.');
         await client.query('UPDATE users SET verified_at=COALESCE(verified_at,NOW()) WHERE id=$1',[row.user_id]);
       });res.json({message:'Email confirmed. You can sign in.'});
+    });
+    router.post('/api/auth/passkeys/login/options',async(req,res)=>{
+      const email=String(req.body?.email||'').trim().toLowerCase();
+      const user=(await pool.query('SELECT id,verified_at FROM users WHERE email=$1',[email])).rows[0];
+      const credentials=user?.verified_at?(await pool.query('SELECT credential_id,transports FROM passkey_credentials WHERE user_id=$1 ORDER BY created_at',[user.id])).rows:[];
+      const {rpID}=passkeyContext();
+      const options=await generateAuthenticationOptions({rpID,userVerification:'required',timeout:120000,
+        allowCredentials:credentials.map(item=>({id:item.credential_id,transports:item.transports||[]}))});
+      const flowToken=await savePasskeyChallenge(user?.verified_at?user.id:null,'login',options.challenge,req);
+      res.json({options,flowToken});
+    });
+    router.post('/api/auth/passkeys/login/verify',async(req,res)=>{
+      const challenge=await consumePasskeyChallenge(req.body?.flowToken,'login');
+      if(!challenge?.user_id)throw fail(401,'Passkey sign-in failed');
+      const id=String(req.body?.response?.id||'');
+      const credential=(await pool.query('SELECT * FROM passkey_credentials WHERE credential_id=$1 AND user_id=$2',[id,challenge.user_id])).rows[0];
+      if(!credential)throw fail(401,'Passkey sign-in failed');
+      const {origin,rpID}=passkeyContext();
+      let verification;
+      try{verification=await verifyAuthenticationResponse({response:req.body.response,expectedChallenge:challenge.challenge,expectedOrigin:origin,expectedRPID:rpID,
+        credential:{id:credential.credential_id,publicKey:new Uint8Array(credential.public_key),counter:Number(credential.counter),transports:credential.transports||[]},requireUserVerification:true});}
+      catch{throw fail(401,'Passkey sign-in failed');}
+      if(!verification.verified)throw fail(401,'Passkey sign-in failed');
+      await pool.query('UPDATE passkey_credentials SET counter=$2,last_used_at=NOW() WHERE credential_id=$1',[id,verification.authenticationInfo.newCounter]);
+      await pool.query('DELETE FROM sessions WHERE id_hash=$1',[c.hash(cookie(req))]);
+      await newSession(req,res,{id:challenge.user_id},true);await audit(challenge.user_id,'passkey_login_success',req);res.json({success:true});
     });
     router.post('/api/auth/login',async(req,res)=>{
       const user=(await pool.query('SELECT * FROM users WHERE email=$1',[String(req.body?.email||'').trim().toLowerCase()])).rows[0];
@@ -176,7 +222,40 @@ function createAuth(pool,sendMail){
     router.get('/api/auth/security',requireUser,async(req,res)=>{
       const sessions=(await pool.query('SELECT id_hash,created_at,last_seen,ip,user_agent FROM sessions WHERE user_id=$1 AND authenticated=TRUE AND expires_at>NOW()',[req.user.id])).rows.map(s=>({...s,current:s.id_hash===req.session.id_hash}));
       const events=(await pool.query('SELECT event,ip,created_at FROM security_events WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50',[req.user.id])).rows;
-      res.json({sessions,events,twoFactorEnabled:req.user.twoFactorEnabled});
+      const passkeys=(await pool.query('SELECT credential_id,name,device_type,backed_up,created_at,last_used_at FROM passkey_credentials WHERE user_id=$1 ORDER BY created_at',[req.user.id])).rows;
+      res.json({sessions,events,passkeys,twoFactorEnabled:req.user.twoFactorEnabled});
+    });
+    router.post('/api/auth/passkeys/register/options',requireUser,async(req,res)=>{
+      await freshPasswordFactor(req);
+      const existing=(await pool.query('SELECT credential_id,transports FROM passkey_credentials WHERE user_id=$1',[req.user.id])).rows;
+      const {rpID,rpName}=passkeyContext();
+      const options=await generateRegistrationOptions({rpName,rpID,userName:req.user.email,userDisplayName:req.user.email,
+        userID:Buffer.from(req.user.id),attestationType:'none',timeout:120000,
+        authenticatorSelection:{residentKey:'preferred',userVerification:'required'},
+        excludeCredentials:existing.map(item=>({id:item.credential_id,transports:item.transports||[]}))});
+      const flowToken=await savePasskeyChallenge(req.user.id,'register',options.challenge,req);
+      res.json({options,flowToken});
+    });
+    router.post('/api/auth/passkeys/register/verify',requireUser,async(req,res)=>{
+      const challenge=await consumePasskeyChallenge(req.body?.flowToken,'register');
+      if(!challenge||challenge.user_id!==req.user.id)throw fail(401,'Passkey registration expired. Start again.');
+      const {origin,rpID}=passkeyContext();
+      let verification;
+      try{verification=await verifyRegistrationResponse({response:req.body.response,expectedChallenge:challenge.challenge,expectedOrigin:origin,expectedRPID:rpID,requireUserVerification:true});}
+      catch{throw fail(400,'This passkey could not be verified');}
+      if(!verification.verified)throw fail(400,'This passkey could not be verified');
+      const info=verification.registrationInfo,credential=info.credential;
+      const name=String(req.body?.name||'Passkey').trim().slice(0,80)||'Passkey';
+      await pool.query(`INSERT INTO passkey_credentials(credential_id,user_id,public_key,counter,transports,device_type,backed_up,name)
+        VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,$8)`,[credential.id,req.user.id,Buffer.from(credential.publicKey),credential.counter,
+        JSON.stringify(req.body?.response?.response?.transports||[]),info.credentialDeviceType,info.credentialBackedUp,name]);
+      await audit(req.user.id,'passkey_added',req);res.status(201).json({success:true});
+    });
+    router.delete('/api/auth/passkeys/:id',requireUser,async(req,res)=>{
+      await freshPasswordFactor(req);
+      const result=await pool.query('DELETE FROM passkey_credentials WHERE credential_id=$1 AND user_id=$2 RETURNING credential_id',[req.params.id,req.user.id]);
+      if(!result.rowCount)throw fail(404,'Passkey not found');
+      await audit(req.user.id,'passkey_removed',req);res.json({success:true});
     });
     router.delete('/api/auth/sessions/:id',requireUser,async(req,res)=>{
       await pool.query('DELETE FROM sessions WHERE user_id=$1 AND id_hash=$2',[req.user.id,req.params.id]);await audit(req.user.id,'session_revoked',req);res.json({success:true});

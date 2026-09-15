@@ -1017,6 +1017,15 @@ body[data-view="networks"] .network-chain-switcher + .network-health-panel { mar
 .bitcoin-fee-band article span,.bitcoin-fee-band article small { display:block; color:#7f837d; font-size:.68rem; }
 .bitcoin-fee-band article strong { display:block; margin:9px 0 3px; color:#f5f4ef; font:500 1.3rem "IBM Plex Mono",monospace; }
 .bitcoin-fee-band .bitcoin-fee-primary { background:linear-gradient(145deg,rgba(247,147,26,.13),#121711); }
+.bitcoin-intelligence-card{grid-column:1/-1;}
+.bitcoin-intelligence-grid{display:grid;grid-template-columns:1.2fr 1fr 1fr auto;gap:12px;align-items:end;padding:18px;border-top:1px solid #25332d;}
+.bitcoin-intelligence-grid article,.bitcoin-intelligence-grid label{display:flex;min-width:0;flex-direction:column;gap:6px;}
+.bitcoin-intelligence-grid span,.bitcoin-intelligence-grid label,.bitcoin-intelligence-grid small{color:#7f837d;font-size:.7rem;}
+.bitcoin-intelligence-grid article strong{color:#f5f4ef;font:500 1.25rem "IBM Plex Mono",monospace;}
+.bitcoin-intelligence-grid input{min-height:40px;padding:0 12px;}
+.bitcoin-payout-list{border-top:1px solid #25332d;}
+.bitcoin-payout-row{display:flex;justify-content:space-between;gap:24px;padding:14px 18px;border-bottom:1px solid #1d2923;color:#b7c1bb;font-size:.75rem;}
+.bitcoin-payout-row span:first-child{display:flex;flex-direction:column;gap:3px;}.bitcoin-payout-row small{color:#758078;}
 .utxo-health-list { min-height:130px; }
 .utxo-health-row { display:grid; grid-template-columns:10px minmax(150px,1fr) minmax(180px,auto); align-items:center; gap:12px; padding:13px 15px; border-bottom:1px solid #202b27; }
 .utxo-health-row:last-child { border-bottom:0; }
@@ -1053,7 +1062,7 @@ body[data-view="networks"] .network-chain-switcher + .network-health-panel { mar
   body.has-app-rail .transfer-layout { grid-template-columns: 1fr; }
   .gas-distribution-grid { grid-template-columns: 1fr; }
   .gas-svg-chart { padding-inline: 8px; }
-  .gas-stations-grid,.solana-fee-band,.bitcoin-control-grid { grid-template-columns:1fr; }
+  .gas-stations-grid,.solana-fee-band,.bitcoin-control-grid,.bitcoin-intelligence-grid { grid-template-columns:1fr; }
   .network-chain-switcher { align-items:stretch; flex-direction:column; }
   .network-chain-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
   .network-chain-tabs button { justify-content:center; padding-inline:8px; }

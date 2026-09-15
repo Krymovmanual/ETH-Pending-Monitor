@@ -33,6 +33,21 @@ CREATE TABLE IF NOT EXISTS recovery_codes (
  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, code_hash TEXT NOT NULL,
  PRIMARY KEY(user_id,code_hash)
 );
+CREATE TABLE IF NOT EXISTS passkey_credentials (
+ credential_id TEXT PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ public_key BYTEA NOT NULL, counter BIGINT NOT NULL DEFAULT 0,
+ transports JSONB NOT NULL DEFAULT '[]'::jsonb, device_type TEXT NOT NULL DEFAULT 'unknown',
+ backed_up BOOLEAN NOT NULL DEFAULT FALSE, name TEXT NOT NULL,
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_used_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS passkey_credentials_user ON passkey_credentials(user_id,created_at);
+CREATE TABLE IF NOT EXISTS passkey_challenges (
+ id_hash TEXT PRIMARY KEY, user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+ purpose TEXT NOT NULL CHECK(purpose IN ('register','login','step_up')),
+ challenge TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ expires_at TIMESTAMPTZ NOT NULL, ip TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS passkey_challenges_expiry ON passkey_challenges(expires_at);
 CREATE TABLE IF NOT EXISTS security_events (
  id BIGSERIAL PRIMARY KEY, user_id UUID REFERENCES users(id) ON DELETE CASCADE,
  event TEXT NOT NULL, ip TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

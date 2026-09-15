@@ -6,7 +6,7 @@
   <title>Security & accounts · Treasury</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20.1"><link rel="stylesheet" href="accounts.css?v=20.1">
+  <link rel="stylesheet" href="styles.css?v=21.0"><link rel="stylesheet" href="accounts.css?v=21.0">
 </head>
 <body class="security-page has-app-rail app-loading">
 <main class="account-shell">
@@ -18,6 +18,11 @@
       <div class="workspace-subsection"><h3>Members</h3><div id="members"></div></div>
       <form method="post" id="inviteMember"><h3>Invite member</h3><label>Email<input name="email" type="email" autocomplete="email" required></label><label>Role<select name="role"><option value="viewer">Viewer</option><option value="operator">Operator</option><option value="admin">Admin</option></select></label><button disabled>Send invitation</button></form>
       <div id="invitations"></div></section>
+      <section class="panel account-panel security-primary" id="passkeyPanel"><div class="account-panel-head"><div><span class="eyebrow">CRYPTOGRAPHIC IDENTITY</span><h2>Passkeys</h2></div><span class="security-chip">Phishing resistant</span></div>
+      <p>Use Face ID, Touch ID, Windows Hello or a hardware security key to sign in. Paseqa stores only the public credential; the private key remains on your device.</p>
+      <div id="passkeys"></div>
+      <form method="post" id="addPasskey"><h3>Add a passkey</h3><label>Passkey name<input name="name" autocomplete="off" maxlength="80" placeholder="MacBook Touch ID" required></label><label>Current password<input name="password" type="password" autocomplete="current-password" required></label><label>2FA or recovery code, if enabled<input name="code" autocomplete="one-time-code"></label><button disabled>Add passkey</button></form>
+      <p class="passkey-domain-note">Passkeys are bound to this domain. Register them on the permanent HTTPS address you will use for Paseqa.</p></section>
       <section class="panel account-panel security-primary"><div class="account-panel-head"><div><span class="eyebrow">SIGN-IN PROTECTION</span><h2>Two-factor authentication</h2></div><span class="security-chip">Recommended</span></div><p id="factorStatus">Loading…</p>
       <form method="post" id="setupFactor"><label>Current password<input name="password" type="password" autocomplete="current-password" required></label><button disabled>Set up authenticator</button></form>
       <div id="factorSecret" hidden><p>In your authenticator, add an account using this setup key. Keep this key private.</p><pre class="secret-output" id="secretValue"></pre><form method="post" id="enableFactor"><label>Six-digit code<input name="code" autocomplete="one-time-code" pattern="[0-9]{6}" required></label><button disabled>Enable 2FA</button></form></div>
@@ -36,5 +41,5 @@
   </div>
   <p id="securityStatus" role="status"></p>
 </main>
-<script src="session.js?v=20.1" data-module="security.js"></script>
+<script src="session.js?v=21.0" data-module="security.js"></script>
 </body></html>

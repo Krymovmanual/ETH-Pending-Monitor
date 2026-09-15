@@ -16,6 +16,7 @@ const defaultSettings = {
   solanaLabels: {},
   bitcoinAddresses: [],
   bitcoinLabels: {},
+  bitcoinSettings: { lowFeeThreshold:5, expectedPayoutBtc:0.01, checkInterval:600000 },
   email: '',
   telegramChatId: '',
   timezone: 'UTC',
@@ -26,7 +27,8 @@ const defaultSettings = {
       dropped: { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 30, repeatMinutes: 0 },
       replaced: { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 0, repeatMinutes: 0 },
       gasLow: { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 0, repeatMinutes: 60, ignoreQuiet: true },
-      solanaGasLow: { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 0, repeatMinutes: 60, ignoreQuiet: true }
+      solanaGasLow: { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 0, repeatMinutes: 60, ignoreQuiet: true },
+      bitcoinConsolidation: { enabled: true, browser: true, email: false, telegram: true, afterMinutes: 0, repeatMinutes: 720, ignoreQuiet: false }
     },
     quietHoursEnabled: false,
     quietStart: '22:00',
@@ -103,6 +105,15 @@ async function initializeDatabase() {
       fast_max REAL NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_gas_minute_samples_recent ON gas_minute_samples (minute DESC);
+    CREATE TABLE IF NOT EXISTS bitcoin_fee_samples (
+      bucket TIMESTAMPTZ PRIMARY KEY,
+      priority REAL,
+      standard REAL NOT NULL,
+      economy REAL,
+      mempool_transactions INTEGER,
+      sampled_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS bitcoin_fee_samples_recent ON bitcoin_fee_samples(bucket DESC);
   `);
   await pool.query(
     `INSERT INTO app_settings (id, settings) VALUES (1, $1::jsonb) ON CONFLICT (id) DO NOTHING`,
@@ -250,6 +261,30 @@ async function deletePushSubscription(endpoint) {
   await pool.query('DELETE FROM push_subscriptions WHERE endpoint = $1', [endpoint]);
 }
 
+async function saveBitcoinFeeSample(status) {
+  const standard=Number(status?.feeSatVbyte?.standard);
+  if(!Number.isFinite(standard)||standard<=0)return false;
+  await pool.query(`INSERT INTO bitcoin_fee_samples(bucket,priority,standard,economy,mempool_transactions,sampled_at)
+    VALUES(to_timestamp(floor(extract(epoch FROM NOW())/600)*600),$1,$2,$3,$4,NOW())
+    ON CONFLICT(bucket) DO UPDATE SET priority=EXCLUDED.priority,standard=EXCLUDED.standard,economy=EXCLUDED.economy,
+      mempool_transactions=EXCLUDED.mempool_transactions,sampled_at=NOW()`,[
+    Number.isFinite(Number(status?.feeSatVbyte?.priority))?Number(status.feeSatVbyte.priority):null,
+    standard,
+    Number.isFinite(Number(status?.feeSatVbyte?.economy))?Number(status.feeSatVbyte.economy):null,
+    Number.isFinite(Number(status?.mempool?.transactions))?Number(status.mempool.transactions):null,
+  ]);
+  return true;
+}
+
+async function bitcoinFeeSummary() {
+  const result=await pool.query(`SELECT COUNT(*)::int AS samples,MIN(standard)::float AS minimum,AVG(standard)::float AS average,
+    percentile_cont(0.25) WITHIN GROUP(ORDER BY standard)::float AS p25,
+    percentile_cont(0.50) WITHIN GROUP(ORDER BY standard)::float AS median,
+    percentile_cont(0.75) WITHIN GROUP(ORDER BY standard)::float AS p75
+    FROM bitcoin_fee_samples WHERE bucket>=NOW()-INTERVAL '30 days'`);
+  return result.rows[0]||{samples:0,minimum:null,average:null,p25:null,median:null,p75:null};
+}
+
 async function saveGasMinute(sample) {
   const values = [
     sample.minute, sample.sampleCount,
@@ -372,6 +407,8 @@ module.exports = {
   savePushSubscription,
   allPushSubscriptions,
   deletePushSubscription,
+  saveBitcoinFeeSample,
+  bitcoinFeeSummary,
   saveGasMinute,
   cleanupGasAnalytics,
   gasAnalyticsSummary,

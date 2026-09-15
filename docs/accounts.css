@@ -18,6 +18,7 @@
 .security-page .account-panel select,.workspace-switcher select { min-height: 42px; padding: 0 36px 0 12px; color: #dce8e2; border: 1px solid #2a3732; border-radius: 8px; background: #101815; font: 500 .74rem "DM Sans",sans-serif; }
 .security-page .account-panel button { min-height: 38px; border-radius: 8px; }
 .security-page .security-row { border-color: #22302a; }
+.passkey-domain-note{padding:10px 12px;border:1px solid #283832;border-radius:8px;background:#0d1713}.passkey-login{width:100%;margin-top:10px}
 .security-page .secret-output { color: #8ce9bb; border: 1px solid #263a31; background: #08100d; font-family: "IBM Plex Mono",ui-monospace,monospace; font-size: .75rem; }
 .security-page #securityStatus { border-color: #315947; background: #102019; }
 .workspace-subsection { margin-top: 20px; padding-top: 18px; border-top: 1px solid #22302a; }

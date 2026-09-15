@@ -108,10 +108,16 @@ function sanitizeSettings(body) {
         replaced: rule('replaced', { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 0, repeatMinutes: 0 }),
         gasLow: rule('gasLow', { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 0, repeatMinutes: 60, ignoreQuiet: true }),
         solanaGasLow: rule('solanaGasLow', { enabled: true, browser: true, email: true, telegram: false, afterMinutes: 0, repeatMinutes: 60, ignoreQuiet: true }),
+        bitcoinConsolidation: rule('bitcoinConsolidation', { enabled: true, browser: true, email: false, telegram: true, afterMinutes: 0, repeatMinutes: 720, ignoreQuiet: false }),
       },
       quietHoursEnabled: Boolean(body.notificationSettings?.quietHoursEnabled),
       quietStart: validTime(body.notificationSettings?.quietStart) ? body.notificationSettings.quietStart : '22:00',
       quietEnd: validTime(body.notificationSettings?.quietEnd) ? body.notificationSettings.quietEnd : '08:00',
+    },
+    bitcoinSettings:{
+      lowFeeThreshold:clamp(body.bitcoinSettings?.lowFeeThreshold,5,1,500),
+      expectedPayoutBtc:clamp(body.bitcoinSettings?.expectedPayoutBtc,0.01,0.00000546,1000),
+      checkInterval:refreshInterval(body.bitcoinSettings?.checkInterval,600000),
     },
     balanceSettings: {
       enabled: body.balanceSettings?.enabled !== false,
@@ -343,7 +349,8 @@ app.get('/api/networks/solana', auth.requireUser, async (_req, res) => {
 
 app.post('/api/wallets/bitcoin/balances', auth.requireUser, async (req, res) => {
   try {
-    res.json(await fetchBitcoinWalletBalances(Array.isArray(req.body?.addresses) ? req.body.addresses : []));
+    const expectedPayoutBtc=clamp(req.body?.expectedPayoutBtc,0.01,0.00000546,1000);
+    res.json(await fetchBitcoinWalletBalances(Array.isArray(req.body?.addresses) ? req.body.addresses : [],{expectedPayoutBtc}));
   } catch (error) {
     const message = String(error?.message || 'Bitcoin balance request failed').slice(0, 220);
     res.status(/Enter 1/.test(message) ? 400 : /not configured/.test(message) ? 503 : 502).json({ error:message });
@@ -351,7 +358,17 @@ app.post('/api/wallets/bitcoin/balances', auth.requireUser, async (req, res) => 
 });
 
 app.get('/api/networks/bitcoin', auth.requireUser, async (_req, res) => {
-  try { res.json(await fetchBitcoinNetworkStatus()); }
+  try {
+    const status=await fetchBitcoinNetworkStatus();
+    await db.saveBitcoinFeeSample(status);
+    const [baseline,settings]=await Promise.all([db.bitcoinFeeSummary(),db.getSettings()]);
+    const configured=Number(settings.bitcoinSettings?.lowFeeThreshold)||5;
+    const historical=Number(baseline.samples)>=12&&Number.isFinite(Number(baseline.p25))?Number(baseline.p25):null;
+    const threshold=historical===null?configured:Math.min(configured,historical);
+    const current=Number(status.feeSatVbyte?.standard);
+    res.json({...status,feeIntelligence:{baseline,configuredThreshold:configured,effectiveThreshold:threshold,
+      lowWindow:Number.isFinite(current)&&current<=threshold,label:Number.isFinite(current)&&current<=threshold?'Good consolidation window':'Wait for lower fees'}});
+  }
   catch (error) {
     const message = String(error?.message || 'Bitcoin network request failed').slice(0, 220);
     res.status(/not configured/.test(message) ? 503 : 502).json({ error:message });
@@ -459,7 +476,7 @@ async function boot() {
   if (process.env.DISABLE_MONITORS !== 'true') gasAnalytics.start();
   await monitors.start();
   const cleanup=async()=>{
-    await db.pool.query("DELETE FROM sessions WHERE expires_at<NOW() OR last_seen<NOW()-INTERVAL '7 days'; DELETE FROM email_tokens WHERE expires_at<NOW(); DELETE FROM request_limits WHERE reset_at<NOW(); DELETE FROM security_events WHERE created_at<NOW()-INTERVAL '30 days';");
+    await db.pool.query("DELETE FROM sessions WHERE expires_at<NOW() OR last_seen<NOW()-INTERVAL '7 days'; DELETE FROM email_tokens WHERE expires_at<NOW(); DELETE FROM passkey_challenges WHERE expires_at<NOW(); DELETE FROM request_limits WHERE reset_at<NOW(); DELETE FROM security_events WHERE created_at<NOW()-INTERVAL '30 days'; DELETE FROM bitcoin_fee_samples WHERE bucket<NOW()-INTERVAL '35 days';");
     await db.pool.query(`DELETE FROM user_transactions WHERE (user_id,hash) IN (
       SELECT user_id,hash FROM (SELECT user_id,hash,ROW_NUMBER() OVER(PARTITION BY user_id ORDER BY first_seen DESC) AS row_number FROM user_transactions WHERE status<>'pending') ranked WHERE row_number>2000)`);
     await db.pool.query("DELETE FROM user_pending_queue WHERE resolved_at<NOW()-INTERVAL '7 days'");
