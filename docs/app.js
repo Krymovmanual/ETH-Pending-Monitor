@@ -906,21 +906,20 @@ async function checkStatuses() {
   if (!backendConfigured()) return;
   const pending = state.transactions.filter(tx => tx.status === 'pending');
   if (!pending.length) return;
-  const httpEndpoint = toHttpEndpoint(state.endpoint);
   try {
-    const payload = pending.map((tx, index) => ({ jsonrpc: '2.0', id: index + 1, method: 'eth_getTransactionReceipt', params: [tx.hash] }));
-    const response = await fetch(httpEndpoint, { method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(payload) });
-    const results = await response.json();
+    const results = await rpcBatch(pending.map((tx, index) => ({
+      id: index + 1, method: 'eth_getTransactionReceipt', params: [tx.hash],
+    })));
     let changed = false;
-    for (const answer of results) {
-      const tx = pending[answer.id - 1];
-      if (!tx) continue;
+    for (const [index, tx] of pending.entries()) {
+      const answer = results.get(index + 1);
+      if (!answer || answer.error) continue;
       if (answer.result) {
         tx.status = answer.result.status === '0x1' ? 'confirmed' : 'failed';
         tx.blockNumber = hexToNumber(answer.result.blockNumber);
         changed = true;
       } else if (Date.now() - tx.firstSeen > notificationRule('dropped').afterMinutes * 60 * 1000) {
-        const stillExists = await rpc(httpEndpoint, 'eth_getTransactionByHash', [tx.hash]);
+        const stillExists = await rpc('', 'eth_getTransactionByHash', [tx.hash]);
         if (!stillExists) {
           tx.status = 'dropped';
           changed = true;
@@ -941,20 +940,11 @@ async function verifyTransactionsStillPending(transactions) {
   ).values()];
   if (!candidates.length) return [];
 
-  const endpoint = toHttpEndpoint(state.endpoint);
   try {
     const receiptPayload = candidates.map((tx, index) => ({
-      jsonrpc: '2.0', id: index + 1, method: 'eth_getTransactionReceipt', params: [tx.hash],
+      id: index + 1, method: 'eth_getTransactionReceipt', params: [tx.hash],
     }));
-    const receiptResponse = await fetch(endpoint, {
-      method: 'POST',
-      headers: {'content-type': 'application/json'},
-      body: JSON.stringify(receiptPayload),
-    });
-    if (!receiptResponse.ok) return [];
-    const receiptAnswers = await receiptResponse.json();
-    if (!Array.isArray(receiptAnswers)) return [];
-    const receipts = new Map(receiptAnswers.map(answer => [answer.id, answer]));
+    const receipts = await rpcBatch(receiptPayload);
     const unresolved = [];
     let changed = false;
 
@@ -973,17 +963,9 @@ async function verifyTransactionsStillPending(transactions) {
     const live = [];
     if (unresolved.length) {
       const transactionPayload = unresolved.map((tx, index) => ({
-        jsonrpc: '2.0', id: index + 1, method: 'eth_getTransactionByHash', params: [tx.hash],
+        id: index + 1, method: 'eth_getTransactionByHash', params: [tx.hash],
       }));
-      const transactionResponse = await fetch(endpoint, {
-        method: 'POST',
-        headers: {'content-type': 'application/json'},
-        body: JSON.stringify(transactionPayload),
-      });
-      if (!transactionResponse.ok) return [];
-      const transactionAnswers = await transactionResponse.json();
-      if (!Array.isArray(transactionAnswers)) return [];
-      const currentTransactions = new Map(transactionAnswers.map(answer => [answer.id, answer]));
+      const currentTransactions = await rpcBatch(transactionPayload);
 
       unresolved.forEach((tx, index) => {
         const answer = currentTransactions.get(index + 1);

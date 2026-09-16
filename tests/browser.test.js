@@ -40,7 +40,7 @@ test('browser: login, 2FA, add account, all tabs, logout and other user',async t
   await page.getByRole('link',{name:'Add account',exact:true}).click();await page.locator('#addExchangeDialog').waitFor({state:'visible'});await page.locator('#closeAddExchange').click();
   for(const path of ['exchanges.html','transfers.html','index.html?view=networks','index.html?view=market','index.html?view=wallets']){
     await page.goto(f.origin+'/'+path);await page.locator('.session-bar').waitFor();
-    await page.waitForFunction(()=>document.querySelector('script[src$="?v=21.1"]')&&window.Treasury?.user);
+    await page.waitForFunction(()=>document.querySelector('script[src$="?v=21.1.1"]')&&window.Treasury?.user);
     await page.locator('.app-rail a[aria-current="page"]').waitFor();
     assert.equal(await page.locator('body').evaluate(body=>body.classList.contains('app-loading')),false);
     await page.waitForTimeout(250);await page.screenshot({path:require('node:path').join(__dirname,`../${path.split('?')[0].replace('.html','')}${path.includes('view=')?'-'+path.split('view=')[1]:''}-preview.png`),fullPage:true});

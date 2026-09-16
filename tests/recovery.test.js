@@ -45,6 +45,37 @@ test('Alchemy RPC uses session backend, never the supplied browser endpoint',asy
   assert.equal(calls[0].url,'https://example.test/api/providers/alchemy/rpc');
   assert.equal(calls[0].options.headers.Authorization,undefined);
 });
+test('pending receipt checks never POST to the current HTML page',async()=>{
+  const calls=[];
+  const app=application({},async(url,options)=>{
+    calls.push({url,options});
+    const requests=JSON.parse(options.body);
+    return {ok:true,json:async()=>requests.map(request=>({id:request.id,result:null}))};
+  });
+  const hash='0x'+'a'.repeat(64);
+  app.run(`Treasury.user={id:'test'};state.backendUrl='https://example.test';state.transactions=[{hash:'${hash}',status:'pending',firstSeen:Date.now(),nonce:1,from:'0x${'1'.repeat(40)}'}]`);
+  await app.run('checkStatuses()');
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].url,'https://example.test/api/providers/alchemy/rpc');
+  assert.doesNotMatch(calls[0].url,/index\.html/);
+});
+test('pre-alert transaction verification uses the Railway RPC proxy',async()=>{
+  const calls=[];
+  const app=application({},async(url,options)=>{
+    calls.push({url,options});
+    const requests=JSON.parse(options.body);
+    return {ok:true,json:async()=>requests.map(request=>({
+      id:request.id,
+      result:request.method==='eth_getTransactionByHash'?{hash:request.params[0],blockNumber:null}:null,
+    }))};
+  });
+  const hash='0x'+'b'.repeat(64);
+  app.run(`Treasury.user={id:'test'};state.backendUrl='https://example.test'`);
+  const live=await app.run(`verifyTransactionsStillPending([{hash:'${hash}',status:'pending',firstSeen:Date.now(),nonce:2}])`);
+  assert.equal(live.length,1);
+  assert.equal(calls.length,2);
+  assert.ok(calls.every(call=>call.url==='https://example.test/api/providers/alchemy/rpc'));
+});
 test('nonce normalization is idempotent',()=>{
   const {EthereumMonitor}=require('../server/monitor');
   const monitor=new EthereumMonitor();

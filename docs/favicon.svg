@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="paseqa" x1="10" y1="8" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#67e6aa"/>
+      <stop offset="1" stop-color="#d4a84b"/>
+    </linearGradient>
+  </defs>
+  <path d="M18 4h28l14 24-14 24H18L4 28 18 4Z" fill="url(#paseqa)"/>
+  <path d="M24 16h11.5c8.2 0 13.5 4.5 13.5 11.5S43.7 39 35.5 39H30v9h-6V16Zm6 6v11h5.2c4.9 0 7.6-1.8 7.6-5.5S40.1 22 35.2 22H30Z" fill="#07100c"/>
+</svg>

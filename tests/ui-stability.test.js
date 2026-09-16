@@ -12,12 +12,14 @@ test('UI assets are self-hosted under the strict CSP', () => {
     const html = read(path.join('docs', file));
     assert.doesNotMatch(html, /fonts\.(?:googleapis|gstatic)\.com/);
     assert.match(html, /fonts\/dm-sans-latin\.woff2/);
+    assert.match(html, /rel="icon" href="favicon\.svg"/);
   }
   const server = read('server/index.js');
   assert.match(server, /font-src 'self'/);
   for (const file of ['dm-sans-latin.woff2', 'ibm-plex-mono-400-latin.woff2', 'ibm-plex-mono-500-latin.woff2']) {
     assert.ok(fs.statSync(path.join(root, 'docs', 'fonts', file)).size > 10_000, `${file} is present`);
   }
+  assert.match(read('docs/favicon.svg'), /<svg[^>]+viewBox="0 0 64 64"/);
 });
 
 test('transaction ages update without rebuilding unchanged rows', () => {
