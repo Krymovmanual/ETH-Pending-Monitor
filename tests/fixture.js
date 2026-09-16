@@ -35,7 +35,11 @@ async function fixture(){
         if(request.method==='getLatestBlockhash')return{context:{slot:345678901},value:{blockhash:'fixture-blockhash',lastValidBlockHeight:321655137}};
         if(request.method==='getRecentPrioritizationFees')return[100,200,300,400].map((prioritizationFee,index)=>({slot:345678900-index,prioritizationFee}));
         if(request.method==='getBalance')return{context:{slot:345678901},value:2500000000};
-        if(request.method==='getTokenAccountsByOwner')return{context:{slot:345678901},value:request.params?.[1]?.programId?.startsWith('Tokenkeg')?[{account:{data:{parsed:{info:{mint:'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',tokenAmount:{amount:'12500000',decimals:6,uiAmountString:'12.5'}}}}}}]:[]};
+        if(request.method==='getTokenAccountsByOwner')return{context:{slot:345678901},value:request.params?.[1]?.programId?.startsWith('Tokenkeg')?[
+          {account:{data:{parsed:{info:{mint:'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',tokenAmount:{amount:'12500000',decimals:6,uiAmountString:'12.5'}}}}}},
+          {account:{data:{parsed:{info:{mint:'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',tokenAmount:{amount:'7250000',decimals:6,uiAmountString:'7.25'}}}}}},
+          {account:{data:{parsed:{info:{mint:'UnknownMintForRegressionTest',tokenAmount:{amount:'999000000',decimals:6,uiAmountString:'999'}}}}}},
+        ]:[]};
         return null;
       };
       const rows=requests.map(request=>({jsonrpc:'2.0',id:request.id,result:result(request)}));

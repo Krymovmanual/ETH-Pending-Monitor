@@ -2553,7 +2553,16 @@ function renderBalances() {
     const solanaRows = state.solanaAddresses.map(address => {
       const balance = state.solanaWalletBalances[address];
       const assets = Array.isArray(balance?.assets) ? balance.assets : [];
-      const tokens = assets.length ? assets.slice(0, 12).map(asset => `<div class="token-balance" title="${escapeHtml(asset.name || asset.mint || asset.symbol)}"><span>${escapeHtml(asset.symbol)}</span><strong>${escapeHtml(compactNumber(Number(asset.balance), 8))}</strong></div>`).join('') : '<div class="token-balance"><span>SOL</span><strong>—</strong></div>';
+      const bySymbol = new Map(assets.map(asset => [String(asset.symbol || '').toUpperCase(), asset]));
+      const tokens = [
+        {symbol:'SOL', label:'SOL'},
+        {symbol:'USDT', label:'USDT · SOL'},
+        {symbol:'USDC', label:'USDC · SOL'},
+      ].map(item => {
+        const asset = bySymbol.get(item.symbol);
+        const formatted = asset ? compactNumber(Number(asset.balance), 8) : balance ? '0' : '—';
+        return `<div class="token-balance" title="${escapeHtml(asset?.name || `${item.symbol} on Solana`)}"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(formatted)}</strong></div>`;
+      }).join('');
       return `<div class="wallet-balance-row"><div class="wallet-balance-title"><strong>${escapeHtml(state.solanaLabels[address] || shortAddress(address))}</strong><span>${escapeHtml(shortAddress(address))}</span></div><div class="token-balances">${tokens}</div></div>`;
     }).join('');
     const bitcoinRows = state.bitcoinAddresses.map(address => {

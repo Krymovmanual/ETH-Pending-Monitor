@@ -1,0 +1,9 @@
+Paseqa Treasury v21.2.0
+Build: Focused Solana balances
+
+Verification markers:
+- package.json version is 21.2.0
+- browser assets use ?v=21.2.0
+- Solana API returns SOL, official USDT and official USDC only
+- unknown SPL tokens are excluded
+- UI always renders the three supported Solana balance cards

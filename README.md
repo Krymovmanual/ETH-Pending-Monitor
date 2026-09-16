@@ -1,6 +1,10 @@
-# Treasury Operations Center — v21.1.2
+# Treasury Operations Center — v21.2
 
 Start with [USERS-v11.md](USERS-v11.md). It supersedes the deployment instructions below for authentication, hosting and credentials.
+
+## v21.2 — Focused Solana balances
+
+Solana wallet cards now show only native SOL and the official Solana USDT and USDC mints. Unknown SPL tokens are filtered on Railway and again in the UI, while USDT and USDC remain visible with a zero balance when the wallet has no token account. See [V21.2-SOLANA-ASSETS.md](V21.2-SOLANA-ASSETS.md).
 
 ## v21.1 — UI stability & self-hosted fonts
 

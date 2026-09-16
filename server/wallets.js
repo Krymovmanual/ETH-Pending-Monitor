@@ -11,10 +11,11 @@ const TOKENS = [
 function validAddress(value) { return /^0x[a-fA-F0-9]{40}$/.test(String(value || '')); }
 
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-const SOLANA_TOKENS = new Map([
-  ['EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', { symbol:'USDC', name:'USD Coin' }],
-  ['Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', { symbol:'USDT', name:'Tether USD' }],
-]);
+const SOLANA_TOKENS = [
+  { mint:'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', symbol:'USDT', name:'Tether USD', decimals:6 },
+  { mint:'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol:'USDC', name:'USD Coin', decimals:6 },
+];
+const SOLANA_TOKEN_BY_MINT = new Map(SOLANA_TOKENS.map(token => [token.mint, token]));
 
 function validSolanaAddress(value) {
   const text = String(value || '').trim();
@@ -117,19 +118,21 @@ async function fetchSolanaWalletBalances(addresses) {
       const info = account?.account?.data?.parsed?.info;
       const amount = info?.tokenAmount;
       if (!info?.mint || !amount?.amount || BigInt(amount.amount) === 0n) continue;
+      const known = SOLANA_TOKEN_BY_MINT.get(info.mint);
+      if (!known) continue;
       const totals = tokenTotals.get(field.address);
-      const current = totals.get(info.mint) || { raw:0n, decimals:Number(amount.decimals) || 0 };
+      const current = totals.get(info.mint) || { raw:0n, decimals:known.decimals };
       current.raw += BigInt(amount.amount);
       totals.set(info.mint, current);
     }
   }
   for (const wallet of wallets) {
-    for (const [mint, amount] of tokenTotals.get(wallet.address)) {
-      const known = SOLANA_TOKENS.get(mint);
+    for (const token of SOLANA_TOKENS) {
+      const amount = tokenTotals.get(wallet.address).get(token.mint) || { raw:0n, decimals:token.decimals };
       wallet.assets.push({
-        symbol: known?.symbol || `${mint.slice(0, 4)}…${mint.slice(-4)}`,
-        name: known?.name || 'SPL Token',
-        mint,
+        symbol: token.symbol,
+        name: token.name,
+        mint: token.mint,
         decimals: amount.decimals,
         raw: amount.raw.toString(),
         balance: formatUnits(amount.raw, amount.decimals),

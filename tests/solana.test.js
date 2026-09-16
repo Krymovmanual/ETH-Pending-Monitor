@@ -1,6 +1,16 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
 const {fixture}=require('./fixture');
+
+test('Solana wallet UI is limited to SOL, USDT and USDC',()=>{
+  const app=fs.readFileSync(path.join(__dirname,'../docs/app.js'),'utf8');
+  assert.match(app,/\{symbol:'SOL', label:'SOL'\}/);
+  assert.match(app,/\{symbol:'USDT', label:'USDT · SOL'\}/);
+  assert.match(app,/\{symbol:'USDC', label:'USDC · SOL'\}/);
+  assert.doesNotMatch(app,/assets\.slice\(0, 12\)/);
+});
 
 test('Solana addresses, balances and network health are served through Railway',async t=>{
   const f=await fixture();t.after(()=>f.close());
@@ -14,8 +24,9 @@ test('Solana addresses, balances and network health are served through Railway',
   assert.deepEqual(response.data.settings.solanaAddresses,[address]);
   response=await user.client.call('/api/wallets/solana/balances','POST',{addresses:[address]});
   assert.equal(response.status,200);
-  assert.equal(response.data.wallets[0].assets.find(asset=>asset.symbol==='SOL').balance,'2.5');
-  assert.equal(response.data.wallets[0].assets.find(asset=>asset.symbol==='USDC').balance,'12.5');
+  assert.deepEqual(response.data.wallets[0].assets.map(asset=>asset.symbol),['SOL','USDT','USDC']);
+  assert.deepEqual(response.data.wallets[0].assets.map(asset=>asset.balance),['2.5','7.25','12.5']);
+  assert.equal(response.data.wallets[0].assets.some(asset=>asset.mint==='UnknownMintForRegressionTest'),false);
   response=await user.client.call('/api/networks/solana');
   assert.equal(response.status,200);
   assert.equal(response.data.level,'healthy');
