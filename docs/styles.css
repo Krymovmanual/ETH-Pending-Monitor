@@ -1,3 +1,25 @@
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("fonts/dm-sans-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/ibm-plex-mono-400-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/ibm-plex-mono-500-latin.woff2") format("woff2");
+}
+
 :root {
   color-scheme: dark;
   --bg: #07090d;
@@ -619,6 +641,21 @@ a.overview-list-item:hover { background: #111824; }
 .panel-head p { color: var(--muted); font-size: .83rem; margin: 6px 0 0; }
 .sync-status { color: #aab5c6; }
 .controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.transactions-head {
+  min-height: 128px;
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) minmax(440px, 500px);
+  align-items: start;
+}
+.transactions-head-copy { min-width: 0; }
+.transactions-description { min-height: 3.25em; line-height: 1.45; }
+.transactions-controls {
+  display: grid;
+  grid-template-columns: minmax(250px, 1fr) 190px;
+  align-content: start;
+}
+.transactions-controls .search-input { width: 100%; }
+.transactions-controls #pendingSyncButton { min-width: 132px; }
 .search-input { width: min(330px, 34vw); min-height: 40px; padding: 0 13px; }
 .search-input:focus { outline: 2px solid rgba(98,126,234,.35); border-color: var(--blue); }
 button, select, input { border: 1px solid var(--border); border-radius: 9px; color: var(--text); background: var(--surface-2); }
@@ -633,6 +670,21 @@ th, td { padding: 15px 18px; text-align: left; border-bottom: 1px solid #18202d;
 th { position: sticky; top: 0; z-index: 3; color: #697588; font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; background: #0a0e14; box-shadow: 0 1px 0 #18202d; }
 td { color: #c9d1dd; }
 .transaction-row { cursor: pointer; }
+.transactions-table { min-width: 1510px; table-layout: fixed; }
+.transactions-table .tx-col-status { width: 145px; }
+.transactions-table .tx-col-age { width: 92px; }
+.transactions-table .tx-col-hash { width: 235px; }
+.transactions-table .tx-col-address { width: 150px; }
+.transactions-table .tx-col-direction { width: 130px; }
+.transactions-table .tx-col-amount { width: 190px; }
+.transactions-table .tx-col-nonce { width: 105px; }
+.transactions-table .tx-col-queue { width: 205px; }
+.transactions-table .tx-col-fee { width: 130px; }
+.transactions-table .tx-col-gas { width: 190px; }
+.transactions-table tbody td { height: 64px; overflow: hidden; text-overflow: ellipsis; }
+.transactions-table .hash-cell,
+.transactions-table .gas-check,
+.transactions-table .queue-state { max-width: 100%; }
 .transaction-row:hover td, .transaction-row:focus td { background: #101621; }
 .transaction-row:focus { outline: 2px solid rgba(98,126,234,.55); outline-offset: -2px; }
 .transaction-row.queue-placeholder { cursor: default; }
@@ -764,6 +816,9 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
   .exchange-workspace { grid-template-columns: 230px minmax(0, 1fr); }
   .exchange-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .wallet-source-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .transactions-head { grid-template-columns: 1fr; gap: 16px; min-height: 0; }
+  .transactions-description { min-height: 0; }
+  .transactions-controls { width: 100%; }
 }
 
 @media (max-width: 800px) {
@@ -832,6 +887,7 @@ dialog label:not(:first-of-type) { margin-top: 20px; }
   .stats strong { font-size: 1.6rem; }
   .controls { width: 100%; flex-direction: column; }
   .controls > * { width: 100%; }
+  .transactions-controls { grid-template-columns: 1fr; }
   .pagination { align-items: flex-start; flex-direction: column; }
   .pagination-controls { width: 100%; flex-wrap: wrap; }
   .pagination-controls button { flex: 1; }

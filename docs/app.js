@@ -2399,6 +2399,16 @@ function renderOverview() {
     : '<div class="overview-empty">USD allocation becomes available when connected accounts provide equity values.</div>';
 }
 
+let lastTransactionTableMarkup = null;
+
+function refreshTransactionAges() {
+  el.txBody.querySelectorAll('[data-transaction-age]').forEach(cell => {
+    const timestamp = Number(cell.dataset.transactionAge);
+    const nextAge = Number.isFinite(timestamp) ? age(timestamp) : '—';
+    if (cell.textContent !== nextAge) cell.textContent = nextAge;
+  });
+}
+
 function render() {
   const diagnostic = document.querySelector('#syncDiagnostics');
   if (diagnostic) {
@@ -2434,7 +2444,7 @@ function render() {
   const transactionScroll = el.txBody.closest('.table-wrap');
   const savedScrollTop = transactionScroll?.scrollTop || 0;
   const savedScrollLeft = transactionScroll?.scrollLeft || 0;
-  el.txBody.innerHTML = pageTransactions.map(tx => {
+  const transactionTableMarkup = pageTransactions.map(tx => {
     const outgoing = state.addresses.includes(tx.from);
     const matched = tx.matchedAddress || state.addresses.find(address => [tx.from, tx.to, tx.tokenRecipient].includes(address)) || '';
     const boost = needsBoost(tx);
@@ -2455,7 +2465,7 @@ function render() {
     const rowAction = tx.queueSlot ? 'data-queue-slot="true"' : `data-tx-hash="${tx.hash}" tabindex="0" aria-label="Open details for transaction ${tx.hash}"`;
     return `<tr class="transaction-row${tx.queueSlot ? ' queue-placeholder' : ''}" ${rowAction}>
       <td><span class="status ${escapeHtml(tx.status)}">${escapeHtml(statusLabel(tx.status))}</span></td>
-      <td>${age(tx.firstSeen)}</td>
+      <td data-transaction-age="${Number(tx.firstSeen) || 0}"></td>
       <td>${hashCell}</td>
       <td title="${escapeHtml(matched)}">${matched ? escapeHtml(walletLabel(matched)) : '—'}</td>
       <td>${outgoing ? 'Outgoing' : 'Incoming'}</td>
@@ -2466,10 +2476,15 @@ function render() {
       <td>${gasLabel}</td>
     </tr>`;
   }).join('');
-  if (transactionScroll) {
-    transactionScroll.scrollTop = savedScrollTop;
-    transactionScroll.scrollLeft = savedScrollLeft;
+  if (transactionTableMarkup !== lastTransactionTableMarkup) {
+    el.txBody.innerHTML = transactionTableMarkup;
+    lastTransactionTableMarkup = transactionTableMarkup;
+    if (transactionScroll) {
+      transactionScroll.scrollTop = savedScrollTop;
+      transactionScroll.scrollLeft = savedScrollLeft;
+    }
   }
+  refreshTransactionAges();
   el.emptyState.classList.toggle('hidden', filtered.length > 0);
   el.emptyMessage.textContent = query ? 'No transactions match your search.' : backendConfigured() ? 'No saved transactions yet. Server synchronization runs every 15 seconds.' : 'Open Connection settings to connect Railway.';
   el.paginationInfo.textContent = visible.length ? `${start + 1}–${Math.min(start + state.pageSize, visible.length)} of ${visible.length}` : '0 transactions';

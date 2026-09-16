@@ -4,13 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Digital asset operations dashboard for wallets, transactions, gas and market monitoring">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: wss:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; img-src 'self' data:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https: wss:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; img-src 'self' data:">
   <title>Treasury Operations Center</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=21.0">
-<link rel="stylesheet" href="accounts.css?v=21.0"></head>
+  <link rel="preload" href="fonts/dm-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/ibm-plex-mono-400-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css?v=21.1">
+<link rel="stylesheet" href="accounts.css?v=21.1"></head>
 <body class="has-app-rail app-loading" data-view="overview">
   <section id="startupDiagnostic" role="alert" class="panel" style="margin:20px;padding:20px;border-color:#b98031" hidden>
     <h2>Application needs attention</h2><p></p><button id="retryStartup" type="button">Reload application</button>
@@ -350,12 +349,12 @@
     </section>
 
     <section class="panel view-wallets transactions-panel">
-      <div class="panel-head">
-        <div>
+      <div class="panel-head transactions-head">
+        <div class="transactions-head-copy">
           <h2>Transactions</h2>
-          <p>Live updates while this page is open. Gas check compares the transaction fee with the current network gas price. <span id="pendingSyncStatus">Pending sync not run yet.</span></p>
+          <p class="transactions-description">Live updates while this page is open. Gas check compares the transaction fee with the current network gas price. <span id="pendingSyncStatus">Pending sync not run yet.</span></p>
         </div>
-        <div class="controls">
+        <div class="controls transactions-controls">
           <input id="transactionSearch" class="search-input" type="search" placeholder="Search hash, nonce, wallet or token" aria-label="Search transactions">
           <select id="statusFilter" aria-label="Filter by status">
             <option value="all">All statuses</option>
@@ -370,7 +369,11 @@
       </div>
 
       <div class="table-wrap">
-        <table>
+        <table class="transactions-table">
+          <colgroup>
+            <col class="tx-col-status"><col class="tx-col-age"><col class="tx-col-hash"><col class="tx-col-address"><col class="tx-col-direction">
+            <col class="tx-col-amount"><col class="tx-col-nonce"><col class="tx-col-queue"><col class="tx-col-fee"><col class="tx-col-gas">
+          </colgroup>
           <thead>
             <tr>
               <th data-sort-column="status"><button class="sort-button" type="button" data-sort="status">Status <span class="sort-indicator" aria-hidden="true"></span></button></th>
@@ -638,7 +641,7 @@
     </form>
   </dialog>
 
-  <script src="overview-data.js?v=21.0"></script>
-  <script src="session.js?v=21.0" data-module="app.js"></script>
+  <script src="overview-data.js?v=21.1"></script>
+  <script src="session.js?v=21.1" data-module="app.js"></script>
 </body>
 </html>

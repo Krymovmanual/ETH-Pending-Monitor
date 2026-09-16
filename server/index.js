@@ -29,7 +29,7 @@ app.use(express.json({limit:'128kb'}));
 app.use((req,res,next) => {
   res.set('X-Content-Type-Options','nosniff'); res.set('Referrer-Policy','no-referrer');
   res.set('X-Frame-Options','DENY');
-  res.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'");
+  res.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'");
   next();
 });
 app.use('/api',auth.origin);

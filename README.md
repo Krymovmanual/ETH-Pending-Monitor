@@ -1,6 +1,10 @@
-# Treasury Operations Center — v21
+# Treasury Operations Center — v21.1
 
 Start with [USERS-v11.md](USERS-v11.md). It supersedes the deployment instructions below for authentication, hosting and credentials.
+
+## v21.1 — UI stability & self-hosted fonts
+
+DM Sans and IBM Plex Mono are now served by Paseqa itself, so the strict CSP no longer blocks typography or sends browser requests to Google Fonts. The Wallets transaction table keeps a stable header, row height and column geometry. Relative ages update in place; unchanged transaction rows are no longer recreated every second. No new Railway variables or database migration are required. See [V21.1-UI-STABILITY.md](V21.1-UI-STABILITY.md).
 
 ## v21 — BTC UTXO Intelligence & Passkeys
 
