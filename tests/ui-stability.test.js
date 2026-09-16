@@ -11,9 +11,12 @@ test('UI assets are self-hosted under the strict CSP', () => {
   for (const file of htmlFiles) {
     const html = read(path.join('docs', file));
     assert.doesNotMatch(html, /fonts\.(?:googleapis|gstatic)\.com/);
-    assert.match(html, /fonts\/dm-sans-latin\.woff2/);
+    assert.doesNotMatch(html, /rel="preload"[^>]+\.woff2/);
     assert.match(html, /rel="icon" href="favicon\.svg"/);
   }
+  const css = read('docs/styles.css');
+  assert.match(css, /fonts\/dm-sans-latin\.woff2/);
+  assert.match(css, /fonts\/ibm-plex-mono-400-latin\.woff2/);
   const server = read('server/index.js');
   assert.match(server, /font-src 'self'/);
   for (const file of ['dm-sans-latin.woff2', 'ibm-plex-mono-400-latin.woff2', 'ibm-plex-mono-500-latin.woff2']) {

@@ -1,0 +1,11 @@
+Paseqa Treasury v21.1.2
+Build: UI stability, pending RPC and font preload hotfix
+
+Verification markers:
+- package.json version is 21.1.2
+- browser assets use ?v=21.1.2
+- docs/favicon.svg exists
+- checkStatuses() uses rpcBatch()
+- verifyTransactionsStillPending() uses rpcBatch()
+- no pending-status request can POST to index.html
+- no HTML page preloads a font that it may not immediately use
